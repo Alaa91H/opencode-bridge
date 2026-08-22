@@ -12,6 +12,27 @@ DEFAULT_PORT = 4096
 TIMEOUT = 600.0
 
 
+def message_model_reference(model: dict[str, str] | str) -> dict[str, str]:
+    """Normalize a persisted ``provider/model`` ID for the message endpoint.
+
+    OpenCode accepts a string when patching a session, but the message endpoint
+    requires an object with ``providerID`` and ``modelID``. Keeping the
+    conversion here prevents callers from accidentally using the wrong shape.
+    """
+    if isinstance(model, dict):
+        provider_id = model.get("providerID")
+        model_id = model.get("modelID")
+        if isinstance(provider_id, str) and provider_id and isinstance(model_id, str) and model_id:
+            return {"providerID": provider_id, "modelID": model_id}
+        raise ValueError("OpenCode message model object requires providerID and modelID")
+    if not isinstance(model, str) or "/" not in model:
+        raise ValueError("OpenCode message model must use provider/model format")
+    provider_id, model_id = model.split("/", 1)
+    if not provider_id or not model_id:
+        raise ValueError("OpenCode message model must use provider/model format")
+    return {"providerID": provider_id, "modelID": model_id}
+
+
 class OpenCodeClient:
     def __init__(
         self,
@@ -79,7 +100,7 @@ class OpenCodeClient:
             raise ValueError("OpenCode message requires text or file parts")
         body: dict[str, Any] = {"parts": message_parts}
         if model:
-            body["model"] = model
+            body["model"] = message_model_reference(model)
         if agent:
             body["agent"] = agent
         response = await self._client.post(f"/session/{session_id}/message", json=body)
