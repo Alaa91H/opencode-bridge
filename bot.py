@@ -27,6 +27,7 @@ from attachments import AttachmentError, AttachmentStore, attachment_prompt_note
 from audit_log import AuditLogger
 from block_patterns import check_build, check_hardline
 from formatter import format_and_chunk
+from model_catalog import free_model_ids
 from messages import (
     HELP_TEXT,
     build_blocked_message,
@@ -511,26 +512,16 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await _safe_reply(update.message, f"تم تغيير النموذج إلى: {model}")
             return
 
-        data = await client.list_providers()
-        providers = data.get("all", []) if isinstance(data, dict) else data
-        models: list[str] = []
-        for provider in providers:
-            if not isinstance(provider, dict):
-                continue
-            provider_name = provider.get("id") or provider.get("name") or "مزود غير مسمى"
-            raw_models = provider.get("models", {})
-            if isinstance(raw_models, dict):
-                models.extend(f"{provider_name}/{model_id}" for model_id in raw_models)
-            elif isinstance(raw_models, list):
-                for model in raw_models:
-                    model_id = model.get("id") if isinstance(model, dict) else str(model)
-                    models.append(f"{provider_name}/{model_id}")
+        models = free_model_ids(await client.list_providers())
         if not models:
-            await _safe_reply(update.message, "لم يعثر الوكيل على نماذج متاحة حاليًا.")
+            await _safe_reply(update.message, "لم يعثر الوكيل على نماذج مجانية متاحة حاليًا.")
             return
         listed = "\n".join(f"• {name}" for name in models[:100])
         suffix = "\n… تم اختصار القائمة." if len(models) > 100 else ""
-        await _safe_reply(update.message, f"النماذج المتاحة:\n{listed}{suffix}\n\nللتغيير: /model اسم_النموذج")
+        await _safe_reply(
+            update.message,
+            f"النماذج المجانية المتاحة ({len(models)}):\n{listed}{suffix}\n\nللتغيير: /model اسم_النموذج",
+        )
     except Exception as exc:
         log.exception("فشل التعامل مع أمر النموذج")
         await _safe_reply(update.message, user_error(exc, "عرض أو تغيير النموذج"))
