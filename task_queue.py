@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 from typing import Any
 
@@ -127,6 +127,10 @@ class TaskQueueStore:
             "CREATE INDEX IF NOT EXISTS idx_agent_tasks_status_due "
             "ON agent_tasks(status, due_at)"
         )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_tasks_owner_created "
+            "ON agent_tasks(owner_id, created_at)"
+        )
         await db.commit()
 
     @staticmethod
@@ -167,8 +171,9 @@ class TaskQueueStore:
         chat_id: int,
         prompt: str,
         attachments: list[dict[str, Any]] | None = None,
+        created_at: datetime | None = None,
     ) -> tuple[QueuedTask, int]:
-        now = encode_time(utc_now())
+        now = encode_time(created_at or utc_now())
         db = await self._get_db()
         async with self._lock:
             async with db.execute(
@@ -224,6 +229,38 @@ class TaskQueueStore:
             async with db.execute("SELECT * FROM agent_tasks WHERE id = ?", (task_id,)) as cursor:
                 row = await cursor.fetchone()
         return self._from_row(row) if row else None
+
+    async def count_created_for_day(
+        self,
+        owner_id: str,
+        reference_at: datetime | None = None,
+        day_timezone: tzinfo = UTC,
+    ) -> int:
+        """Count one owner's tasks created in the given calendar day.
+
+        Task records and their permanent identifiers are retained.  The caller
+        supplies the display timezone, so the visible counter resets at that
+        timezone's midnight without any scheduled deletion or database reset.
+        """
+        reference = reference_at or utc_now()
+        if reference.tzinfo is None:
+            raise ValueError("مرجع الوقت للعداد اليومي يجب أن يحتوي منطقة زمنية")
+        local = reference.astimezone(day_timezone)
+        start_local = datetime(local.year, local.month, local.day, tzinfo=day_timezone)
+        end_local = start_local + timedelta(days=1)
+        start_utc = encode_time(start_local.astimezone(UTC))
+        end_utc = encode_time(end_local.astimezone(UTC))
+        db = await self._get_db()
+        async with self._lock:
+            async with db.execute(
+                """
+                SELECT COUNT(*) AS task_count FROM agent_tasks
+                WHERE owner_id = ? AND created_at >= ? AND created_at < ?
+                """,
+                (owner_id, start_utc, end_utc),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return int(row["task_count"] if row else 0)
 
     async def list_active(self, owner_id: str, limit: int = 20) -> list[QueuedTask]:
         db = await self._get_db()

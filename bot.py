@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Awaitable, Callable, TypeVar
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from telegram import BotCommand, Update
 from telegram.constants import ChatAction, ChatType
@@ -91,6 +92,13 @@ OPENCODE_PASSWORD = os.environ.get("OPENCODE_PASSWORD")
 DEFAULT_MODEL = os.environ.get("OPENCODE_DEFAULT_MODEL", "meta/muse-spark-1.2")
 DEFAULT_AGENT = os.environ.get("OPENCODE_AGENT", "telegram-operator")
 ATTACHMENT_MAX_BYTES = max(1, int(os.environ.get("TELEGRAM_ATTACHMENT_MAX_BYTES", str(20 * 1024 * 1024))))
+DAILY_TASK_COUNTER_TIMEZONE_NAME = os.environ.get("TELEGRAM_DAILY_TASK_COUNTER_TIMEZONE", "Etc/GMT-2").strip()
+try:
+    DAILY_TASK_COUNTER_TIMEZONE = ZoneInfo(DAILY_TASK_COUNTER_TIMEZONE_NAME)
+except ZoneInfoNotFoundError as exc:
+    raise RuntimeError(
+        "TELEGRAM_DAILY_TASK_COUNTER_TIMEZONE يجب أن تكون منطقة زمنية IANA صالحة، مثل Etc/GMT-2 أو Europe/Paris"
+    ) from exc
 
 store = SessionStore(BRIDGE_DIR / "sessions.db")
 task_store = TaskQueueStore(BRIDGE_DIR / "sessions.db")
@@ -371,11 +379,13 @@ async def cmd_abort(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @authorized
 async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    tasks = await task_store.list_active(str(update.effective_user.id))
+    user_id = str(update.effective_user.id)
+    today_count = await task_store.count_created_for_day(user_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
+    tasks = await task_store.list_active(user_id)
     if not tasks:
-        await _safe_reply(update.message, "ما في مهام بانتظار التنفيذ أو مجدولة هلّق.")
+        await _safe_reply(update.message, f"ما في مهام بانتظار التنفيذ أو مجدولة هلّق. مهام اليوم: {today_count}.")
         return
-    lines = ["المهام الحالية:"]
+    lines = [f"المهام الحالية — مهام اليوم: {today_count}:"]
     for task in tasks:
         timing = ""
         if task.status == "scheduled" and task.due_at:
@@ -386,7 +396,7 @@ async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             timing = " — عم تنفّذ هلّق"
         repeat = " — متكررة" if task.is_recurring else ""
         preview = task.prompt.replace("\n", " ")[:70]
-        lines.append(f"#{task.id} · {_task_status_text(task)}{timing}{repeat}\n{preview}")
+        lines.append(f"المعرّف #{task.id} · {_task_status_text(task)}{timing}{repeat}\n{preview}")
     await _safe_reply(update.message, "\n\n".join(lines))
 
 
@@ -435,10 +445,12 @@ async def cmd_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await _safe_reply(update.message, f"ما جدولت الطلب لأنه محظور لحماية الخادم: {reason}.")
             return
         due_at = _parse_utc_datetime(when_text)
-        task = await task_store.schedule(str(update.effective_user.id), update.effective_chat.id, prompt, due_at)
+        user_id = str(update.effective_user.id)
+        task = await task_store.schedule(user_id, update.effective_chat.id, prompt, due_at)
+        today_count = await task_store.count_created_for_day(user_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
         assert task_service is not None
         task_service.wake()
-        await _safe_reply(update.message, f"تمام، جدولت المهمة #{task.id} لوقت {due_at.strftime('%Y-%m-%d %H:%M UTC')}." )
+        await _safe_reply(update.message, f"تمام، جدولت مهمة اليوم رقم {today_count} لوقت {due_at.strftime('%Y-%m-%d %H:%M UTC')}." )
         audit.write("task_scheduled", "accepted", actor_id=task.owner_id, details={"task_id": task.id, "repeat_seconds": None})
     except ValueError as exc:
         await _safe_reply(update.message, f"ما قدرت أجدولها: {exc}.\nمثال: /schedule 2026-08-22 09:30 | فحص حالة الخدمات")
@@ -464,10 +476,12 @@ async def cmd_repeat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             await _safe_reply(update.message, f"ما جدولت الطلب لأنه محظور لحماية الخادم: {reason}.")
             return
         due_at = datetime.now(UTC) + timedelta(seconds=repeat_seconds)
-        task = await task_store.schedule(str(update.effective_user.id), update.effective_chat.id, prompt, due_at, repeat_seconds)
+        user_id = str(update.effective_user.id)
+        task = await task_store.schedule(user_id, update.effective_chat.id, prompt, due_at, repeat_seconds)
+        today_count = await task_store.count_created_for_day(user_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
         assert task_service is not None
         task_service.wake()
-        await _safe_reply(update.message, f"تمام، المهمة #{task.id} رح تتكرر كل {interval_text} وأول تنفيذ {due_at.strftime('%Y-%m-%d %H:%M UTC')}." )
+        await _safe_reply(update.message, f"تمام، مهمة اليوم رقم {today_count} رح تتكرر كل {interval_text} وأول تنفيذ {due_at.strftime('%Y-%m-%d %H:%M UTC')}." )
         audit.write("task_scheduled", "accepted", actor_id=task.owner_id, details={"task_id": task.id, "repeat_seconds": repeat_seconds})
     except ValueError as exc:
         await _safe_reply(update.message, f"ما قدرت أجدولها: {exc}.\nمثال: /repeat 1d | ابعتلي ملخص حالة الخادم")
@@ -604,10 +618,12 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     try:
         session = await store.get_session(str(update.effective_user.id))
         health = await client.health()
+        user_id = str(update.effective_user.id)
+        today_count = await task_store.count_created_for_day(user_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
         if not session:
             await _safe_reply(
                 update.message,
-                f"حالة الوكيل: {'متاح' if health.get('healthy') else 'غير متاح'}\nالإصدار: {health.get('version', 'غير معروف')}\nلا توجد جلسة نشطة.",
+                f"حالة الوكيل: {'متاح' if health.get('healthy') else 'غير متاح'}\nالإصدار: {health.get('version', 'غير معروف')}\nمهام اليوم: {today_count}\nلا توجد جلسة نشطة.",
             )
             return
         states = await client.get_session_status()
@@ -620,6 +636,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             f"• الحالة: {state}\n"
             f"• النموذج: {session.model or DEFAULT_MODEL}\n"
             f"• الوكيل: {DEFAULT_AGENT}\n"
+            f"• مهام اليوم: {today_count}\n"
             f"• الإنشاء: {session.created_at.strftime('%Y-%m-%d %H:%M UTC')}"
         )
         await _safe_reply(update.message, text)
@@ -693,16 +710,21 @@ async def handle_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             Path(attachment.path).unlink(missing_ok=True)
             await _safe_reply(update.message, build_blocked_message(reason))
             return
+        user_id = str(update.effective_user.id)
         task, position = await task_store.enqueue(
-            str(update.effective_user.id),
+            user_id,
             update.effective_chat.id,
             prompt,
             attachments=[attachment.to_record()],
         )
+        today_count = await task_store.count_created_for_day(user_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
         assert task_service is not None
         task_service.wake()
         position_text = "وهي الجاية بالتنفيذ" if position == 1 else f"بترتيب {position}"
-        await _safe_reply(update.message, f"تم استلام «{attachment.filename}» وحفظه بأمان. سجلت المهمة #{task.id} {position_text}.")
+        await _safe_reply(
+            update.message,
+            f"تم استلام «{attachment.filename}» وحفظه بأمان. سجلت مهمة اليوم رقم {today_count} {position_text}.",
+        )
         audit.write(
             "attachment_received",
             "accepted",
@@ -747,13 +769,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await _safe_reply(update.message, f"لم يُنفذ الطلب لأنه محظور لحماية الخادم: {hardline_reason}.")
         return
 
-    task, position = await task_store.enqueue(str(update.effective_user.id), update.effective_chat.id, text)
+    user_id = str(update.effective_user.id)
+    task, position = await task_store.enqueue(user_id, update.effective_chat.id, text)
+    today_count = await task_store.count_created_for_day(user_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
     assert task_service is not None
     task_service.wake()
     if position == 1:
-        reply = f"تمام، سجلت المهمة #{task.id} وهي الجاية بالتنفيذ."
+        reply = f"تمام، سجلت مهمة اليوم رقم {today_count} وهي الجاية بالتنفيذ."
     else:
-        reply = f"تمام، سجلت المهمة #{task.id} بترتيب {position}. أول ما تخلص المهمة اللي قبلها رح تبلّش لحالها."
+        reply = f"تمام، سجلت مهمة اليوم رقم {today_count} بترتيب {position}. أول ما تخلص المهمة اللي قبلها رح تبلّش لحالها."
+
     await _safe_reply(update.message, reply)
     audit.write("task_queued", "accepted", actor_id=task.owner_id, details={"task_id": task.id, "position": position})
 

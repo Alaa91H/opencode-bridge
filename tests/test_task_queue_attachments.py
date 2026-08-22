@@ -3,7 +3,9 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from task_queue import TaskQueueStore
 
@@ -33,6 +35,40 @@ class TaskQueueAttachmentTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(restored)
             assert restored is not None
             self.assertEqual(restored.attachments, task.attachments)
+            await store.close()
+
+    async def test_daily_counter_resets_at_local_midnight_without_deleting_history(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = TaskQueueStore(Path(temp) / "queue.db")
+            await store.init()
+            day_timezone = ZoneInfo("Etc/GMT-2")
+            before_midnight, _ = await store.enqueue(
+                "7",
+                9,
+                "مهمة قبل منتصف الليل",
+                created_at=datetime(2026, 8, 22, 21, 59, tzinfo=timezone.utc),
+            )
+            at_midnight, _ = await store.enqueue(
+                "7",
+                9,
+                "مهمة بعد منتصف الليل",
+                created_at=datetime(2026, 8, 22, 22, 0, tzinfo=timezone.utc),
+            )
+            previous_day_count = await store.count_created_for_day(
+                "7",
+                reference_at=datetime(2026, 8, 22, 12, 0, tzinfo=timezone.utc),
+                day_timezone=day_timezone,
+            )
+            next_day_count = await store.count_created_for_day(
+                "7",
+                reference_at=datetime(2026, 8, 23, 12, 0, tzinfo=timezone.utc),
+                day_timezone=day_timezone,
+            )
+            self.assertEqual(previous_day_count, 1)
+            self.assertEqual(next_day_count, 1)
+            self.assertLess(before_midnight.id, at_midnight.id)
+            self.assertIsNotNone(await store.get(before_midnight.id))
+            self.assertIsNotNone(await store.get(at_midnight.id))
             await store.close()
 
     async def test_init_migrates_existing_queue_schema(self) -> None:
