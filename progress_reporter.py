@@ -7,25 +7,12 @@ import logging
 import time
 from typing import Any
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
 from opencode_client import OpenCodeClient
 from progress import ProgressStore, render_progress, serialize_progress, summarize_agent_event
 from task_queue import QueuedTask, TaskQueueStore
 
 log = logging.getLogger("opencode_bridge.progress")
 UPDATE_INTERVAL_SECONDS = 2.5
-
-
-def progress_keyboard(task_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton("تحديث التقدم", callback_data=f"progress:{task_id}"),
-                InlineKeyboardButton("إيقاف المهمة", callback_data=f"abort:{task_id}"),
-            ]
-        ]
-    )
 
 
 class LiveProgressReporter:
@@ -52,7 +39,6 @@ class LiveProgressReporter:
             message = await self.bot.send_message(
                 chat_id=self.task.chat_id,
                 text=render_progress(self.progress),
-                reply_markup=progress_keyboard(self.task.id),
                 disable_web_page_preview=True,
             )
             self.progress_store.set_message_id(self.task.id, int(message.message_id))
@@ -97,7 +83,7 @@ class LiveProgressReporter:
                 chat_id=self.task.chat_id,
                 message_id=self.progress.message_id,
                 text=text,
-                reply_markup=None if final else progress_keyboard(self.task.id),
+                reply_markup=None,
                 disable_web_page_preview=True,
             )
             self._last_message = text

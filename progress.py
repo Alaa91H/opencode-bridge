@@ -181,8 +181,6 @@ def render_progress(progress: TaskProgress, detail: bool = False) -> str:
         for entry in events:
             stamp = entry.created_at.strftime("%H:%M:%S UTC")
             lines.append(f"• [{stamp}] {entry.message}")
-    if not detail:
-        lines.append("\nاستخدم /trace لعرض سجل مختصر أو /abort لإيقاف المهمة.")
     return "\n".join(lines)
 
 

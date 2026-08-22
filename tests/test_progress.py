@@ -47,6 +47,8 @@ class ProgressEventTests(unittest.TestCase):
         activity = serialize_progress(progress)
         persisted = render_persisted_activity(17, "running", tuple(activity))
         self.assertIn("تقدم المهمة #17", text)
+        self.assertNotIn("/trace", text)
+        self.assertNotIn("/abort", text)
         self.assertIn("سجل المهمة #17", persisted)
         self.assertEqual(len(activity), 2)
         self.assertTrue(all(set(item) == {"time", "phase", "message", "kind"} for item in activity))

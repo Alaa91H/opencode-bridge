@@ -38,7 +38,7 @@ from messages import (
 )
 from opencode_client import OpenCodeClient, extract_file_response, extract_text_response
 from progress import ProgressStore, render_persisted_activity, render_progress
-from progress_reporter import LiveProgressReporter, progress_keyboard
+from progress_reporter import LiveProgressReporter
 from prompt_enhancer import enhance_prompt
 from reboot_state import decision_path, read_state, request_path, write_state
 from session_store import SessionStore
@@ -578,50 +578,6 @@ async def cmd_trace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _safe_reply(update.message, user_error(exc, "عرض سجل المهمة"))
 
 
-async def handle_progress_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    if query is None or not query.data:
-        return
-    if not _is_allowed(update):
-        await query.answer("غير مصرح لك باستخدام هذا الزر.", show_alert=True)
-        return
-    try:
-        action, raw_task_id = query.data.split(":", 1)
-        task_id = int(raw_task_id)
-    except (TypeError, ValueError):
-        await query.answer("طلب غير صالح.", show_alert=True)
-        return
-    user_id = str(update.effective_user.id)
-    task = await task_store.get(task_id)
-    if task is None or task.owner_id != user_id:
-        await query.answer("هذه المهمة غير متاحة لحسابك.", show_alert=True)
-        return
-    try:
-        if action == "progress":
-            progress = progress_store.get(task_id)
-            text = render_progress(progress, detail=True) if progress else render_persisted_activity(task.id, task.status, task.activity, detail=True)
-            await query.edit_message_text(text=text, reply_markup=progress_keyboard(task_id), disable_web_page_preview=True)
-            await query.answer("تم تحديث التقدم.")
-            return
-        if action == "abort":
-            await query.answer("جارٍ إرسال طلب الإيقاف…")
-            cancelled = await task_store.cancel(task_id, user_id)
-            session = await store.get_session(user_id)
-            if session:
-                await client.abort_session(session.opencode_session_id)
-            reporter = live_reporters.get(task_id)
-            if reporter:
-                await reporter.finish("cancelled", "تم إرسال طلب إيقاف المهمة.", "warning")
-            else:
-                await query.edit_message_text("تم إرسال طلب إيقاف المهمة. سيظهر التأكيد النهائي بعد توقف الوكيل.")
-            audit.write("task_cancelled", "cancel_requested", actor_id=user_id, details={"task_id": task_id, "source": "button"})
-            return
-        await query.answer("إجراء غير معروف.", show_alert=True)
-    except Exception as exc:
-        log.exception("فشل التعامل مع زر تقدم المهمة %s", task_id)
-        await query.answer("تعذر تنفيذ الإجراء حاليًا.", show_alert=True)
-
-
 async def handle_reboot_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if query is None or query.data not in {"reboot:now", "reboot:cancel"}:
@@ -902,7 +858,6 @@ async def main() -> None:
     app.add_handler(CommandHandler("agents", cmd_agents))
     app.add_handler(CommandHandler("maintenance", cmd_maintenance))
     app.add_handler(CommandHandler("help", cmd_help))
-    app.add_handler(CallbackQueryHandler(handle_progress_callback, pattern=r"^(progress|abort):\d+$"))
     app.add_handler(CallbackQueryHandler(handle_reboot_callback, pattern=r"^reboot:(now|cancel)$"))
     app.add_handler(MessageHandler(filters.ATTACHMENT, handle_attachment))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
