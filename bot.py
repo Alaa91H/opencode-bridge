@@ -729,7 +729,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "request_received",
         "accepted",
         actor_id=update.effective_user.id,
-        details={"text_length": len(text), "is_arabic": enhanced_prompt.is_arabic, "is_research": enhanced_prompt.is_research},
+        details={
+            "text_length": len(text),
+            "is_arabic": enhanced_prompt.is_arabic,
+            "is_research": enhanced_prompt.is_research,
+            "research_depth": enhanced_prompt.research_depth,
+        },
     )
     build_reason = check_build(text)
     if build_reason:
