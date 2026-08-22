@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from model_catalog import free_model_ids, is_zero_cost_model, zen_free_model_ids
+from model_catalog import best_zen_general_model_id, free_model_ids, is_zero_cost_model, ranked_zen_general_model_ids, zen_free_model_ids
 
 
 class ModelCatalogTests(unittest.TestCase):
@@ -29,6 +29,42 @@ class ModelCatalogTests(unittest.TestCase):
             ]
         }
         self.assertEqual(free_model_ids(providers), ["free-provider/free-model"])
+
+    def test_general_ranking_prefers_active_rich_capability_model(self) -> None:
+        providers = {
+            "all": [
+                {
+                    "id": "opencode",
+                    "models": {
+                        "text-only": {
+                            "status": "active",
+                            "cost": {"input": 0, "output": 0},
+                            "capabilities": {"input": {"text": True}, "toolcall": True, "reasoning": True},
+                            "limit": {"context": 1_000_000, "output": 128_000},
+                        },
+                        "general-rich": {
+                            "status": "active",
+                            "cost": {"input": 0, "output": 0},
+                            "capabilities": {
+                                "attachment": True,
+                                "toolcall": True,
+                                "reasoning": True,
+                                "input": {"text": True, "image": True, "pdf": True, "audio": True, "video": True},
+                            },
+                            "limit": {"context": 200_000, "output": 64_000},
+                        },
+                        "retired": {
+                            "status": "deprecated",
+                            "cost": {"input": 0, "output": 0},
+                            "capabilities": {"input": {"text": True}, "toolcall": True, "reasoning": True},
+                        },
+                    },
+                }
+            ]
+        }
+        self.assertEqual(ranked_zen_general_model_ids(providers), ["opencode/general-rich", "opencode/text-only"])
+        self.assertEqual(best_zen_general_model_id(providers), "opencode/general-rich")
+        self.assertEqual(best_zen_general_model_id(providers, {"opencode/general-rich"}), "opencode/text-only")
 
     def test_zen_catalog_excludes_free_models_from_other_providers(self) -> None:
         providers = {

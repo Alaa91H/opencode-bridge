@@ -8,6 +8,8 @@ import os
 import re
 import signal
 import sys
+
+import httpx
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,7 +30,8 @@ from attachments import AttachmentError, AttachmentStore, attachment_prompt_note
 from audit_log import AuditLogger
 from block_patterns import check_build, check_hardline
 from formatter import format_and_chunk
-from model_catalog import zen_free_model_ids
+from model_catalog import ranked_zen_general_model_ids
+from model_manager import ModelManager
 from messages import (
     HELP_TEXT,
     build_blocked_message,
@@ -91,6 +94,7 @@ OPENCODE_PORT = int(os.environ.get("OPENCODE_PORT", "4096"))
 OPENCODE_PASSWORD = os.environ.get("OPENCODE_PASSWORD")
 DEFAULT_MODEL = os.environ.get("OPENCODE_DEFAULT_MODEL", "meta/muse-spark-1.2")
 DEFAULT_AGENT = os.environ.get("OPENCODE_AGENT", "telegram-operator")
+MODEL_CATALOG_SYNC_SECONDS = max(60, int(os.environ.get("OPENCODE_MODEL_SYNC_SECONDS", "900")))
 ATTACHMENT_MAX_BYTES = max(1, int(os.environ.get("TELEGRAM_ATTACHMENT_MAX_BYTES", str(20 * 1024 * 1024))))
 DAILY_TASK_COUNTER_TIMEZONE_NAME = os.environ.get("TELEGRAM_DAILY_TASK_COUNTER_TIMEZONE", "Etc/GMT-2").strip()
 try:
@@ -108,6 +112,7 @@ attachment_store = AttachmentStore(ATTACHMENT_ROOT, max_bytes=ATTACHMENT_MAX_BYT
 progress_store = ProgressStore()
 live_reporters: dict[int, LiveProgressReporter] = {}
 task_service: TaskService | None = None
+model_manager: ModelManager | None = None
 UTC = timezone.utc
 
 F = TypeVar("F", bound=Callable[..., Awaitable[None]])
@@ -158,11 +163,25 @@ def _extract_session_id(session: dict) -> str:
 async def _ensure_session(telegram_user_id: str) -> str:
     current = await store.get_session(telegram_user_id)
     if current:
+        if model_manager is not None:
+            try:
+                await model_manager.ensure_session_model(
+                    telegram_user_id,
+                    current.opencode_session_id,
+                    current.model,
+                )
+            except Exception as exc:
+                log.info("تعذر تحديث نموذج الجلسة قبل التنفيذ: %s", type(exc).__name__)
         return current.opencode_session_id
     created = await client.create_session(title=f"جلسة تيليغرام {telegram_user_id}")
     session_id = _extract_session_id(created)
     await client.update_session(session_id, model=DEFAULT_MODEL)
     await store.create_session(telegram_user_id, session_id, DEFAULT_MODEL)
+    if model_manager is not None:
+        try:
+            await model_manager.ensure_session_model(telegram_user_id, session_id, DEFAULT_MODEL)
+        except Exception as exc:
+            log.info("تعذر اختيار النموذج التلقائي للجلسة الجديدة: %s", type(exc).__name__)
     return session_id
 
 
@@ -248,6 +267,38 @@ async def _send_task_output_files(task: QueuedTask, bot) -> int:
     return sent
 
 
+async def _send_prompt_with_model_fallback(
+    task: QueuedTask,
+    session_id: str,
+    prompt: str,
+    parts: list[dict],
+    selected_model: str | None,
+) -> tuple[dict, str | None]:
+    """Send once, then retry once with the next catalog model if selection vanished."""
+    try:
+        response = await client.send_prompt(session_id, prompt, model=selected_model, agent=DEFAULT_AGENT, parts=parts)
+        return response, selected_model
+    except httpx.HTTPStatusError as exc:
+        if model_manager is None or selected_model is None or exc.response.status_code not in {400, 404, 422}:
+            raise
+        fallback_model = await model_manager.ensure_session_model(
+            task.owner_id,
+            session_id,
+            selected_model,
+            excluded_ids={selected_model},
+        )
+        if fallback_model == selected_model:
+            raise
+        audit.write(
+            "model_auto_switched",
+            "fallback",
+            actor_id=task.owner_id,
+            details={"from_model": selected_model, "to_model": fallback_model, "reason": "inference_model_unavailable"},
+        )
+        response = await client.send_prompt(session_id, prompt, model=fallback_model, agent=DEFAULT_AGENT, parts=parts)
+        return response, fallback_model
+
+
 async def _execute_agent_task(task: QueuedTask, bot) -> None:
     """Execute one task while publishing safe, live operational milestones."""
     current = await task_store.get(task.id)
@@ -287,17 +338,31 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
         prompt = enhanced.text + "\n\n" + attachment_prompt_note(attachments, output_directory)
         message_parts = [attachment.to_message_part() for attachment in attachments]
         session_id = await _ensure_session(task.owner_id)
+        session = await store.get_session(task.owner_id)
+        selected_model = session.model if session else DEFAULT_MODEL
         await reporter.record("session", "تم تجهيز جلسة الوكيل. عم نبدأ التنفيذ.")
         typing_task = asyncio.create_task(_typing_loop(task.chat_id, bot, stop_typing))
         event_task = asyncio.create_task(reporter.consume_events(client, session_id))
         started_at = time.monotonic()
         await reporter.record("processing", "الوكيل استلم المهمة وعم يعالجها.")
-        response = await client.send_prompt(session_id, prompt, agent=DEFAULT_AGENT, parts=message_parts)
+        response, selected_model = await _send_prompt_with_model_fallback(
+            task,
+            session_id,
+            prompt,
+            message_parts,
+            selected_model,
+        )
         reply_text = extract_text_response(response)
         output_files = attachment_store.collect_task_outputs(task.id)
         if not reply_text and not output_files:
             await reporter.record("retry", "ما وصل ناتج واضح؛ عم نجرب مرة أخيرة.", "warning", force=True)
-            response = await client.send_prompt(session_id, prompt, agent=DEFAULT_AGENT, parts=message_parts)
+            response, selected_model = await _send_prompt_with_model_fallback(
+                task,
+                session_id,
+                prompt,
+                message_parts,
+                selected_model,
+            )
             reply_text = extract_text_response(response)
             output_files = attachment_store.collect_task_outputs(task.id)
         elapsed = time.monotonic() - started_at
@@ -559,21 +624,23 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     try:
         if context.args:
-            model = context.args[0]
-            session_id = await _ensure_session(user_id)
-            await client.update_session(session_id, model=model)
-            await store.update_session(user_id, model=model)
-            await _safe_reply(update.message, f"تم تغيير النموذج إلى: {model}")
+            await _safe_reply(
+                update.message,
+                "اختيار النموذج صار تلقائيًا لضمان استخدام أفضل نموذج عام متاح دائمًا. استخدم /model لعرض النموذج والترتيب الحاليين.",
+            )
             return
 
-        models = zen_free_model_ids(await client.list_providers())
+        models = ranked_zen_general_model_ids(await client.list_providers())
         if not models:
-            await _safe_reply(update.message, "لم يعثر OpenCode Zen على نماذج مجانية متاحة حاليًا.")
+            await _safe_reply(update.message, "لم يعثر OpenCode Zen على نماذج مجانية نشطة متاحة حاليًا؛ سيبقى النموذج الحالي حتى يعود كتالوج صالح.")
             return
+        session_id = await _ensure_session(user_id)
+        session = await store.get_session(user_id)
+        current_model = session.model if session else models[0]
         listed = "\n".join(f"• {name}" for name in models)
         await _safe_reply(
             update.message,
-            f"نماذج OpenCode Zen المجانية ({len(models)}):\n{listed}\n\nللتغيير: /model اسم_النموذج",
+            f"النموذج التلقائي الحالي: {current_model}\n\nترتيب النماذج العامة المتاحة ({len(models)}):\n{listed}\n\nيتحقق البوت من الكتالوج عند كل مهمة ودوريًا، ويبدّل تلقائيًا عند التغيّر أو عدم التوفر.",
         )
     except Exception as exc:
         log.exception("فشل التعامل مع أمر النموذج")
@@ -877,7 +944,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def post_init(app: Application) -> None:
-    global task_service
+    global task_service, model_manager
     attachment_store.ensure_directories()
     if task_service is None:
         await task_store.init()
@@ -886,6 +953,15 @@ async def post_init(app: Application) -> None:
         if interrupted:
             audit.write("task_recovery", "interrupted", details={"count": interrupted})
             log.warning("تم تعليم %s مهمة كفاشلة بعد انقطاع سابق.", interrupted)
+    if model_manager is None:
+        model_manager = ModelManager(
+            client=client,
+            store=store,
+            audit=audit,
+            fallback_model=DEFAULT_MODEL,
+            sync_seconds=MODEL_CATALOG_SYNC_SECONDS,
+        )
+        await model_manager.start()
     try:
         health = await client.health()
         if health.get("healthy"):
@@ -907,7 +983,7 @@ async def post_init(app: Application) -> None:
         BotCommand("cancel", "إلغاء مهمة برقمها"),
         BotCommand("schedule", "جدولة مهمة لوقت UTC"),
         BotCommand("repeat", "جدولة مهمة متكررة"),
-        BotCommand("model", "عرض أو تغيير النموذج"),
+        BotCommand("model", "عرض النموذج التلقائي وترتيبه"),
         BotCommand("status", "عرض حالة الجلسة"),
         BotCommand("health", "فحص اتصال الوكيل"),
         BotCommand("agents", "عرض الوكلاء المتاحين"),
@@ -935,7 +1011,10 @@ async def post_init(app: Application) -> None:
 
 
 async def post_shutdown(app: Application) -> None:
-    global task_service
+    global task_service, model_manager
+    if model_manager is not None:
+        await model_manager.stop()
+        model_manager = None
     if task_service is not None:
         await task_service.stop()
         task_service = None

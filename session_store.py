@@ -48,6 +48,17 @@ class SessionStore:
         """)
         await db.commit()
 
+    @staticmethod
+    def _from_row(row: aiosqlite.Row) -> UserSession:
+        return UserSession(
+            telegram_user_id=row["telegram_user_id"],
+            opencode_session_id=row["opencode_session_id"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+            model=row["model"],
+            title=row["title"],
+        )
+
     async def get_session(self, telegram_user_id: str) -> Optional[UserSession]:
         db = await self._get_db()
         async with self._lock:
@@ -58,14 +69,15 @@ class SessionStore:
                 row = await cursor.fetchone()
         if not row:
             return None
-        return UserSession(
-            telegram_user_id=row["telegram_user_id"],
-            opencode_session_id=row["opencode_session_id"],
-            created_at=datetime.fromisoformat(row["created_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"]),
-            model=row["model"],
-            title=row["title"],
-        )
+        return self._from_row(row)
+
+    async def list_sessions(self) -> list[UserSession]:
+        """Return saved user sessions for idle-only model reconciliation."""
+        db = await self._get_db()
+        async with self._lock:
+            async with db.execute("SELECT * FROM sessions ORDER BY telegram_user_id") as cursor:
+                rows = await cursor.fetchall()
+        return [self._from_row(row) for row in rows]
 
     async def create_session(
         self,
