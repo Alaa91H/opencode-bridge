@@ -27,7 +27,7 @@ from attachments import AttachmentError, AttachmentStore, attachment_prompt_note
 from audit_log import AuditLogger
 from block_patterns import check_build, check_hardline
 from formatter import format_and_chunk
-from model_catalog import free_model_ids
+from model_catalog import zen_free_model_ids
 from messages import (
     HELP_TEXT,
     build_blocked_message,
@@ -512,15 +512,14 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await _safe_reply(update.message, f"تم تغيير النموذج إلى: {model}")
             return
 
-        models = free_model_ids(await client.list_providers())
+        models = zen_free_model_ids(await client.list_providers())
         if not models:
-            await _safe_reply(update.message, "لم يعثر الوكيل على نماذج مجانية متاحة حاليًا.")
+            await _safe_reply(update.message, "لم يعثر OpenCode Zen على نماذج مجانية متاحة حاليًا.")
             return
-        listed = "\n".join(f"• {name}" for name in models[:100])
-        suffix = "\n… تم اختصار القائمة." if len(models) > 100 else ""
+        listed = "\n".join(f"• {name}" for name in models)
         await _safe_reply(
             update.message,
-            f"النماذج المجانية المتاحة ({len(models)}):\n{listed}{suffix}\n\nللتغيير: /model اسم_النموذج",
+            f"نماذج OpenCode Zen المجانية ({len(models)}):\n{listed}\n\nللتغيير: /model اسم_النموذج",
         )
     except Exception as exc:
         log.exception("فشل التعامل مع أمر النموذج")

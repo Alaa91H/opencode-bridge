@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 
+OPENCODE_ZEN_PROVIDER_ID = "opencode"
+
+
 def _numeric_values(value: Any) -> list[float]:
     if isinstance(value, bool):
         return []
@@ -53,3 +56,25 @@ def free_model_ids(provider_data: dict[str, Any] | list[dict[str, Any]]) -> list
             if isinstance(model_id, str) and isinstance(model, dict) and is_zero_cost_model(model):
                 results.add(f"{provider_id}/{model_id}")
     return sorted(results, key=str.casefold)
+
+
+def zen_free_model_ids(provider_data: dict[str, Any] | list[dict[str, Any]]) -> list[str]:
+    """List only zero-cost models offered by the built-in OpenCode Zen provider."""
+    providers: Any = provider_data.get("all", []) if isinstance(provider_data, dict) else provider_data
+    if not isinstance(providers, list):
+        return []
+    for provider in providers:
+        if not isinstance(provider, dict) or provider.get("id") != OPENCODE_ZEN_PROVIDER_ID:
+            continue
+        models = provider.get("models")
+        if not isinstance(models, dict):
+            return []
+        return sorted(
+            [
+                f"{OPENCODE_ZEN_PROVIDER_ID}/{model_id}"
+                for model_id, model in models.items()
+                if isinstance(model_id, str) and isinstance(model, dict) and is_zero_cost_model(model)
+            ],
+            key=str.casefold,
+        )
+    return []

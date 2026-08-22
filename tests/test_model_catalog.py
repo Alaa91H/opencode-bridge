@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from model_catalog import free_model_ids, is_zero_cost_model
+from model_catalog import free_model_ids, is_zero_cost_model, zen_free_model_ids
 
 
 class ModelCatalogTests(unittest.TestCase):
@@ -29,6 +29,25 @@ class ModelCatalogTests(unittest.TestCase):
             ]
         }
         self.assertEqual(free_model_ids(providers), ["free-provider/free-model"])
+
+    def test_zen_catalog_excludes_free_models_from_other_providers(self) -> None:
+        providers = {
+            "all": [
+                {
+                    "id": "other-free-provider",
+                    "models": {"free-model": {"cost": {"input": 0, "output": 0}}},
+                },
+                {
+                    "id": "opencode",
+                    "name": "OpenCode Zen",
+                    "models": {
+                        "zen-free": {"cost": {"input": 0, "output": 0, "cache": {"read": 0}}},
+                        "zen-paid": {"cost": {"input": 0.1, "output": 0.2}},
+                    },
+                },
+            ]
+        }
+        self.assertEqual(zen_free_model_ids(providers), ["opencode/zen-free"])
 
 
 if __name__ == "__main__":
