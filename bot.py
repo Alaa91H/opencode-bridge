@@ -83,7 +83,7 @@ ALLOWED_CHAT_IDS = {
 OPENCODE_HOST = os.environ.get("OPENCODE_HOST", "127.0.0.1")
 OPENCODE_PORT = int(os.environ.get("OPENCODE_PORT", "4096"))
 OPENCODE_PASSWORD = os.environ.get("OPENCODE_PASSWORD")
-DEFAULT_MODEL = os.environ.get("OPENCODE_DEFAULT_MODEL", "opencode/big-pickle")
+DEFAULT_MODEL = os.environ.get("OPENCODE_DEFAULT_MODEL", "meta/muse-spark-1.2")
 DEFAULT_AGENT = os.environ.get("OPENCODE_AGENT", "telegram-operator")
 ATTACHMENT_MAX_BYTES = max(1, int(os.environ.get("TELEGRAM_ATTACHMENT_MAX_BYTES", str(20 * 1024 * 1024))))
 
