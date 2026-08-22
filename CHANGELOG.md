@@ -1,3 +1,13 @@
+## [1.1.4] - 2026-08-22
+
+### ملخص
+
+قصر قائمة النماذج المجانية على OpenCode Zen
+
+### التغييرات منذ v1.1.3
+
+- feat: limit model catalog to free OpenCode Zen models (7abf7c2)
+
 ## [1.1.3] - 2026-08-22
 
 ### ملخص
