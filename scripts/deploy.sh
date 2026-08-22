@@ -39,7 +39,7 @@ rollback() {
   local code=$?
   echo "فشل النشر؛ تجري استعادة الإصدار السابق ${DEPLOYED_COMMIT:0:12}." >&2
   git checkout --detach --quiet "$DEPLOYED_COMMIT" || true
-  sudo -n maintenance/install-root-assets.sh || true
+  sudo -n "${BRIDGE_DIR}/maintenance/install-root-assets.sh" || true
   systemctl --user restart "$SERVICE_NAME" || true
   exit "$code"
 }
@@ -55,7 +55,7 @@ chmod 0600 "${archive}.sha256"
 git checkout --detach --quiet "$TARGET_COMMIT"
 "$PYTHON_BIN" systemd.py
 scripts/verify.sh
-sudo -n maintenance/install-root-assets.sh
+sudo -n "${BRIDGE_DIR}/maintenance/install-root-assets.sh"
 
 systemctl --user restart "$SERVICE_NAME"
 for attempt in {1..15}; do
