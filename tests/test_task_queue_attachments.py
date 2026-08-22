@@ -62,6 +62,14 @@ class TaskQueueAttachmentTests(unittest.IsolatedAsyncioTestCase):
             await store.init()
             task, _ = await store.enqueue("7", 9, "مهمة قديمة البنية")
             self.assertEqual(task.attachments, ())
+            await store.update_activity(
+                task.id,
+                [{"time": "2026-08-22T14:00:00+00:00", "phase": "started", "message": "بدأت المهمة", "kind": "info"}],
+            )
+            restored = await store.get(task.id)
+            assert restored is not None
+            self.assertEqual(restored.activity[0]["phase"], "started")
+            self.assertEqual(restored.activity[0]["message"], "بدأت المهمة")
             await store.close()
 
 

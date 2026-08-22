@@ -46,6 +46,14 @@ def decode_attachments(value: str | None) -> tuple[dict[str, Any], ...]:
     return tuple(item for item in parsed if isinstance(item, dict))
 
 
+def encode_activity(activity: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None) -> str:
+    return json.dumps(list(activity or ()), ensure_ascii=False, separators=(",", ":"))
+
+
+def decode_activity(value: str | None) -> tuple[dict[str, Any], ...]:
+    return decode_attachments(value)
+
+
 @dataclass(frozen=True)
 class QueuedTask:
     id: int
@@ -61,6 +69,7 @@ class QueuedTask:
     completed_at: datetime | None = None
     last_error: str | None = None
     attachments: tuple[dict[str, Any], ...] = ()
+    activity: tuple[dict[str, Any], ...] = ()
 
     @property
     def is_recurring(self) -> bool:
@@ -99,7 +108,8 @@ class TaskQueueStore:
                 started_at TEXT,
                 completed_at TEXT,
                 last_error TEXT,
-                attachments_json TEXT NOT NULL DEFAULT '[]'
+                attachments_json TEXT NOT NULL DEFAULT '[]',
+                activity_json TEXT NOT NULL DEFAULT '[]'
             )
             """
         )
@@ -107,6 +117,8 @@ class TaskQueueStore:
             columns = {str(row[1]) for row in await cursor.fetchall()}
         if "attachments_json" not in columns:
             await db.execute("ALTER TABLE agent_tasks ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'")
+        if "activity_json" not in columns:
+            await db.execute("ALTER TABLE agent_tasks ADD COLUMN activity_json TEXT NOT NULL DEFAULT '[]'")
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_agent_tasks_owner_status_sequence "
             "ON agent_tasks(owner_id, status, sequence, id)"
@@ -120,6 +132,7 @@ class TaskQueueStore:
     @staticmethod
     def _from_row(row: aiosqlite.Row) -> QueuedTask:
         attachment_value = row["attachments_json"] if "attachments_json" in row.keys() else "[]"
+        activity_value = row["activity_json"] if "activity_json" in row.keys() else "[]"
         return QueuedTask(
             id=int(row["id"]),
             owner_id=str(row["owner_id"]),
@@ -134,7 +147,19 @@ class TaskQueueStore:
             completed_at=decode_time(row["completed_at"]),
             last_error=row["last_error"],
             attachments=decode_attachments(attachment_value),
+            activity=decode_activity(activity_value),
         )
+
+    async def update_activity(self, task_id: int, activity: list[dict[str, Any]]) -> None:
+        """Persist a compact, already-sanitized activity trail for one task."""
+        now = encode_time(utc_now())
+        db = await self._get_db()
+        async with self._lock:
+            await db.execute(
+                "UPDATE agent_tasks SET activity_json = ?, updated_at = ? WHERE id = ?",
+                (encode_activity(activity[-40:]), now, task_id),
+            )
+            await db.commit()
 
     async def enqueue(
         self,

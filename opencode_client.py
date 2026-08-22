@@ -143,26 +143,47 @@ class OpenCodeClient:
     async def stream_events(
         self,
         session_id: str,
-        timeout: float = 60.0,
+        timeout: float | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
-        event_type = "message"
-        async with self._client.stream("GET", "/global/event", timeout=timeout) as response:
+        """Yield normalized, non-duplicated events for one OpenCode session.
+
+        OpenCode wraps each Server-Sent Event inside a ``payload`` object and may
+        emit a second ``sync`` representation of the same event. This method
+        unwraps the primary payload and filters it by session ID, leaving callers
+        with only the stable event type and properties structure.
+        """
+        import json
+
+        request_timeout = self.timeout if timeout is None else timeout
+        async with self._client.stream("GET", "/global/event", timeout=request_timeout) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():
-                if not line.strip():
+                if not line.startswith("data:"):
                     continue
-                if line.startswith("event:"):
-                    event_type = line[6:].strip()
-                elif line.startswith("data:"):
-                    try:
-                        import json
-
-                        data = json.loads(line[5:].strip())
-                    except json.JSONDecodeError:
-                        continue
-                    properties = data.get("properties", {}) if isinstance(data, dict) else {}
-                    if not session_id or properties.get("sessionID") == session_id:
-                        yield {"type": event_type, **data}
+                try:
+                    data = json.loads(line[5:].strip())
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(data, dict):
+                    continue
+                payload = data.get("payload", data)
+                if not isinstance(payload, dict) or payload.get("type") == "sync":
+                    continue
+                properties = payload.get("properties", {})
+                if not isinstance(properties, dict):
+                    continue
+                candidate_session_id = properties.get("sessionID")
+                part = properties.get("part")
+                info = properties.get("info")
+                if not candidate_session_id and isinstance(part, dict):
+                    candidate_session_id = part.get("sessionID")
+                if not candidate_session_id and isinstance(info, dict):
+                    candidate_session_id = info.get("sessionID") or info.get("id")
+                if session_id and candidate_session_id != session_id:
+                    continue
+                event_type = payload.get("type")
+                if isinstance(event_type, str) and event_type:
+                    yield {"type": event_type, "properties": properties}
 
 
 def extract_text_response(response: dict[str, Any]) -> str:

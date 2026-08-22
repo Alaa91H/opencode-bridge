@@ -15,7 +15,7 @@ from typing import Awaitable, Callable, TypeVar
 
 from telegram import BotCommand, Update
 from telegram.constants import ChatAction, ChatType
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
 BRIDGE_DIR = Path(__file__).parent
@@ -36,6 +36,8 @@ from messages import (
     user_error,
 )
 from opencode_client import OpenCodeClient, extract_file_response, extract_text_response
+from progress import ProgressStore, render_persisted_activity, render_progress
+from progress_reporter import LiveProgressReporter, progress_keyboard
 from prompt_enhancer import enhance_prompt
 from session_store import SessionStore
 from task_queue import QueuedTask, TaskQueueStore
@@ -90,6 +92,8 @@ task_store = TaskQueueStore(BRIDGE_DIR / "sessions.db")
 client = OpenCodeClient(host=OPENCODE_HOST, port=OPENCODE_PORT, password=OPENCODE_PASSWORD)
 audit = AuditLogger(BRIDGE_DIR / "runtime" / "audit.jsonl")
 attachment_store = AttachmentStore(ATTACHMENT_ROOT, max_bytes=ATTACHMENT_MAX_BYTES)
+progress_store = ProgressStore()
+live_reporters: dict[int, LiveProgressReporter] = {}
 task_service: TaskService | None = None
 UTC = timezone.utc
 
@@ -209,34 +213,41 @@ async def _send_task_output_files(task: QueuedTask, bot) -> int:
 
 
 async def _execute_agent_task(task: QueuedTask, bot) -> None:
-    """Execute one claimed task and deliver text and managed files to its chat."""
+    """Execute one task while publishing safe, live operational milestones."""
     current = await task_store.get(task.id)
     if current is None or current.status == "cancelled":
         return
 
-    await bot.send_message(chat_id=task.chat_id, text=f"بلّشت تنفيذ المهمة #{task.id}. رح أبعتلك النتيجة والملفات أول ما تخلص.")
-    audit.write(
-        "task_started",
-        "accepted",
-        actor_id=task.owner_id,
-        details={"task_id": task.id, "scheduled": task.is_recurring, "attachment_count": len(task.attachments)},
-    )
+    reporter = LiveProgressReporter(task, bot, task_store, progress_store)
+    live_reporters[task.id] = reporter
     stop_typing = asyncio.Event()
     typing_task: asyncio.Task[None] | None = None
+    event_task: asyncio.Task[None] | None = None
     try:
+        await reporter.start()
+        audit.write(
+            "task_started",
+            "accepted",
+            actor_id=task.owner_id,
+            details={"task_id": task.id, "scheduled": task.is_recurring, "attachment_count": len(task.attachments)},
+        )
+        await reporter.record("preparing", "عم نتحقق من المرفقات ونحضّر مساحة النتيجة.")
         attachments = attachment_store.validate_input_records(task.attachments)
         output_directory = attachment_store.task_output_directory(task.id)
         enhanced = enhance_prompt(task.prompt)
         prompt = enhanced.text + "\n\n" + attachment_prompt_note(attachments, output_directory)
         message_parts = [attachment.to_message_part() for attachment in attachments]
         session_id = await _ensure_session(task.owner_id)
+        await reporter.record("session", "تم تجهيز جلسة الوكيل. عم نبدأ التنفيذ.")
         typing_task = asyncio.create_task(_typing_loop(task.chat_id, bot, stop_typing))
+        event_task = asyncio.create_task(reporter.consume_events(client, session_id))
         started_at = time.monotonic()
+        await reporter.record("processing", "الوكيل استلم المهمة وعم يعالجها.")
         response = await client.send_prompt(session_id, prompt, agent=DEFAULT_AGENT, parts=message_parts)
         reply_text = extract_text_response(response)
         output_files = attachment_store.collect_task_outputs(task.id)
         if not reply_text and not output_files:
-            await bot.send_message(chat_id=task.chat_id, text=f"المهمة #{task.id} ما رجّعت نتيجة واضحة؛ عم جرّب مرة أخيرة.")
+            await reporter.record("retry", "ما وصل ناتج واضح؛ عم نجرب مرة أخيرة.", "warning", force=True)
             response = await client.send_prompt(session_id, prompt, agent=DEFAULT_AGENT, parts=message_parts)
             reply_text = extract_text_response(response)
             output_files = attachment_store.collect_task_outputs(task.id)
@@ -244,11 +255,13 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
         current = await task_store.get(task.id)
         if current is None or current.status == "cancelled":
             await bot.send_message(chat_id=task.chat_id, text=f"تم إلغاء المهمة #{task.id} قبل إرسال النتيجة.")
+            await reporter.finish("cancelled", "تم إلغاء المهمة قبل تسليم النتيجة.", "warning")
             audit.write("task_cancelled", "cancelled", actor_id=task.owner_id, details={"task_id": task.id})
             return
         if not reply_text and not output_files:
             await bot.send_message(chat_id=task.chat_id, text=empty_response_message())
             await task_store.finish(task.id, success=False, error="empty_response")
+            await reporter.finish("failed", "المهمة ما رجّعت نتيجة واضحة بعد إعادة المحاولة.", "error")
             audit.write(
                 "task_finished",
                 "empty_response",
@@ -256,6 +269,7 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
                 details={"task_id": task.id, "duration_seconds": round(elapsed, 2), "agent_file_parts": len(extract_file_response(response))},
             )
             return
+        await reporter.record("delivering", "عم نجهّز النتيجة والملفات للإرسال.", force=True)
         if reply_text:
             for chunk in format_and_chunk(reply_text):
                 await bot.send_message(chat_id=task.chat_id, text=chunk, disable_web_page_preview=True)
@@ -263,6 +277,7 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
         if delivered_files and not reply_text:
             await bot.send_message(chat_id=task.chat_id, text=f"تم تجهيز وإرسال {delivered_files} ملف من المهمة #{task.id}.")
         await task_store.finish(task.id, success=True)
+        await reporter.finish("completed", f"اكتملت المهمة خلال {round(elapsed, 1)} ثانية.")
         audit.write(
             "task_finished",
             "success",
@@ -279,21 +294,32 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
     except AttachmentError as exc:
         await bot.send_message(chat_id=task.chat_id, text=f"تعذّر التعامل مع مرفق المهمة #{task.id}: {exc}.")
         await task_store.finish(task.id, success=False, error="attachment_error")
+        await reporter.finish("failed", "تعذر تجهيز أحد مرفقات المهمة.", "error")
         audit.write("task_finished", "attachment_error", actor_id=task.owner_id, details={"task_id": task.id})
     except Exception as exc:
         current = await task_store.get(task.id)
         if current is None or current.status != "cancelled":
             await bot.send_message(chat_id=task.chat_id, text=user_error(exc, f"تنفيذ المهمة #{task.id}"))
             await task_store.finish(task.id, success=False, error=type(exc).__name__)
+            await reporter.finish("failed", "تعذر إكمال المهمة؛ تم حفظ سبب العطل للتشخيص.", "error")
             audit.write("task_finished", "error", actor_id=task.owner_id, details={"task_id": task.id, "error_type": type(exc).__name__})
+        else:
+            await reporter.finish("cancelled", "تم إلغاء المهمة أثناء التنفيذ.", "warning")
     finally:
         stop_typing.set()
+        if event_task:
+            event_task.cancel()
+            try:
+                await event_task
+            except asyncio.CancelledError:
+                pass
         if typing_task:
             typing_task.cancel()
             try:
                 await typing_task
             except asyncio.CancelledError:
                 pass
+        live_reporters.pop(task.id, None)
 
 
 @authorized
@@ -324,6 +350,9 @@ async def cmd_abort(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         session = await store.get_session(user_id)
         stopped = bool(session and await client.abort_session(session.opencode_session_id))
         if cancelled:
+            reporter = live_reporters.get(cancelled.id)
+            if reporter:
+                await reporter.finish("cancelled", "تم إرسال طلب إيقاف المهمة.", "warning")
             await _safe_reply(update.message, f"تمام، ألغيت المهمة الجارية #{cancelled.id}." )
             audit.write("task_cancelled", "cancelled", actor_id=user_id, details={"task_id": cancelled.id, "source": "abort"})
         elif stopped:
@@ -373,6 +402,9 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             session = await store.get_session(user_id)
             if session:
                 await client.abort_session(session.opencode_session_id)
+        reporter = live_reporters.get(task_id)
+        if reporter:
+            await reporter.finish("cancelled", "تم إرسال طلب إيقاف المهمة.", "warning")
         await _safe_reply(update.message, f"تمام، ألغيت المهمة #{task_id}.")
         audit.write("task_cancelled", "cancelled", actor_id=user_id, details={"task_id": task_id, "source": "cancel"})
     except Exception as exc:
@@ -502,6 +534,98 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as exc:
         log.exception("فشل التعامل مع أمر النموذج")
         await _safe_reply(update.message, user_error(exc, "عرض أو تغيير النموذج"))
+
+
+@authorized
+async def cmd_progress(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    try:
+        requested_id = int(context.args[0]) if context.args and context.args[0].isdigit() else None
+        progress = progress_store.get(requested_id) if requested_id else progress_store.latest_for_owner(user_id)
+        if progress and progress.owner_id == user_id:
+            await _safe_reply(update.message, render_progress(progress, detail=True))
+            return
+        task_id = requested_id
+        if task_id is None:
+            active = await task_store.list_active(user_id, limit=1)
+            task_id = active[0].id if active else None
+        if task_id is None:
+            await _safe_reply(update.message, "ما في مهمة حالية لعرض تقدمها. استخدم /trace رقم_المهمة لعرض سجل مهمة سابقة.")
+            return
+        task = await task_store.get(task_id)
+        if task is None or task.owner_id != user_id:
+            await _safe_reply(update.message, "ما لقيت مهمة بهالرقم ضمن حسابك.")
+            return
+        await _safe_reply(update.message, render_persisted_activity(task.id, task.status, task.activity, detail=False))
+    except Exception as exc:
+        log.exception("فشل عرض تقدم المهمة")
+        await _safe_reply(update.message, user_error(exc, "عرض تقدم المهمة"))
+
+
+@authorized
+async def cmd_trace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not context.args or not context.args[0].isdigit():
+        await _safe_reply(update.message, "استخدمها هيك: /trace رقم_المهمة")
+        return
+    user_id = str(update.effective_user.id)
+    task_id = int(context.args[0])
+    try:
+        progress = progress_store.get(task_id)
+        if progress and progress.owner_id == user_id:
+            await _safe_reply(update.message, render_progress(progress, detail=True))
+            return
+        task = await task_store.get(task_id)
+        if task is None or task.owner_id != user_id:
+            await _safe_reply(update.message, "ما لقيت مهمة بهالرقم ضمن حسابك.")
+            return
+        await _safe_reply(update.message, render_persisted_activity(task.id, task.status, task.activity, detail=True))
+    except Exception as exc:
+        log.exception("فشل عرض سجل المهمة %s", task_id)
+        await _safe_reply(update.message, user_error(exc, "عرض سجل المهمة"))
+
+
+async def handle_progress_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None or not query.data:
+        return
+    if not _is_allowed(update):
+        await query.answer("غير مصرح لك باستخدام هذا الزر.", show_alert=True)
+        return
+    try:
+        action, raw_task_id = query.data.split(":", 1)
+        task_id = int(raw_task_id)
+    except (TypeError, ValueError):
+        await query.answer("طلب غير صالح.", show_alert=True)
+        return
+    user_id = str(update.effective_user.id)
+    task = await task_store.get(task_id)
+    if task is None or task.owner_id != user_id:
+        await query.answer("هذه المهمة غير متاحة لحسابك.", show_alert=True)
+        return
+    try:
+        if action == "progress":
+            progress = progress_store.get(task_id)
+            text = render_progress(progress, detail=True) if progress else render_persisted_activity(task.id, task.status, task.activity, detail=True)
+            await query.edit_message_text(text=text, reply_markup=progress_keyboard(task_id), disable_web_page_preview=True)
+            await query.answer("تم تحديث التقدم.")
+            return
+        if action == "abort":
+            await query.answer("جارٍ إرسال طلب الإيقاف…")
+            cancelled = await task_store.cancel(task_id, user_id)
+            session = await store.get_session(user_id)
+            if session:
+                await client.abort_session(session.opencode_session_id)
+            reporter = live_reporters.get(task_id)
+            if reporter:
+                await reporter.finish("cancelled", "تم إرسال طلب إيقاف المهمة.", "warning")
+            else:
+                await query.edit_message_text("تم إرسال طلب إيقاف المهمة. سيظهر التأكيد النهائي بعد توقف الوكيل.")
+            audit.write("task_cancelled", "cancel_requested", actor_id=user_id, details={"task_id": task_id, "source": "button"})
+            return
+        await query.answer("إجراء غير معروف.", show_alert=True)
+    except Exception as exc:
+        log.exception("فشل التعامل مع زر تقدم المهمة %s", task_id)
+        await query.answer("تعذر تنفيذ الإجراء حاليًا.", show_alert=True)
 
 
 @authorized
@@ -684,6 +808,8 @@ async def post_init(app: Application) -> None:
         BotCommand("abort", "إيقاف المهمة الجارية"),
         BotCommand("stop", "إيقاف المهمة الجارية"),
         BotCommand("tasks", "عرض الطابور والمهام المجدولة"),
+        BotCommand("progress", "عرض تقدم المهمة الحي"),
+        BotCommand("trace", "عرض سجل نشاط مهمة"),
         BotCommand("cancel", "إلغاء مهمة برقمها"),
         BotCommand("schedule", "جدولة مهمة لوقت UTC"),
         BotCommand("repeat", "جدولة مهمة متكررة"),
@@ -748,6 +874,8 @@ async def main() -> None:
     app.add_handler(CommandHandler("abort", cmd_abort))
     app.add_handler(CommandHandler("stop", cmd_abort))
     app.add_handler(CommandHandler("tasks", cmd_tasks))
+    app.add_handler(CommandHandler("progress", cmd_progress))
+    app.add_handler(CommandHandler("trace", cmd_trace))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CommandHandler("schedule", cmd_schedule))
     app.add_handler(CommandHandler("repeat", cmd_repeat))
@@ -759,6 +887,7 @@ async def main() -> None:
     app.add_handler(CommandHandler("agents", cmd_agents))
     app.add_handler(CommandHandler("maintenance", cmd_maintenance))
     app.add_handler(CommandHandler("help", cmd_help))
+    app.add_handler(CallbackQueryHandler(handle_progress_callback, pattern=r"^(progress|abort):\d+$"))
     app.add_handler(MessageHandler(filters.ATTACHMENT, handle_attachment))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
