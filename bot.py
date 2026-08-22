@@ -40,7 +40,7 @@ from messages import (
 from opencode_client import OpenCodeClient, extract_file_response, extract_text_response
 from progress import ProgressStore, render_persisted_activity, render_progress
 from progress_reporter import LiveProgressReporter
-from prompt_enhancer import enhance_prompt
+from prompt_enhancer import ResearchMode, enhance_prompt
 from reboot_state import decision_path, read_state, request_path, write_state
 from session_store import SessionStore
 from task_queue import QueuedTask, TaskQueueStore
@@ -111,6 +111,29 @@ task_service: TaskService | None = None
 UTC = timezone.utc
 
 F = TypeVar("F", bound=Callable[..., Awaitable[None]])
+
+RESEARCH_COMMAND_MODES: dict[str, ResearchMode] = {
+    "search": ResearchMode.SEARCH,
+    "deepresearch": ResearchMode.DEEP_RESEARCH,
+    "extreme": ResearchMode.EXTREME,
+    "news": ResearchMode.NEWS,
+    "compare": ResearchMode.COMPARE,
+    "factcheck": ResearchMode.FACT_CHECK,
+    "verify": ResearchMode.VERIFY,
+    "open": ResearchMode.OPEN,
+    "extract": ResearchMode.EXTRACT,
+}
+RESEARCH_COMMAND_LABELS: dict[ResearchMode, str] = {
+    ResearchMode.SEARCH: "بحث موثّق",
+    ResearchMode.DEEP_RESEARCH: "بحث عميق",
+    ResearchMode.EXTREME: "بحث شديد العمق",
+    ResearchMode.NEWS: "بحث إخباري",
+    ResearchMode.COMPARE: "مقارنة موثّقة",
+    ResearchMode.FACT_CHECK: "تدقيق ادعاء",
+    ResearchMode.VERIFY: "تحقق محدد",
+    ResearchMode.OPEN: "فحص مصدر أو رابط",
+    ResearchMode.EXTRACT: "استخراج بيانات",
+}
 
 
 def _is_allowed(update: Update) -> bool:
@@ -238,16 +261,29 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
     event_task: asyncio.Task[None] | None = None
     try:
         await reporter.start()
+        requested_mode: ResearchMode | None = None
+        if task.execution_mode:
+            try:
+                requested_mode = ResearchMode(task.execution_mode)
+            except ValueError:
+                log.warning("تم تجاهل وضع تنفيذ غير معروف للمهمة %s", task.id)
+        enhanced = enhance_prompt(task.prompt, requested_mode=requested_mode)
         audit.write(
             "task_started",
             "accepted",
             actor_id=task.owner_id,
-            details={"task_id": task.id, "scheduled": task.is_recurring, "attachment_count": len(task.attachments)},
+            details={
+                "task_id": task.id,
+                "scheduled": task.is_recurring,
+                "attachment_count": len(task.attachments),
+                "intent": enhanced.intent,
+                "research_depth": enhanced.research_depth,
+                "requested_mode": requested_mode,
+            },
         )
         await reporter.record("preparing", "عم نتحقق من المرفقات ونحضّر مساحة النتيجة.")
         attachments = attachment_store.validate_input_records(task.attachments)
         output_directory = attachment_store.task_output_directory(task.id)
-        enhanced = enhance_prompt(task.prompt)
         prompt = enhanced.text + "\n\n" + attachment_prompt_note(attachments, output_directory)
         message_parts = [attachment.to_message_part() for attachment in attachments]
         session_id = await _ensure_session(task.owner_id)
@@ -699,6 +735,61 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 @authorized
+async def cmd_research_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update.effective_chat or not update.effective_user:
+        return
+    raw_command = update.message.text.split(maxsplit=1)[0].lstrip("/").split("@", 1)[0].lower()
+    mode = RESEARCH_COMMAND_MODES.get(raw_command)
+    if mode is None:
+        await _safe_reply(update.message, "وضع البحث المطلوب غير معروف.")
+        return
+    prompt = " ".join(context.args).strip()
+    if not prompt:
+        await _safe_reply(update.message, f"استخدمها هيك: /{raw_command} الطلب")
+        return
+    build_reason = check_build(prompt)
+    hardline_reason = check_hardline(prompt)
+    if build_reason:
+        await _safe_reply(update.message, build_blocked_message(build_reason))
+        return
+    if hardline_reason:
+        await _safe_reply(update.message, f"لم يُنفذ الطلب لأنه محظور لحماية الخادم: {hardline_reason}.")
+        return
+    user_id = str(update.effective_user.id)
+    try:
+        enhanced = enhance_prompt(prompt, requested_mode=mode)
+        task, position = await task_store.enqueue(
+            user_id,
+            update.effective_chat.id,
+            prompt,
+            execution_mode=mode.value,
+        )
+        today_count = await task_store.count_created_for_day(user_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
+        assert task_service is not None
+        task_service.wake()
+        position_text = "وهي الجاية بالتنفيذ" if position == 1 else f"بترتيب {position}"
+        await _safe_reply(
+            update.message,
+            f"تمام، سجلت {RESEARCH_COMMAND_LABELS[mode]} كمهمة اليوم رقم {today_count} {position_text}.",
+        )
+        audit.write(
+            "research_command_queued",
+            "accepted",
+            actor_id=user_id,
+            details={
+                "task_id": task.id,
+                "mode": mode,
+                "intent": enhanced.intent,
+                "research_depth": enhanced.research_depth,
+                "position": position,
+            },
+        )
+    except Exception as exc:
+        log.exception("فشل تسجيل أمر البحث %s", raw_command)
+        await _safe_reply(update.message, user_error(exc, "تسجيل مهمة البحث"))
+
+
+@authorized
 async def handle_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.effective_chat or not update.effective_user:
         return
@@ -755,7 +846,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "text_length": len(text),
             "is_arabic": enhanced_prompt.is_arabic,
             "is_research": enhanced_prompt.is_research,
+            "intent": enhanced_prompt.intent,
             "research_depth": enhanced_prompt.research_depth,
+            "requested_mode": enhanced_prompt.requested_mode,
         },
     )
     build_reason = check_build(text)
@@ -819,6 +912,15 @@ async def post_init(app: Application) -> None:
         BotCommand("health", "فحص اتصال الوكيل"),
         BotCommand("agents", "عرض الوكلاء المتاحين"),
         BotCommand("maintenance", "عرض آخر تقرير صيانة"),
+        BotCommand("search", "بحث موثّق سريع"),
+        BotCommand("deepresearch", "بحث عميق متعدد المصادر"),
+        BotCommand("extreme", "بحث شديد العمق"),
+        BotCommand("news", "بحث إخباري حديث"),
+        BotCommand("compare", "مقارنة موثّقة"),
+        BotCommand("factcheck", "تدقيق ادعاء"),
+        BotCommand("verify", "تحقق من معلومة"),
+        BotCommand("open", "فحص رابط أو مصدر"),
+        BotCommand("extract", "استخراج بيانات"),
         BotCommand("share", "إنشاء رابط مشاركة"),
         BotCommand("unshare", "إلغاء رابط المشاركة"),
         BotCommand("help", "المساعدة"),
@@ -887,6 +989,7 @@ async def main() -> None:
     app.add_handler(CommandHandler("health", cmd_health))
     app.add_handler(CommandHandler("agents", cmd_agents))
     app.add_handler(CommandHandler("maintenance", cmd_maintenance))
+    app.add_handler(CommandHandler(tuple(RESEARCH_COMMAND_MODES), cmd_research_mode))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CallbackQueryHandler(handle_reboot_callback, pattern=r"^reboot:(now|cancel)$"))
     app.add_handler(MessageHandler(filters.ATTACHMENT, handle_attachment))

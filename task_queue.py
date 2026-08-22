@@ -70,6 +70,7 @@ class QueuedTask:
     last_error: str | None = None
     attachments: tuple[dict[str, Any], ...] = ()
     activity: tuple[dict[str, Any], ...] = ()
+    execution_mode: str | None = None
 
     @property
     def is_recurring(self) -> bool:
@@ -109,7 +110,8 @@ class TaskQueueStore:
                 completed_at TEXT,
                 last_error TEXT,
                 attachments_json TEXT NOT NULL DEFAULT '[]',
-                activity_json TEXT NOT NULL DEFAULT '[]'
+                activity_json TEXT NOT NULL DEFAULT '[]',
+                execution_mode TEXT
             )
             """
         )
@@ -119,6 +121,8 @@ class TaskQueueStore:
             await db.execute("ALTER TABLE agent_tasks ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'")
         if "activity_json" not in columns:
             await db.execute("ALTER TABLE agent_tasks ADD COLUMN activity_json TEXT NOT NULL DEFAULT '[]'")
+        if "execution_mode" not in columns:
+            await db.execute("ALTER TABLE agent_tasks ADD COLUMN execution_mode TEXT")
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_agent_tasks_owner_status_sequence "
             "ON agent_tasks(owner_id, status, sequence, id)"
@@ -152,6 +156,7 @@ class TaskQueueStore:
             last_error=row["last_error"],
             attachments=decode_attachments(attachment_value),
             activity=decode_activity(activity_value),
+            execution_mode=str(row["execution_mode"]) if "execution_mode" in row.keys() and row["execution_mode"] else None,
         )
 
     async def update_activity(self, task_id: int, activity: list[dict[str, Any]]) -> None:
@@ -172,6 +177,7 @@ class TaskQueueStore:
         prompt: str,
         attachments: list[dict[str, Any]] | None = None,
         created_at: datetime | None = None,
+        execution_mode: str | None = None,
     ) -> tuple[QueuedTask, int]:
         now = encode_time(created_at or utc_now())
         db = await self._get_db()
@@ -185,10 +191,10 @@ class TaskQueueStore:
             cursor = await db.execute(
                 """
                 INSERT INTO agent_tasks
-                (owner_id, chat_id, prompt, status, created_at, updated_at, sequence, attachments_json)
-                VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)
+                (owner_id, chat_id, prompt, status, created_at, updated_at, sequence, attachments_json, execution_mode)
+                VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?)
                 """,
-                (owner_id, chat_id, prompt, now, now, sequence, encode_attachments(attachments)),
+                (owner_id, chat_id, prompt, now, now, sequence, encode_attachments(attachments), execution_mode),
             )
             task_id = int(cursor.lastrowid)
             await db.commit()

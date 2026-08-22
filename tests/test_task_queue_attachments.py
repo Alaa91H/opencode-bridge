@@ -28,13 +28,16 @@ class TaskQueueAttachmentTests(unittest.IsolatedAsyncioTestCase):
                         "kind": "document",
                     }
                 ],
+                execution_mode="deepresearch",
             )
             self.assertEqual(position, 1)
             self.assertEqual(task.attachments[0]["filename"], "report.pdf")
+            self.assertEqual(task.execution_mode, "deepresearch")
             restored = await store.get(task.id)
             self.assertIsNotNone(restored)
             assert restored is not None
             self.assertEqual(restored.attachments, task.attachments)
+            self.assertEqual(restored.execution_mode, "deepresearch")
             await store.close()
 
     async def test_daily_counter_resets_at_local_midnight_without_deleting_history(self) -> None:
