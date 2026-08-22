@@ -327,7 +327,7 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         await _create_fresh_session(str(update.effective_user.id))
-        await _safe_reply(update.message, f"{startup_message()}\n\n{HELP_TEXT}")
+        await _safe_reply(update.message, startup_message())
     except Exception as exc:
         log.exception("فشل إنشاء جلسة البداية")
         await _safe_reply(update.message, user_error(exc, "إنشاء الجلسة"))

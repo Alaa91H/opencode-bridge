@@ -17,9 +17,17 @@ class BotImportTests(unittest.TestCase):
     def test_default_agent_is_operator(self) -> None:
         self.assertEqual(bot.DEFAULT_AGENT, "telegram-operator")
 
-    def test_help_is_arabic_and_explains_build_policy(self) -> None:
-        self.assertIn("أوامر البناء", bot.HELP_TEXT)
+    def test_help_keeps_commands_and_excludes_removed_operational_text(self) -> None:
         self.assertIn("/health", bot.HELP_TEXT)
+        self.assertNotIn("المرفقات: فيك تبعت", bot.HELP_TEXT)
+        self.assertNotIn("أثناء التنفيذ، البوت بيحدّث", bot.HELP_TEXT)
+        self.assertNotIn("أوامر البناء والتجميع", bot.HELP_TEXT)
+
+    def test_start_command_does_not_append_help_text(self) -> None:
+        source = (PROJECT_DIR / "bot.py").read_text(encoding="utf-8")
+        start_block = source[source.index("async def cmd_start"):source.index("async def cmd_new")]
+        self.assertNotIn("HELP_TEXT", start_block)
+        self.assertIn("startup_message()", start_block)
 
 
 if __name__ == "__main__":
