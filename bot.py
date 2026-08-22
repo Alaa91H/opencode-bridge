@@ -40,9 +40,13 @@ from opencode_client import OpenCodeClient, extract_file_response, extract_text_
 from progress import ProgressStore, render_persisted_activity, render_progress
 from progress_reporter import LiveProgressReporter, progress_keyboard
 from prompt_enhancer import enhance_prompt
+from reboot_state import decision_path, read_state, request_path, write_state
 from session_store import SessionStore
 from task_queue import QueuedTask, TaskQueueStore
 from task_service import TaskService
+
+REBOOT_REQUEST_PATH = request_path(BRIDGE_DIR / "runtime")
+REBOOT_DECISION_PATH = decision_path(BRIDGE_DIR / "runtime")
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO").upper(),
@@ -618,6 +622,27 @@ async def handle_progress_callback(update: Update, context: ContextTypes.DEFAULT
         await query.answer("تعذر تنفيذ الإجراء حاليًا.", show_alert=True)
 
 
+async def handle_reboot_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None or query.data not in {"reboot:now", "reboot:cancel"}:
+        return
+    if not _is_allowed(update):
+        await query.answer("غير مصرح لك باستخدام هذا الزر.", show_alert=True)
+        return
+    request = read_state(REBOOT_REQUEST_PATH)
+    if request is None or request.get("status") != "awaiting":
+        await query.answer("لا يوجد طلب إعادة تشغيل معلّق.", show_alert=True)
+        return
+    action = "reboot_now" if query.data == "reboot:now" else "cancel"
+    write_state(
+        REBOOT_DECISION_PATH,
+        {"action": action, "request_id": str(request.get("request_id") or ""), "source": "telegram_button"},
+    )
+    outcome = "تم تسجيل طلب إعادة التشغيل." if action == "reboot_now" else "تم إلغاء طلب إعادة التشغيل."
+    await query.answer(outcome, show_alert=True)
+    audit.write("reboot_decision", action, actor_id=update.effective_user.id, details={"source": "telegram_button"})
+
+
 @authorized
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
@@ -878,6 +903,7 @@ async def main() -> None:
     app.add_handler(CommandHandler("maintenance", cmd_maintenance))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CallbackQueryHandler(handle_progress_callback, pattern=r"^(progress|abort):\d+$"))
+    app.add_handler(CallbackQueryHandler(handle_reboot_callback, pattern=r"^reboot:(now|cancel)$"))
     app.add_handler(MessageHandler(filters.ATTACHMENT, handle_attachment))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 

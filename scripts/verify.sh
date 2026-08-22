@@ -18,6 +18,8 @@ if ! git diff --check; then
 fi
 
 bash -n maintenance/daily-maintenance.sh
+bash -n maintenance/reboot-guard.sh
+bash -n maintenance/install-root-assets.sh
 "$PYTHON_BIN" -m compileall -q .
 "$PYTHON_BIN" -m pip check
 "$PYTHON_BIN" -m unittest discover -s tests -v

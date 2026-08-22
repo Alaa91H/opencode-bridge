@@ -29,6 +29,12 @@ class BotImportTests(unittest.TestCase):
         self.assertNotIn("HELP_TEXT", start_block)
         self.assertIn("startup_message()", start_block)
 
+    def test_reboot_decision_buttons_are_registered(self) -> None:
+        source = (PROJECT_DIR / "bot.py").read_text(encoding="utf-8")
+        self.assertIn("async def handle_reboot_callback", source)
+        self.assertIn('pattern=r"^reboot:(now|cancel)$"', source)
+        self.assertIn("REBOOT_DECISION_PATH", source)
+
 
 if __name__ == "__main__":
     unittest.main()

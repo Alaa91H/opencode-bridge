@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Managed daily maintenance for the OpenCode Telegram Bridge host.
-# It intentionally never reboots the machine and never deletes user files.
+# It never notifies external channels for routine work and never deletes user files.
 # The sole deletion exception is bridge-managed attachment artifacts older than seven days.
 set -Eeuo pipefail
 
@@ -32,17 +32,6 @@ if ! flock -n 9; then
   echo "$(date -Is) maintenance skipped: another run is already active"
   exit 0
 fi
-
-# The bridge environment supplies credentials only to notification calls; it is
-# never printed, copied into the report, or passed to child logs.
-if [[ ! -f "${BRIDGE_DIR}/.env" ]]; then
-  echo "$(date -Is) maintenance failed: bridge environment file is missing"
-  exit 1
-fi
-set -a
-# shellcheck disable=SC1091
-source "${BRIDGE_DIR}/.env"
-set +a
 
 STARTED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 RUN_ID="$(date -u +'%Y%m%dT%H%M%SZ')"
@@ -108,7 +97,7 @@ record_step "الاحتفاظ بسجل النظام لآخر 14 يومًا" clea
 record_step "حذف مرفقات البوت المدارة الأقدم من 7 أيام" cleanup_managed_attachments
 
 REBOOT_REQUIRED="لا"
-[[ -f /var/run/reboot-required ]] && REBOOT_REQUIRED="نعم — لم تُجرَ إعادة تشغيل تلقائية"
+[[ -f /var/run/reboot-required ]] && REBOOT_REQUIRED="نعم — سيُطلب التأكيد عبر حارس إعادة التشغيل"
 DISK_SUMMARY="$(df -h / | awk 'NR==2 {print $3 " مستخدم من " $2 " (" $5 ")"}')"
 UPGRADABLE_LEFT="$(apt list --upgradable 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')"
 COMPLETED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
@@ -131,37 +120,18 @@ REPORT_TMP="$(mktemp "${RUNTIME_DIR}/.maintenance-${RUN_ID}.XXXXXX")"
     printf '\n## ملاحظات تحتاج متابعة\n\n'
     printf '%s\n' "${FAILURES[@]}"
   fi
-  printf '\n> لا ينفّذ هذا السكربت بناء مشاريع، أو تثبيت اعتماديات تطبيقات، أو حذف ملفات مستخدمين أو ملفات مشروع، أو إعادة تشغيل الخادم. الاستثناء الوحيد هو مرفقات البوت المدارة داخل runtime/attachments بعد مرور 7 أيام.\n'
+  printf '\n> لا ينفّذ هذا السكربت بناء مشاريع، أو تثبيت اعتماديات تطبيقات، أو حذف ملفات مستخدمين أو ملفات مشروع. الاستثناء الوحيد هو مرفقات البوت المدارة داخل runtime/attachments بعد مرور 7 أيام. إعادة التشغيل، عند الحاجة، تمر حصريًا عبر حارس منفصل يطلب التأكيد ثم يتحقق من خلو الطابور.\n'
 } >"$REPORT_TMP"
 
 install -m 640 -o ubuntu -g ubuntu "$REPORT_TMP" "$REPORT_PATH"
 install -m 640 -o ubuntu -g ubuntu "$REPORT_TMP" "${HISTORY_DIR}/${RUN_ID}.md"
 rm -f "$REPORT_TMP"
 
-# Notify the owner through the existing Telegram bot. Failures here do not
-# invalidate the maintenance result and do not expose credentials in logs.
-TELEGRAM_CHAT_ID="${TELEGRAM_MAINTENANCE_CHAT_ID:-${TELEGRAM_ALLOWED_USERS%%,*}}"
-MESSAGE="صيانة السيرفر اليومية: ${STATUS}. المساحة: ${DISK_SUMMARY}. تحديثات متبقية: ${UPGRADABLE_LEFT}. إعادة تشغيل مطلوبة: ${REBOOT_REQUIRED}. تنظيف مرفقات أقدم من 7 أيام: ${ATTACHMENT_CLEANUP_SUMMARY}. التقرير: maintenance-latest.md"
-if [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "$TELEGRAM_CHAT_ID" ]]; then
-  if curl --fail --silent --show-error --max-time 20 \
-    --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-    --data-urlencode "text=${MESSAGE}" \
-    "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" >/dev/null; then
-    printf '[%s] Telegram notification sent\n' "$(date -Is)"
-  else
-    printf '[%s] Telegram notification failed\n' "$(date -Is)" >&2
-  fi
-fi
-
-# Create an auditable notice in the local OpenCode service. The agent reads
-# the report on the next request; this call adds an immediate service-side log.
-if [[ -n "${OPENCODE_SERVER_PASSWORD:-}" ]]; then
-  payload=$(printf '{"service":"daily-maintenance","level":"info","message":"Daily maintenance completed: %s. Report: runtime/maintenance-latest.md"}' "$STATUS")
-  curl --fail --silent --show-error --max-time 15 \
-    --user "${OPENCODE_SERVER_USERNAME:-opencode}:${OPENCODE_SERVER_PASSWORD}" \
-    -H 'Content-Type: application/json' \
-    -X POST "http://${OPENCODE_HOST:-127.0.0.1}:${OPENCODE_PORT:-4096}/log" \
-    --data "$payload" >/dev/null || printf '[%s] OpenCode log notification failed\n' "$(date -Is)" >&2
+# Routine maintenance is deliberately silent. A reboot requirement is the
+# only event that may trigger an owner-facing request, handled independently.
+if [[ -f /var/run/reboot-required ]]; then
+  systemctl start --no-block opencode-bridge-reboot-guard.service
+  printf '[%s] reboot guard started\n' "$(date -Is)"
 fi
 
 printf '[%s] maintenance completed: %s\n' "$(date -Is)" "$STATUS"
