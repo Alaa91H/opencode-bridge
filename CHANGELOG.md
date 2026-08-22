@@ -1,3 +1,15 @@
+## [1.1.6] - 2026-08-22
+
+### ملخص
+
+تشغيل الصيانة بصمت وإضافة حارس إعادة تشغيل مؤجل
+
+### التغييرات منذ v1.1.4
+
+- fix: invoke root maintenance installer by absolute path (237b7ee)
+- release: v1.1.5 (2040769)
+- feat: run maintenance silently with guarded reboot flow (29748dd)
+
 ## [1.1.5] - 2026-08-22
 
 ### ملخص
