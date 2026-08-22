@@ -1,0 +1,11 @@
+[Unit]
+Description=Run OpenCode Bridge safe maintenance daily
+
+[Timer]
+OnCalendar=*-*-* 08:30:00 UTC
+RandomizedDelaySec=20m
+Persistent=true
+Unit=opencode-bridge-maintenance.service
+
+[Install]
+WantedBy=timers.target

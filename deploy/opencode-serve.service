@@ -1,0 +1,21 @@
+[Unit]
+Description=OpenCode Agent Server
+After=network-online.target
+Wants=network-online.target
+PartOf=opencode-bridge.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/opencode-bridge
+EnvironmentFile=-/home/ubuntu/opencode-bridge/.env
+Environment=HOME=/home/ubuntu
+Environment=OPENCODE_CONFIG=/home/ubuntu/opencode-bridge/opencode.json
+Environment=OPENCODE_CONFIG_DIR=/home/ubuntu/opencode-bridge
+ExecStart=/home/ubuntu/.opencode/bin/opencode serve --hostname 127.0.0.1 --port 4096
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=120
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=opencode-bridge.target

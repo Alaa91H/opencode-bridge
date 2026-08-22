@@ -1,0 +1,7 @@
+[Unit]
+Description=OpenCode Arabic Telegram Bridge Stack
+Requires=opencode-serve.service opencode-bridge-telegram.service
+After=opencode-serve.service opencode-bridge-telegram.service
+
+[Install]
+WantedBy=default.target

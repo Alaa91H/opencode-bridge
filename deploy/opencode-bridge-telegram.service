@@ -1,0 +1,20 @@
+[Unit]
+Description=OpenCode Arabic Telegram Bridge
+After=network-online.target opencode-serve.service
+Wants=network-online.target opencode-serve.service
+PartOf=opencode-bridge.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/opencode-bridge
+EnvironmentFile=-/home/ubuntu/opencode-bridge/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/home/ubuntu/opencode-bridge/venv/bin/python -m bot
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=opencode-bridge.target
