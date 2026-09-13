@@ -1,3 +1,34 @@
+## [1.2.4] - 2026-09-14
+
+### Highlights
+
+- Added a continuous V3 watchdog loop that evaluates OpenCode, the Telegram bridge, queue health, host resources, and repository deployment state without running application builds.
+- Added deterministic health scoring with `healthy`, `degraded`, and `critical` states plus explicit manual-review escalation for risky conditions.
+- Added bounded self-healing for the OpenCode user service while delegating Telegram process recovery to its existing systemd `Restart=on-failure` policy.
+- Added structured watchdog reports and a dedicated redacted JSONL audit trail under `runtime/` for post-incident analysis.
+
+### Safe Recovery Guardrails
+
+- Automatic recovery is restricted to a fixed service allow-list and never permits SSH, firewall, reboot, package-management, destructive filesystem, or force-push actions.
+- OpenCode restarts are blocked when available memory or disk headroom is critically low.
+- Restart cooldowns and an hourly restart ceiling prevent feedback loops when a service remains unhealthy.
+- Long-running tasks are never killed automatically; tasks that exceed the stale threshold are escalated for manual review instead.
+- The watchdog never attempts to restart the Telegram bridge from inside the bridge process; systemd remains the single owner of bridge crash recovery.
+
+### Health Signals and Observability
+
+- The watchdog samples memory availability, swap, CPU load, disk headroom, and Linux memory PSI through the existing lightweight resource monitor.
+- Queue health includes queued/running counts and stale-running detection from the SQLite task store using read-only access.
+- OpenCode health combines systemd service state with the local HTTP health endpoint.
+- Deployment health records whether the deployed revision matches the working revision and whether the local checkout trails the known `origin/main` reference.
+- Runtime tuning is configurable with `WATCHDOG_INTERVAL_SECONDS`, `WATCHDOG_STALE_TASK_SECONDS`, `WATCHDOG_RESTART_COOLDOWN_SECONDS`, and `WATCHDOG_MAX_RESTARTS_PER_HOUR`.
+
+### Verification
+
+- Added unit coverage for healthy scoring, dual-service critical outages, stale-task escalation, critical-resource restart blocking, unknown-service rejection, cooldown behavior, and restart-loop limits.
+- Fixed a CI assertion discovered by the new policy tests by preserving the stricter classification: simultaneous OpenCode and Telegram outages remain `critical` rather than being downgraded.
+- GitHub Actions remains the source of truth for complete verification and release publication.
+
 ## [1.2.3] - 2026-09-14
 
 ### Highlights
