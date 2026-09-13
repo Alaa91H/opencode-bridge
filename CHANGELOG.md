@@ -1,3 +1,38 @@
+## [1.2.1] - 2026-09-14
+
+### Highlights
+
+- Promoted the V3 multi-repository development agent from an optional architecture to the production Telegram service path.
+- Promoted the hardened development-agent policy to the primary `opencode.json` configuration used by the existing OpenCode systemd service.
+- Added safe repository selection, persistent active workspaces, automatic workspace context injection, and configurable bounded parallel task execution.
+- Added a dedicated V3 runtime wrapper that reuses the mature bridge instead of duplicating Telegram, scheduling, model-selection, progress, and audit logic.
+- Added a production-oriented environment template for repository allowlists, workspace location, and worker concurrency.
+
+### Performance
+
+- Independent owners can execute tasks concurrently through a bounded worker pool while the queue continues to serialize work for the same owner.
+- Git workspace operations use per-repository locks to avoid synchronization races.
+- SQLite workspace state uses WAL mode, normal synchronization, and a busy timeout to reduce contention on long-running VPS deployments.
+
+### Reliability
+
+- Added CI validation for Python syntax, the complete unit-test suite, both OpenCode configuration files, and semantic versioning.
+- Repaired the CI workflow so jobs are created and executed reliably on `main` pushes.
+- Reworked automated release publication so successful CI runs can publish GitHub Releases through the GitHub API-backed CLI flow.
+- Added unit coverage for GitHub URL normalization, repository allowlisting, and workspace-root isolation.
+
+### Security and Operational Controls
+
+- Repository access is limited by `GITHUB_ALLOWED_REPOS` and all managed working copies stay under `GITHUB_WORKSPACE_ROOT`.
+- The development agent denies secret/key files and blocks local builds, dependency installation, force pushes, destructive Git operations, credential changes, release merges, and system power operations.
+- The control server remains an AI development/orchestration host; builds and dependency-heavy verification stay in CI rather than on the VPS.
+
+### Deployment Notes
+
+- The Telegram systemd unit now starts `run_v3`, which layers V3 capabilities over the existing bridge runtime.
+- Existing OpenCode service wiring remains compatible because the production `opencode.json` now contains the V3 development-agent configuration.
+- Configure `GITHUB_ALLOWED_REPOS`, `GITHUB_WORKSPACE_ROOT`, and optionally `AGENT_TASK_WORKERS` before enabling repository development workflows.
+
 ## [1.2.0] - 2026-09-14
 
 ### Highlights
@@ -191,4 +226,3 @@ The default configuration uses two task workers and a five-second idle poll inte
 ### التغييرات منذ v1.0.0
 
 - chore: add verified release workflow (fef393d)
-
