@@ -38,12 +38,7 @@ jobs:
       - name: Validate OpenCode config
         run: python -m json.tool opencode.json >/dev/null
       - name: Validate semantic version
-        run: python - <<'PY'
-          import re
-          version = open('VERSION', encoding='utf-8').read().strip()
-          assert re.fullmatch(r'\d+\.\d+\.\d+', version), f'invalid VERSION: {version}'
-          print(version)
-          PY
+        run: python -c "import re,pathlib; v=pathlib.Path('VERSION').read_text(encoding='utf-8').strip(); assert re.fullmatch(r'[0-9]+[.][0-9]+[.][0-9]+', v), f'invalid VERSION: {v}'; print(v)"
       - name: Validate shell scripts
         shell: bash
         run: |
