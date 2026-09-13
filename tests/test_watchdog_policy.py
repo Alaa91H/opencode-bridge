@@ -32,7 +32,7 @@ class WatchdogPolicyTests(unittest.TestCase):
         self.assertEqual(result.score, 100)
         self.assertFalse(result.recoverable_services)
 
-    def test_inactive_services_are_recoverable(self) -> None:
+    def test_inactive_services_are_recoverable_and_critical(self) -> None:
         result = assess_health(
             self.resources(),
             ServiceHealth(False, False, False),
@@ -41,7 +41,8 @@ class WatchdogPolicyTests(unittest.TestCase):
         )
         self.assertIn(OPENCODE_SERVICE, result.recoverable_services)
         self.assertIn(TELEGRAM_SERVICE, result.recoverable_services)
-        self.assertEqual(result.status, "degraded")
+        self.assertEqual(result.status, "critical")
+        self.assertTrue(result.manual_action_required)
 
     def test_stale_task_requires_manual_review(self) -> None:
         result = assess_health(
