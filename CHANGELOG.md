@@ -1,3 +1,29 @@
+## [1.2.0] - 2026-09-14
+
+### Highlights
+
+- Activated the bounded parallel task worker pool in the production task service while preserving strict per-owner task ordering.
+- Added environment-based worker and polling controls so throughput can be tuned without code changes.
+- Added a GitHub Actions CI pipeline covering Python 3.11, 3.12, and 3.13 with syntax, unit-test, configuration, semantic-version, and shell-script validation.
+- Prepared the repository for CI-gated automated tagging and GitHub Releases.
+- Continued the V3 development-agent architecture with repository-focused prompts and persistent multi-repository workspace management.
+
+### Performance
+
+- Independent users can now execute agent tasks concurrently instead of sharing a single global serial worker.
+- Worker concurrency is bounded to protect small VPS hosts and can be configured with `AGENT_TASK_WORKERS`.
+- Idle queue polling is configurable with `AGENT_TASK_POLL_SECONDS` to balance responsiveness and resource usage.
+
+### Reliability and Safety
+
+- The queue continues to prevent concurrent execution for the same owner, keeping task order deterministic.
+- CI now validates every push to `main` before an automated release can be published.
+- Server-side build restrictions remain unchanged: development orchestration may edit, inspect, commit, and manage repositories without performing application builds on the control server.
+
+### Upgrade Notes
+
+The default configuration uses two task workers and a five-second idle poll interval. Existing deployments remain compatible; no database migration is required.
+
 ## [1.1.13] - 2026-08-22
 
 ### ملخص
