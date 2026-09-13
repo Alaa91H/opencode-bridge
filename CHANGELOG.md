@@ -1,3 +1,41 @@
+## [1.2.5] - 2026-09-14
+
+### Highlights
+
+- Added a permanent Daily OpenCode Agent Scout to the existing `ModelManager`; it runs automatically every 24 hours without adding another daemon or local build workload.
+- The scout inspects the live OpenCode primary-agent list and the live OpenCode Zen catalog, then considers only models whose provider metadata explicitly reports zero cost.
+- Added a fresh web-research pass that asks OpenCode to compare the current free allow-list using recent official OpenCode information and reputable coding-agent benchmarks.
+- The research result is accepted only when it exactly matches a currently active zero-cost model ID returned by the live provider catalog; otherwise the bridge falls back to its deterministic capability ranking.
+
+### Global Default Switching
+
+- The repository-specific `development-agent` remains the preferred primary agent because it carries the bridge's direct-to-`main`, CI, workspace-isolation, and no-local-build operating policy.
+- If that primary agent is unavailable, the scout falls back to OpenCode's primary `build` agent before considering other visible primary-capable agents; subagents and hidden agents are never promoted to the global default.
+- A successful daily decision updates the live bridge `DEFAULT_AGENT` and `DEFAULT_MODEL`, so existing conversations use the new agent on their next turn and every queued or newly-created task uses it when execution begins.
+- Every saved OpenCode conversation is immediately patched to the selected free model. An inference already generating at the exact moment of a switch is allowed to finish safely and uses the new default from its next turn rather than being interrupted mid-response.
+- The selected free model is pinned inside `ModelManager`, preventing the faster catalog-reconciliation loop from immediately replacing the researched daily choice while it remains active and free.
+
+### Persistence and Safety
+
+- The latest validated decision is stored in `runtime/agent-scout.json` with restricted file permissions and is restored after a service restart only if both the saved primary agent and saved model still exist in the current live OpenCode catalogs.
+- Paid or unpriced models cannot be selected by the scout, even if a research response recommends them.
+- A stale, removed, or newly paid model is automatically rejected on the next live catalog check and normal free-model selection takes over.
+- Research failures are non-disruptive: the bridge keeps operating and selects the strongest free candidate from the live deterministic ranking instead of leaving users without an agent.
+- The scout creates only a temporary OpenCode research session and removes it after the decision; no user conversation is reused for autonomous research.
+
+### Configuration
+
+- `AGENT_SCOUT_INTERVAL_SECONDS` controls the persistent research cadence and defaults to `86400` seconds (24 hours).
+- `AGENT_SCOUT_PREFERRED_AGENT` defaults to `development-agent`.
+- `AGENT_SCOUT_WEB_RESEARCH=1` enables the daily web-research comparison; setting it to `0` keeps the same free-only guardrails while using deterministic live-catalog ranking only.
+
+### Verification
+
+- Added tests proving that subagents and hidden agents cannot become the default, the project development agent is preferred, research output cannot inject a paid model, and a daily scout decision is applied to every saved conversation.
+- Added coverage proving that an explicitly configured paid preference can never override the live zero-cost OpenCode Zen catalog.
+- Fixed a test-isolation issue discovered by CI where intentional live-default mutation from the scout leaked into a later import test; production switching behavior remains unchanged.
+- GitHub Actions remains the source of truth for syntax, unit tests, OpenCode configuration, version validation, and release publication.
+
 ## [1.2.4] - 2026-09-14
 
 ### Highlights
