@@ -24,19 +24,24 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+          cache-dependency-path: requirements.txt
       - name: Install runtime dependencies
         run: python -m pip install --disable-pip-version-check -r requirements.txt
       - name: Validate Python syntax
         run: python -m compileall -q .
       - name: Run unit tests
-        run: python -m unittest discover -s tests -v
-      - name: Validate OpenCode config
-        run: python -m json.tool opencode.json >/dev/null
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Validate OpenCode configurations
+        run: |
+          python -m json.tool opencode.json >/dev/null
+          python -m json.tool opencode-v3.json >/dev/null
       - name: Validate semantic version
         run: python -c "import re,pathlib; v=pathlib.Path('VERSION').read_text(encoding='utf-8').strip(); assert re.fullmatch(r'[0-9]+[.][0-9]+[.][0-9]+', v), f'invalid VERSION: {v}'; print(v)"
       - name: Validate shell scripts
