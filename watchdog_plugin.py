@@ -1,4 +1,4 @@
-"""Background watchdog integration and Telegram health command."""
+"""Background watchdog integration and Telegram watchdog command."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def _render_report(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-async def _health_command(update, context) -> None:
+async def _watchdog_command(update, context) -> None:
     if not update.message:
         return
     report = _read_report()
@@ -85,7 +85,7 @@ async def _run_loop() -> None:
 
 async def install(app) -> None:
     global _task
-    app.add_handler(CommandHandler("health", _health_command))
+    app.add_handler(CommandHandler("watchdog", _watchdog_command))
     if _task is None:
         _stopped.clear()
         _task = asyncio.create_task(_run_loop(), name="opencode-bridge-watchdog")
