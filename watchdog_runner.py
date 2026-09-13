@@ -83,7 +83,7 @@ async def _opencode_health_async() -> bool:
     client = OpenCodeClient(
         host=os.environ.get("OPENCODE_HOST", "127.0.0.1"),
         port=int(os.environ.get("OPENCODE_PORT", "4096")),
-        password=os.environ.get("OPENCODE_PASSWORD"),
+        password=os.environ.get("OPENCODE_PASSWORD") or os.environ.get("OPENCODE_SERVER_PASSWORD"),
         timeout=10.0,
     )
     try:
@@ -213,10 +213,9 @@ def _write_report(
     actions: list[dict[str, str]],
 ) -> dict[str, Any]:
     assessment = assess_health(resources, services, queue, update)
-    if any(action["outcome"] == "skipped" for action in actions):
-        manual_required = True
-    else:
-        manual_required = assessment.manual_action_required
+    manual_required = assessment.manual_action_required or any(
+        action["outcome"] in {"skipped", "restart_failed"} for action in actions
+    )
     payload = {
         "timestamp": datetime.now(UTC).isoformat(),
         "status": assessment.status,
@@ -259,6 +258,15 @@ def main() -> int:
     now = time.time()
 
     for service in assessment.recoverable_services:
+        if service == TELEGRAM_SERVICE:
+            actions.append(
+                {
+                    "service": service,
+                    "outcome": "delegated",
+                    "reason": "bridge recovery is owned by systemd Restart=on-failure",
+                }
+            )
+            continue
         allowed, reason = restart_allowed(
             service,
             resources,
