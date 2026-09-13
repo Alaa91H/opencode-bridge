@@ -1,14 +1,18 @@
-"""Selection helpers for the daily OpenCode agent/model scout.
+"""Selection helpers for the daily OpenCode Zen agent/model scout.
 
 OpenCode agents are configuration profiles and are not billed independently;
 the free/paid property belongs to the model. The runtime therefore selects a
-primary agent and then limits model research to the live zero-cost Zen catalog.
+primary agent and limits model research to the live zero-cost OpenCode Zen
+catalog. A second local provider-prefix guard prevents future catalog changes
+from accidentally promoting a free model from another provider.
 """
 
 from __future__ import annotations
 
 import json
 from typing import Any
+
+ZEN_MODEL_PREFIX = "opencode/"
 
 
 def _agent_id(agent: dict[str, Any]) -> str | None:
@@ -52,8 +56,24 @@ def select_primary_agent(agents: list[dict[str, Any]], preferred: str = "develop
     return non_plan[0] if non_plan else available[0]
 
 
+def zen_only_model_ids(model_ids: list[str]) -> list[str]:
+    """Keep only normalized OpenCode Zen IDs while preserving source order."""
+    seen: set[str] = set()
+    results: list[str] = []
+    for model_id in model_ids:
+        if not isinstance(model_id, str):
+            continue
+        normalized = model_id.strip()
+        if not normalized.startswith(ZEN_MODEL_PREFIX) or normalized in seen:
+            continue
+        seen.add(normalized)
+        results.append(normalized)
+    return results
+
+
 def parse_research_model(text: str, allowed_models: list[str]) -> str | None:
-    """Accept only an exact model ID from the zero-cost allow-list."""
+    """Accept only an exact OpenCode Zen model ID from the zero-cost allow-list."""
+    allowed_models = zen_only_model_ids(allowed_models)
     allowed = set(allowed_models)
     decoder = json.JSONDecoder()
     for index, char in enumerate(text):
@@ -72,15 +92,17 @@ def parse_research_model(text: str, allowed_models: list[str]) -> str | None:
 
 
 def research_prompt(models: list[str]) -> str:
-    """Build a constrained daily research prompt from live zero-cost candidates."""
-    candidates = "\n".join(f"- {model}" for model in models[:20])
+    """Build a constrained daily research prompt from live zero-cost Zen candidates."""
+    zen_models = zen_only_model_ids(models)
+    candidates = "\n".join(f"- {model}" for model in zen_models[:20])
     return (
-        "Perform a fresh web research pass to select the strongest CURRENTLY FREE model for an autonomous "
-        "OpenCode software-development agent. Search recent official OpenCode documentation first, then recent "
+        "Perform a fresh web research pass to select the strongest CURRENTLY FREE OpenCode Zen model for an autonomous "
+        "OpenCode software-development agent. Search recent official OpenCode/Zen documentation first, then recent "
         "reputable coding-agent benchmarks when available. Prioritize agentic coding, tool use, debugging, "
-        "large-repository reasoning, reliability, and Git/GitHub workflows. Ignore paid models completely. "
-        "Choose exactly one ID from this live zero-cost allow-list and do not invent a model:\n"
+        "large-repository reasoning, reliability, and Git/GitHub workflows. Ignore paid models and every provider "
+        "outside OpenCode Zen completely. Choose exactly one ID from this live zero-cost Zen allow-list and do not "
+        "invent a model:\n"
         f"{candidates}\n\n"
         "Return only one JSON object with no markdown: "
-        '{"model":"provider/model-id","reason":"short evidence-based reason"}'
+        '{"model":"opencode/model-id","reason":"short evidence-based reason"}'
     )
