@@ -35,6 +35,12 @@ class ResourceSnapshot:
     def swap_used_mib(self) -> int:
         return max(0, self.swap_total_mib - self.swap_free_mib)
 
+    @property
+    def swap_used_percent(self) -> float:
+        if self.swap_total_mib <= 0:
+            return 0.0
+        return self.swap_used_mib * 100.0 / self.swap_total_mib
+
 
 @dataclass(frozen=True)
 class WorkerDecision:
@@ -109,6 +115,20 @@ class HostResourcePolicy:
                 if pressure == "normal":
                     pressure = "high"
                 reasons.append("memory stalls")
+
+        # Sustained swap occupancy is a strong sign that the host is carrying
+        # working sets larger than RAM. Keep this conservative because another
+        # concurrent coding session can turn reclaim pressure into an OOM event.
+        if snap.swap_total_mib >= 256:
+            if snap.swap_used_percent >= 90.0:
+                allowed = 1
+                pressure = "critical"
+                reasons.append("swap nearly exhausted")
+            elif snap.swap_used_percent >= 70.0:
+                allowed = min(allowed, 2)
+                if pressure == "normal":
+                    pressure = "high"
+                reasons.append("high swap usage")
 
         normalized_load = snap.load1 / max(1, snap.cpu_count)
         if normalized_load >= 2.0:
@@ -192,7 +212,8 @@ def format_decision(decision: WorkerDecision) -> str:
         f"Workers: {decision.allowed_workers}/{decision.configured_workers}\n"
         f"Memory: {snap.available_memory_mib} MiB available / {snap.total_memory_mib} MiB total "
         f"({snap.memory_available_percent:.1f}% available)\n"
-        f"Swap: {snap.swap_used_mib} MiB used / {snap.swap_total_mib} MiB total\n"
+        f"Swap: {snap.swap_used_mib} MiB used / {snap.swap_total_mib} MiB total "
+        f"({snap.swap_used_percent:.1f}% used)\n"
         f"CPU: load1 {snap.load1:.2f} across {snap.cpu_count} CPU(s)\n"
         f"Disk free: {snap.disk_free_percent:.1f}%\n"
         f"Memory PSI avg10: {psi}\n"
