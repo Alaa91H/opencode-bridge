@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import tempfile
 import unittest
 from dataclasses import dataclass
@@ -131,6 +132,13 @@ class DailyScoutRuntimeTests(unittest.IsolatedAsyncioTestCase):
         audit = FakeAudit()
         manager = ModelManager(client, store, audit, fallback_model="opencode/basic-free")
         manager.scout_web_research = False
+
+        bot_module = sys.modules.get("bot")
+        if bot_module is not None:
+            old_agent = getattr(bot_module, "DEFAULT_AGENT", None)
+            old_model = getattr(bot_module, "DEFAULT_MODEL", None)
+            self.addCleanup(setattr, bot_module, "DEFAULT_AGENT", old_agent)
+            self.addCleanup(setattr, bot_module, "DEFAULT_MODEL", old_model)
 
         with tempfile.TemporaryDirectory() as directory:
             state_path = Path(directory) / "agent-scout.json"
