@@ -1,3 +1,32 @@
+## [1.2.2] - 2026-09-14
+
+### Highlights
+
+- Added a lightweight Linux host resource policy that samples available memory, swap, CPU load, disk headroom, and memory pressure-stall information without requiring privileged access.
+- Added adaptive worker sizing during V3 startup so the agent no longer trusts a fixed concurrency value when the host is under pressure.
+- Added policy coverage for healthy hosts, low-memory VPS instances, CPU saturation, and sustained memory stalls.
+- Added the first optional ZRAM/swap resource-optimizer asset and a systemd unit as groundwork for autonomous host tuning.
+- Opened a tracked autonomous-host roadmap covering resource management, adaptive concurrency, watchdog recovery, and self-healing.
+
+### Performance
+
+- Healthy hosts can retain the configured worker capacity while small-memory hosts automatically reduce concurrency to avoid OpenCode/Telegram memory contention.
+- Hosts below 1.5 GiB RAM are capped to one worker; hosts below 3 GiB are capped to two workers.
+- CPU saturation, low disk headroom, and Linux memory PSI signals further reduce the recommended concurrency when necessary.
+- Resource sampling is cached to keep monitoring overhead negligible on small VPS deployments.
+
+### Reliability
+
+- Adaptive sizing is enabled by default and can be disabled with `AGENT_ADAPTIVE_WORKERS=0` when fixed concurrency is explicitly required.
+- The configured `AGENT_TASK_WORKERS` remains the upper bound; automatic sizing only reduces unsafe concurrency and never exceeds the administrator-defined limit.
+- CI validates the new resource policy with deterministic unit tests before release publication.
+
+### Autonomous Host Roadmap
+
+- Added a guarded ZRAM-first memory optimizer that can provision bounded compressed swap and a low-priority disk-swap fallback without overwriting an existing unknown swap file.
+- Root-level activation remains intentionally separated from the unprivileged agent runtime while the installation path is hardened further.
+- Follow-up work is tracked for live concurrency resizing, service health scoring, reversible self-healing, disk-pressure controls, and automated security/update posture.
+
 ## [1.2.1] - 2026-09-14
 
 ### Highlights
