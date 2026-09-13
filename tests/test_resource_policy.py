@@ -15,8 +15,18 @@ class FixedPolicy(HostResourcePolicy):
 
 
 class ResourcePolicyTests(unittest.TestCase):
-    def sample(self, total=4096, available=3072, cpus=4, load1=0.5, disk=50.0, psi=0.0):
-        return ResourceSnapshot(total, available, 1024, 1024, cpus, load1, disk, psi)
+    def sample(
+        self,
+        total=4096,
+        available=3072,
+        cpus=4,
+        load1=0.5,
+        disk=50.0,
+        psi=0.0,
+        swap_total=1024,
+        swap_free=1024,
+    ):
+        return ResourceSnapshot(total, available, swap_total, swap_free, cpus, load1, disk, psi)
 
     def test_healthy_host_keeps_requested_workers(self) -> None:
         self.assertEqual(FixedPolicy(self.sample()).decide(4).allowed_workers, 4)
@@ -32,6 +42,23 @@ class ResourcePolicyTests(unittest.TestCase):
 
     def test_memory_stalls_reduce_parallelism(self) -> None:
         self.assertEqual(FixedPolicy(self.sample(psi=3.0)).decide(6).allowed_workers, 2)
+
+    def test_high_swap_usage_reduces_parallelism(self) -> None:
+        decision = FixedPolicy(self.sample(swap_total=1024, swap_free=250)).decide(6)
+        self.assertEqual(decision.allowed_workers, 2)
+        self.assertEqual(decision.pressure, "high")
+        self.assertIn("high swap usage", decision.reason)
+
+    def test_nearly_exhausted_swap_uses_one_worker(self) -> None:
+        decision = FixedPolicy(self.sample(swap_total=1024, swap_free=80)).decide(6)
+        self.assertEqual(decision.allowed_workers, 1)
+        self.assertEqual(decision.pressure, "critical")
+        self.assertIn("swap nearly exhausted", decision.reason)
+
+    def test_tiny_swap_is_not_used_as_pressure_signal(self) -> None:
+        decision = FixedPolicy(self.sample(swap_total=128, swap_free=0)).decide(4)
+        self.assertEqual(decision.allowed_workers, 4)
+        self.assertEqual(decision.pressure, "normal")
 
 
 if __name__ == "__main__":
