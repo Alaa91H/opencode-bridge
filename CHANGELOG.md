@@ -4,9 +4,18 @@
 
 - Added a lightweight Linux host resource policy that samples available memory, swap, CPU load, disk headroom, and memory pressure-stall information without requiring privileged access.
 - Added adaptive worker sizing during V3 startup so the agent no longer trusts a fixed concurrency value when the host is under pressure.
-- Added policy coverage for healthy hosts, low-memory VPS instances, CPU saturation, and sustained memory stalls.
+- Promoted direct-to-default-branch autonomous development as the standard publication workflow for the development agent.
+- Added a lightweight GitHub Actions monitor and Telegram `/ci` command for the active workspace.
+- Added a mandatory CI feedback loop so the agent waits for remote checks, inspects failures, applies the smallest safe repair, pushes the fix, and verifies CI again.
 - Added the first optional ZRAM/swap resource-optimizer asset and a systemd unit as groundwork for autonomous host tuning.
-- Opened a tracked autonomous-host roadmap covering resource management, adaptive concurrency, watchdog recovery, and self-healing.
+
+### Development Automation
+
+- The development agent now fetches remote metadata, identifies the repository default branch, fast-forwards clean workspaces, reviews diffs, writes professional English Conventional Commit messages, pushes without force, and verifies publication.
+- Feature branches and pull requests are now opt-in instead of the default, matching the repository owner's direct-to-`main` workflow.
+- `github_ci.py` can inspect or wait for GitHub Actions by repository, branch, commit SHA, and workflow name without running builds on the control server.
+- CI failure summaries include failed jobs and steps so repair prompts can focus on the actual remote failure instead of guessing.
+- `GITHUB_CI_WORKFLOW` can target a specific workflow, while an optional `GITHUB_TOKEN` raises REST API rate limits without being inserted into agent prompts.
 
 ### Performance
 
@@ -14,12 +23,15 @@
 - Hosts below 1.5 GiB RAM are capped to one worker; hosts below 3 GiB are capped to two workers.
 - CPU saturation, low disk headroom, and Linux memory PSI signals further reduce the recommended concurrency when necessary.
 - Resource sampling is cached to keep monitoring overhead negligible on small VPS deployments.
+- GitHub CI monitoring is read-only and network-bound, adding no local compilation or dependency-heavy workload.
 
-### Reliability
+### Reliability and Safety
 
 - Adaptive sizing is enabled by default and can be disabled with `AGENT_ADAPTIVE_WORKERS=0` when fixed concurrency is explicitly required.
 - The configured `AGENT_TASK_WORKERS` remains the upper bound; automatic sizing only reduces unsafe concurrency and never exceeds the administrator-defined limit.
-- CI validates the new resource policy with deterministic unit tests before release publication.
+- Added deterministic unit coverage for CI success/pending states, failed-step extraction, repository validation, and adaptive resource policy behavior.
+- Direct publication never permits force push, destructive Git cleanup, credential changes, or overwriting unrelated local modifications.
+- The development cycle treats GitHub Actions as the source of truth whenever verification requires builds, dependency installation, packaging, or platform-specific compilation.
 
 ### Autonomous Host Roadmap
 
