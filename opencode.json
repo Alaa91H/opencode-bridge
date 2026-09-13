@@ -26,7 +26,7 @@
     "development-agent": {
       "description": "Multi-repository Git/GitHub development agent without local builds.",
       "mode": "primary",
-      "model": "opencode/deepseek-v4-flash-free",
+      "model": "opencode/longcat-2.0-free",
       "prompt": "{file:./prompts/development-agent-ar.md}"
     }
   }
