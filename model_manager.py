@@ -7,18 +7,18 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from model_catalog import best_zen_general_model_id
+from model_catalog import best_zen_general_model_id, ranked_zen_general_model_ids
 
 log = logging.getLogger("opencode_bridge.model_manager")
 BUSY_SESSION_STATES = {"busy", "running", "working", "processing", "generating"}
 
 
 class ModelManager:
-    """Keep idle Telegram sessions on the best active, free Zen general model.
+    """Keep Telegram sessions on the best active free OpenCode Zen model.
 
-    A provider catalog is re-read at every task start, so removal or replacement
-    is handled before the next inference.  A lightweight background pass also
-    reconciles idle saved sessions without ever patching a busy session.
+    The daily agent scout may pin a preferred zero-cost model after its research
+    pass. The pin is accepted only while that model is still present in the live
+    active free catalog, so stale scout state can never force a paid model.
     """
 
     def __init__(
@@ -40,10 +40,23 @@ class ModelManager:
         self._stopped = asyncio.Event()
         self._lock = asyncio.Lock()
         self._last_best: str | None = None
+        self._preferred_model: str | None = None
+
+    @property
+    def preferred_model(self) -> str | None:
+        return self._preferred_model
+
+    def set_preferred_model(self, model_id: str | None) -> None:
+        self._preferred_model = model_id.strip() if isinstance(model_id, str) and model_id.strip() else None
 
     async def best_available(self, excluded_ids: set[str] | None = None) -> str | None:
         providers = await self.client.list_providers()
-        return best_zen_general_model_id(providers, excluded_ids=excluded_ids)
+        excluded = excluded_ids or set()
+        ranked = ranked_zen_general_model_ids(providers)
+        preferred = self._preferred_model
+        if preferred and preferred in ranked and preferred not in excluded:
+            return preferred
+        return best_zen_general_model_id(providers, excluded_ids=excluded)
 
     async def ensure_session_model(
         self,
@@ -67,6 +80,40 @@ class ModelManager:
             details={"from_model": current_model, "to_model": selected, "reason": "catalog_best_general"},
         )
         return selected
+
+    async def force_all_sessions(self, model_id: str) -> tuple[int, int]:
+        """Apply one verified free model to every saved conversation immediately.
+
+        An already-running inference cannot be rewritten mid-response, but the
+        OpenCode session and bridge state are updated immediately so its next
+        turn, every queued task, and every new task use the selected model.
+        """
+        providers = await self.client.list_providers()
+        if model_id not in ranked_zen_general_model_ids(providers):
+            raise ValueError("Scout-selected model is not an active zero-cost OpenCode Zen model")
+        self.set_preferred_model(model_id)
+        sessions = await self.store.list_sessions()
+        changed = 0
+        failed = 0
+        for session in sessions:
+            if session.model == model_id:
+                continue
+            try:
+                await self.client.update_session(session.opencode_session_id, model=model_id)
+                await self.store.update_session(session.telegram_user_id, model=model_id)
+                changed += 1
+                self.audit.write(
+                    "model_auto_switched",
+                    "changed",
+                    actor_id=session.telegram_user_id,
+                    details={"from_model": session.model, "to_model": model_id, "reason": "daily_agent_scout"},
+                )
+            except Exception as exc:
+                failed += 1
+                log.info("تعذر تطبيق نموذج الوكيل اليومي على جلسة %s: %s", session.telegram_user_id, type(exc).__name__)
+        self.fallback_model = model_id
+        self._last_best = model_id
+        return changed, failed
 
     async def reconcile_once(self) -> str | None:
         """Move only idle saved sessions to the best available model."""
