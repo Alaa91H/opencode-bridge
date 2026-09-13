@@ -20,6 +20,7 @@ import bot as core
 import ci_plugin
 import resource_commands
 import v3_plugin
+import workspace_runtime
 
 _original_post_init = core.post_init
 _original_post_shutdown = core.post_shutdown
