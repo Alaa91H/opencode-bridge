@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenCode Bridge Host Resource Optimizer
+After=local-fs.target
+Before=opencode-serve.service opencode-bridge-telegram.service
+PartOf=opencode-bridge.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/opencode-bridge-resource-optimizer
+RemainAfterExit=yes
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=no
+
+[Install]
+WantedBy=multi-user.target
