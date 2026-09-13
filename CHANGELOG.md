@@ -1,3 +1,31 @@
+## [1.2.3] - 2026-09-14
+
+### Highlights
+
+- Bound V3 OpenCode sessions and requests to the exact repository workspace selected by the Telegram bridge instead of relying on prompt text alone.
+- Added per-async-task workspace scoping with `ContextVar`, preventing directory context from leaking between parallel workers.
+- Added automatic session rebinding when the active repository changes, after a service restart, or when a stored session no longer matches the task workspace.
+- Added strict validation of the bridge-generated `ACTIVE_WORKSPACE` block before any scoped OpenCode request is executed.
+
+### Multi-Repository Isolation
+
+- Every scoped OpenCode HTTP request now carries the workspace directory through the supported `x-opencode-directory` request context.
+- Session-specific requests retain their workspace binding through a lightweight in-memory session-to-directory registry.
+- Queued tasks keep the repository directory captured when they were created, so switching the active Telegram repository cannot silently redirect an already queued development task.
+- Spoofed or mismatched workspace paths are rejected before execution when they do not resolve to the allow-listed repository location.
+
+### Concurrency and Reliability
+
+- Workspace context uses Python `ContextVar` isolation, so independent worker tasks can safely target different repositories at the same time.
+- Workspace scope is always reset after the request context exits, preventing accidental cross-project contamination.
+- The V3 bootstrap replaces the generic OpenCode client before the task service and model manager start, ensuring workspace-aware behavior is used throughout the production runtime.
+- Existing direct-to-`main`, CI feedback, no-local-build, and repository allow-list policies remain unchanged.
+
+### Verification
+
+- Added deterministic tests for workspace header injection, context cleanup, session-directory restoration, valid trusted workspace parsing, and rejection of forged workspace paths.
+- GitHub Actions remains the source of truth for full verification; no application build or dependency installation is performed on the control server.
+
 ## [1.2.2] - 2026-09-14
 
 ### Highlights
