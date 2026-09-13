@@ -1,0 +1,32 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "server": {"hostname": "127.0.0.1", "port": 4096, "mdns": false},
+  "default_agent": "development-agent",
+  "share": "manual",
+  "snapshot": true,
+  "permission": {
+    "read": {"*": "allow", "*.env": "deny", "*.env.*": "deny", "*.pem": "deny", "*.key": "deny", "*.env.example": "allow"},
+    "edit": {"*": "allow", "*.env": "deny", "*.env.*": "deny", "*.pem": "deny", "*.key": "deny"},
+    "bash": {
+      "*": "allow",
+      "npm install*": "deny", "npm ci*": "deny", "npm run build*": "deny", "npm run compile*": "deny",
+      "pnpm install*": "deny", "pnpm build*": "deny", "yarn install*": "deny", "yarn build*": "deny",
+      "npx webpack*": "deny", "npx rollup*": "deny", "npx vite build*": "deny", "npx esbuild*": "deny", "npx tsc*": "deny",
+      "pip install*": "deny", "pip3 install*": "deny", "python -m pip install*": "deny", "python3 -m pip install*": "deny",
+      "make*": "deny", "cmake*": "deny", "ninja*": "deny", "cargo build*": "deny", "go build*": "deny",
+      "mvn*": "deny", "gradle*": "deny", "./gradlew*": "deny", "javac*": "deny",
+      "docker build*": "deny", "docker compose build*": "deny", "flutter build*": "deny", "dotnet build*": "deny",
+      "git push --force*": "deny", "git push -f*": "deny", "git reset --hard*": "deny", "git clean -f*": "deny",
+      "git remote set-url*": "deny", "gh auth*": "deny", "gh repo delete*": "deny", "gh pr merge*": "deny",
+      "shutdown*": "deny", "reboot*": "deny", "halt*": "deny", "poweroff*": "deny"
+    },
+    "external_directory": "allow", "task": "allow", "skill": "allow", "webfetch": "allow", "websearch": "allow", "lsp": "allow", "question": "allow", "doom_loop": "ask"
+  },
+  "agent": {
+    "development-agent": {
+      "description": "Multi-repository Git/GitHub development agent without local builds.",
+      "mode": "primary",
+      "prompt": "{file:./prompts/development-agent-ar.md}"
+    }
+  }
+}
