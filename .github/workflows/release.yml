@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve release commit
+        id: commit
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.commit.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Read and validate version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid semantic version: $VERSION" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify changelog entry
+        shell: bash
+        run: |
+          grep -q "^## \[${{ steps.version.outputs.version }}\]" CHANGELOG.md || {
+            echo "CHANGELOG.md has no entry for ${{ steps.version.outputs.version }}" >&2
+            exit 1
+          }
+
+      - name: Extract release notes
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          awk -v version="$VERSION" '
+            $0 ~ "^## \\[" version "\\]" {capture=1}
+            capture && $0 ~ "^## \\[" && $0 !~ "^## \\[" version "\\]" {exit}
+            capture {print}
+          ' CHANGELOG.md > RELEASE_NOTES.md
+          test -s RELEASE_NOTES.md
+
+      - name: Create tag if needed
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          git fetch --tags --force
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" "${{ steps.commit.outputs.sha }}" -m "OpenCode Bridge $TAG"
+          git push origin "$TAG"
+
+      - name: Create GitHub Release if needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists"
+            exit 0
+          fi
+          gh release create "$TAG" \
+            --title "OpenCode Bridge $TAG" \
+            --notes-file RELEASE_NOTES.md \
+            --target "${{ steps.commit.outputs.sha }}"
