@@ -17,6 +17,7 @@ if adaptive_workers:
     log.info("adaptive worker sizing configured=%s active=%s", configured_workers, safe_workers)
 
 import bot as core
+import resource_commands
 import v3_plugin
 
 _original_post_init = core.post_init
@@ -28,6 +29,7 @@ async def post_init(app) -> None:
     core.DEFAULT_AGENT = os.environ.get("OPENCODE_AGENT", "development-agent")
     await _original_post_init(app)
     await v3_plugin.install(app)
+    await resource_commands.install(app)
 
 
 async def post_shutdown(app) -> None:
