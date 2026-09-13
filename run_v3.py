@@ -20,6 +20,7 @@ import bot as core
 import ci_plugin
 import resource_commands
 import v3_plugin
+import watchdog_plugin
 import workspace_runtime
 
 _original_post_init = core.post_init
@@ -34,9 +35,11 @@ async def post_init(app) -> None:
     await v3_plugin.install(app)
     await ci_plugin.install(app)
     await resource_commands.install(app)
+    await watchdog_plugin.install(app)
 
 
 async def post_shutdown(app) -> None:
+    await watchdog_plugin.close()
     await ci_plugin.close()
     await v3_plugin.close()
     await _original_post_shutdown(app)
