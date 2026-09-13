@@ -29,6 +29,7 @@ _original_post_shutdown = core.post_shutdown
 async def post_init(app) -> None:
     core.TaskService = v3_plugin.V3TaskService
     core.DEFAULT_AGENT = os.environ.get("OPENCODE_AGENT", "development-agent")
+    await workspace_runtime.install(core, v3_plugin.workspace_store, v3_plugin.workspace_manager)
     await _original_post_init(app)
     await v3_plugin.install(app)
     await ci_plugin.install(app)
