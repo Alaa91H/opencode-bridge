@@ -31,7 +31,8 @@ jobs:
             echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v4
+      - name: Checkout release commit
+        uses: actions/checkout@v4
         with:
           ref: ${{ steps.commit.outputs.sha }}
           fetch-depth: 0
@@ -67,25 +68,11 @@ jobs:
           ' CHANGELOG.md > RELEASE_NOTES.md
           test -s RELEASE_NOTES.md
 
-      - name: Create tag if needed
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
-        shell: bash
-        run: |
-          git fetch --tags --force
-          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            echo "$TAG already exists"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" "${{ steps.commit.outputs.sha }}" -m "OpenCode Bridge $TAG"
-          git push origin "$TAG"
-
-      - name: Create GitHub Release if needed
+      - name: Create tag and GitHub Release if needed
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
+          TARGET_SHA: ${{ steps.commit.outputs.sha }}
         shell: bash
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -95,4 +82,4 @@ jobs:
           gh release create "$TAG" \
             --title "OpenCode Bridge $TAG" \
             --notes-file RELEASE_NOTES.md \
-            --target "${{ steps.commit.outputs.sha }}"
+            --target "$TARGET_SHA"
