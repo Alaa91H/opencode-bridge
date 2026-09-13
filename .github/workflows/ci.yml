@@ -43,7 +43,8 @@ jobs:
           python -m json.tool opencode.json >/dev/null
           python -m json.tool opencode-v3.json >/dev/null
       - name: Validate semantic version
-        run: python -c "import re,pathlib; v=pathlib.Path('VERSION').read_text(encoding='utf-8').strip(); assert re.fullmatch(r'[0-9]+[.][0-9]+[.][0-9]+', v), f'invalid VERSION: {v}'; print(v)"
+        run: |
+          python -c "import re,pathlib; v=pathlib.Path('VERSION').read_text(encoding='utf-8').strip(); assert re.fullmatch(r'[0-9]+[.][0-9]+[.][0-9]+', v), 'invalid VERSION'; print(v)"
       - name: Validate shell scripts
         shell: bash
         run: |
