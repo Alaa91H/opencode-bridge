@@ -1,5 +1,5 @@
 [Unit]
-Description=OpenCode Arabic Telegram Bridge
+Description=OpenCode V3 Telegram Development Bridge
 After=network-online.target opencode-serve.service
 Wants=network-online.target opencode-serve.service
 PartOf=opencode-bridge.target
@@ -10,9 +10,9 @@ WorkingDirectory=/home/ubuntu/opencode-bridge
 EnvironmentFile=-/home/ubuntu/opencode-bridge/.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/home/ubuntu/opencode-bridge/venv/bin/python -m bot
+ExecStart=/home/ubuntu/opencode-bridge/venv/bin/python -m run_v3
 Restart=on-failure
-RestartSec=5
+RestartSec=3
 TimeoutStopSec=30
 NoNewPrivileges=yes
 
