@@ -93,7 +93,11 @@ class AuditedShadowPolicy:
         self._promotion_min_stable_seconds = max(0.0, float(promotion_min_stable_seconds))
         self._clock = clock
         self._wall_clock = wall_clock
-        self._state_path = Path(state_path) if state_path is not None else None
+        inferred_path = None
+        audit_path = getattr(audit_logger, "path", None)
+        if state_path is None and audit_path is not None:
+            inferred_path = Path(audit_path).parent / "shadow-readiness.json"
+        self._state_path = Path(state_path) if state_path is not None else inferred_path
         self._persist_interval_seconds = max(0.0, float(persist_interval_seconds))
         self._max_state_age_seconds = max(0.0, float(max_state_age_seconds))
         self._last_persist_at: float | None = None
