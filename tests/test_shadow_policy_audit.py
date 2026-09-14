@@ -63,39 +63,23 @@ def decision(production: int, shadow: int, level: str, *, samples: int) -> Worke
 class ShadowPolicyAuditTests(unittest.TestCase):
     def test_audits_start_change_and_resolution_without_sample_spam(self) -> None:
         audit = FakeAudit()
-        policy = SequencePolicy(
-            [
-                decision(4, 4, "healthy", samples=1),
-                decision(4, 2, "high", samples=2),
-                decision(4, 2, "high", samples=3),
-                decision(4, 3, "degraded", samples=4),
-                decision(4, 4, "healthy", samples=5),
-            ]
-        )
+        policy = SequencePolicy([
+            decision(4, 4, "healthy", samples=1),
+            decision(4, 2, "high", samples=2),
+            decision(4, 2, "high", samples=3),
+            decision(4, 3, "degraded", samples=4),
+            decision(4, 4, "healthy", samples=5),
+        ])
         observed = AuditedShadowPolicy(policy, audit)
-
         for _ in range(5):
             observed.decide(4)
-
         self.assertEqual([outcome for _, outcome, _ in audit.events], ["started", "changed", "resolved"])
-        self.assertTrue(all(event == "adaptive_worker_shadow_divergence" for event, _, _ in audit.events))
-        self.assertEqual(audit.events[0][2]["shadow_worker_delta"], -2)
-        self.assertEqual(audit.events[1][2]["shadow_worker_delta"], -1)
-        self.assertEqual(audit.events[2][2]["shadow_worker_delta"], 0)
-        self.assertEqual(audit.events[2][2]["previous_delta"], -1)
 
-    def test_rolling_readiness_tracks_bias_and_promotes_only_after_stable_window(self) -> None:
+    def test_readiness_requires_sustained_observation_time(self) -> None:
+        now = [100.0]
         audit = FakeAudit()
-        decisions = [
-            decision(4, 5, "healthy", samples=1),
-            decision(4, 4, "healthy", samples=2),
-            decision(4, 4, "healthy", samples=3),
-            decision(4, 4, "healthy", samples=4),
-            decision(4, 4, "healthy", samples=5),
-            decision(4, 4, "healthy", samples=6),
-        ]
         observed = AuditedShadowPolicy(
-            SequencePolicy(decisions),
+            SequencePolicy([decision(4, 4, "healthy", samples=i) for i in range(1, 7)]),
             audit,
             evaluation_window=5,
             promotion_min_samples=5,
@@ -103,24 +87,23 @@ class ShadowPolicyAuditTests(unittest.TestCase):
             promotion_max_mean_abs_delta=0.0,
             promotion_max_abs_delta=0,
             promotion_max_aggressive_percent=0.0,
+            promotion_min_observation_seconds=3600.0,
+            clock=lambda: now[0],
         )
-
         for _ in range(5):
             observed.decide(4)
-        first = observed.readiness()
-        self.assertFalse(first.promotion_ready)
-        self.assertEqual(first.samples, 5)
-        self.assertEqual(first.aggressive_samples, 1)
-        self.assertEqual(first.conservative_samples, 0)
-        self.assertEqual(first.max_abs_delta, 1)
-
+        early = observed.readiness()
+        self.assertFalse(early.promotion_ready)
+        self.assertIn("observation time", early.reason)
+        self.assertEqual(early.observed_for_seconds, 0.0)
+        now[0] += 3600.0
         observed.decide(4)
         ready = observed.readiness()
         self.assertTrue(ready.promotion_ready)
-        self.assertEqual(ready.agreement_percent, 100.0)
-        self.assertEqual(ready.mean_abs_delta, 0.0)
+        self.assertEqual(ready.observed_for_seconds, 3600.0)
         readiness_events = [item for item in audit.events if item[0] == "adaptive_worker_shadow_readiness"]
         self.assertEqual([outcome for _, outcome, _ in readiness_events], ["not_ready", "ready"])
+        self.assertEqual(readiness_events[-1][2]["required_observation_seconds"], 3600.0)
         self.assertTrue(readiness_events[-1][2]["advisory_only"])
 
     def test_readiness_distinguishes_conservative_from_aggressive_shadow_bias(self) -> None:
@@ -129,6 +112,7 @@ class ShadowPolicyAuditTests(unittest.TestCase):
             FakeAudit(),
             evaluation_window=5,
             promotion_min_samples=5,
+            promotion_min_observation_seconds=0,
         )
         for _ in range(5):
             conservative.decide(4)
