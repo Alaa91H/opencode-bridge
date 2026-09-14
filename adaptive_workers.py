@@ -26,6 +26,17 @@ class WorkerLimitStatus:
     recovery_remaining_seconds: float
 
 
+@dataclass(frozen=True)
+class WorkerLimitTransition:
+    previous_workers: int
+    stable_workers: int
+    raw_target_workers: int
+    direction: str
+    pressure: str
+    reason: str
+    elapsed_since_last_change_seconds: float | None
+
+
 class StabilizedWorkerLimit:
     """Apply fast pressure reductions and deliberately slow worker recovery.
 
@@ -42,14 +53,17 @@ class StabilizedWorkerLimit:
         policy: HostResourcePolicy,
         recovery_seconds: float = 30.0,
         clock: Callable[[], float] = time.monotonic,
+        on_transition: Callable[[WorkerLimitTransition], None] | None = None,
     ) -> None:
         self.configured_workers = max(1, min(int(configured_workers), 8))
         self.policy = policy
         self.recovery_seconds = max(1.0, float(recovery_seconds))
         self._clock = clock
+        self._on_transition = on_transition
         self._current: int | None = None
         self._last_pressure_at: float | None = None
         self._last_increase_at: float | None = None
+        self._last_change_at: float | None = None
         self._last_decision: WorkerDecision | None = None
 
     def _recovery_baseline(self, now: float) -> float:
@@ -60,6 +74,33 @@ class StabilizedWorkerLimit:
             baseline = now
         return baseline
 
+    def _transition(self, new_workers: int, decision: WorkerDecision, target: int, now: float) -> int:
+        previous = self._current
+        self._current = max(1, min(new_workers, self.configured_workers))
+        if previous is None or previous == self._current:
+            if previous is None:
+                self._last_change_at = now
+            return self._current
+
+        elapsed = None if self._last_change_at is None else max(0.0, now - self._last_change_at)
+        event = WorkerLimitTransition(
+            previous_workers=previous,
+            stable_workers=self._current,
+            raw_target_workers=target,
+            direction="decreased" if self._current < previous else "increased",
+            pressure=decision.pressure,
+            reason=decision.reason,
+            elapsed_since_last_change_seconds=elapsed,
+        )
+        self._last_change_at = now
+        if self._on_transition is not None:
+            try:
+                self._on_transition(event)
+            except Exception:
+                # Observability must never interfere with admission control.
+                pass
+        return self._current
+
     def __call__(self) -> int:
         now = self._clock()
         decision = self.policy.decide(self.configured_workers)
@@ -68,15 +109,15 @@ class StabilizedWorkerLimit:
 
         if self._current is None:
             self._current = target
+            self._last_change_at = now
             if target < self.configured_workers:
                 self._last_pressure_at = now
             return self._current
 
         if target < self._current:
-            self._current = target
             self._last_pressure_at = now
             self._last_increase_at = None
-            return self._current
+            return self._transition(target, decision, target, now)
 
         if target <= self._current:
             if target < self.configured_workers:
@@ -89,11 +130,12 @@ class StabilizedWorkerLimit:
         if now - baseline < self.recovery_seconds:
             return self._current
 
-        self._current = min(target, self._current + 1)
+        recovered = min(target, self._current + 1)
         self._last_increase_at = now
-        if self._current >= self.configured_workers:
+        result = self._transition(recovered, decision, target, now)
+        if result >= self.configured_workers:
             self._last_pressure_at = None
-        return self._current
+        return result
 
     def status(self) -> WorkerLimitStatus:
         """Return observable controller state without mutating admission limits."""
