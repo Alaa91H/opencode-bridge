@@ -88,8 +88,8 @@ class StabilizedWorkerLimit:
             stable_workers=self._current,
             raw_target_workers=target,
             direction="decreased" if self._current < previous else "increased",
-            pressure=decision.pressure,
-            reason=decision.reason,
+            pressure=str(getattr(decision, "pressure", "unknown")),
+            reason=str(getattr(decision, "reason", "resource policy transition")),
             elapsed_since_last_change_seconds=elapsed,
         )
         self._last_change_at = now
@@ -157,8 +157,8 @@ class StabilizedWorkerLimit:
             configured_workers=self.configured_workers,
             stable_workers=max(1, current),
             raw_target_workers=target,
-            pressure=decision.pressure,
-            reason=decision.reason,
+            pressure=str(getattr(decision, "pressure", "unknown")),
+            reason=str(getattr(decision, "reason", "resource policy state unavailable")),
             recovery_seconds=self.recovery_seconds,
             recovery_remaining_seconds=remaining,
         )
