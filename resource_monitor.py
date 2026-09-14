@@ -49,6 +49,7 @@ class WorkerDecision:
     pressure: str
     reason: str
     snapshot: ResourceSnapshot
+    health_score: int = 100
 
 
 class HostResourcePolicy:
@@ -86,6 +87,60 @@ class HostResourcePolicy:
         self._cached_snapshot = snapshot
         self._cached_at = now
         return snapshot
+
+    @staticmethod
+    def health_score(snapshot: ResourceSnapshot) -> int:
+        """Return a 0..100 current-host health score from independent pressures.
+
+        This score is intentionally observational: worker admission continues to
+        use the explicit conservative thresholds below. Penalties accumulate so
+        several moderate pressures are visible even when none alone reaches a
+        critical threshold. Tiny swap devices are ignored consistently with the
+        admission policy.
+        """
+        penalty = 0
+        memory_percent = snapshot.memory_available_percent
+        if snapshot.available_memory_mib < 384 or memory_percent < 12.0:
+            penalty += 50
+        elif snapshot.available_memory_mib < 768 or memory_percent < 22.0:
+            penalty += 30
+        elif memory_percent < 35.0:
+            penalty += 12
+
+        psi = snapshot.memory_psi_avg10
+        if psi is not None:
+            if psi >= 10.0:
+                penalty += 40
+            elif psi >= 2.0:
+                penalty += 22
+            elif psi >= 0.5:
+                penalty += 8
+
+        if snapshot.swap_total_mib >= 256:
+            swap_percent = snapshot.swap_used_percent
+            if swap_percent >= 90.0:
+                penalty += 35
+            elif swap_percent >= 70.0:
+                penalty += 22
+            elif swap_percent >= 40.0:
+                penalty += 8
+
+        normalized_load = snapshot.load1 / max(1, snapshot.cpu_count)
+        if normalized_load >= 2.0:
+            penalty += 35
+        elif normalized_load >= 1.2:
+            penalty += 20
+        elif normalized_load >= 0.8:
+            penalty += 7
+
+        if snapshot.disk_free_percent < 5.0:
+            penalty += 40
+        elif snapshot.disk_free_percent < 10.0:
+            penalty += 25
+        elif snapshot.disk_free_percent < 20.0:
+            penalty += 8
+
+        return max(0, min(100, 100 - penalty))
 
     def decide(self, configured_workers: int) -> WorkerDecision:
         configured = max(1, min(int(configured_workers), 8))
@@ -166,6 +221,7 @@ class HostResourcePolicy:
             pressure=pressure,
             reason=reason,
             snapshot=snap,
+            health_score=self.health_score(snap),
         )
 
     @staticmethod
@@ -209,6 +265,7 @@ def format_decision(decision: WorkerDecision) -> str:
     psi = "n/a" if snap.memory_psi_avg10 is None else f"{snap.memory_psi_avg10:.2f}%"
     return (
         f"Pressure: {decision.pressure}\n"
+        f"Health score: {decision.health_score}/100\n"
         f"Workers: {decision.allowed_workers}/{decision.configured_workers}\n"
         f"Memory: {snap.available_memory_mib} MiB available / {snap.total_memory_mib} MiB total "
         f"({snap.memory_available_percent:.1f}% available)\n"
