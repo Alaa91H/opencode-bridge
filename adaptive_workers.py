@@ -25,6 +25,12 @@ class WorkerLimitStatus:
     recovery_seconds: float
     recovery_remaining_seconds: float
     health_score: int = 100
+    shadow_promotion_ready: bool = False
+    shadow_readiness_reason: str = "shadow readiness unavailable"
+    shadow_readiness_samples: int = 0
+    shadow_agreement_percent: float = 0.0
+    shadow_observed_for_seconds: float = 0.0
+    shadow_required_observation_seconds: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -40,14 +46,7 @@ class WorkerLimitTransition:
 
 
 class StabilizedWorkerLimit:
-    """Apply fast pressure reductions and deliberately slow worker recovery.
-
-    Resource pressure can hover around a threshold on small VPS hosts. Applying
-    every raw sample directly can oscillate worker admission and immediately
-    consume memory that has only just become available. Reductions therefore
-    take effect at once, while increases require a continuous healthy window
-    and recover only one worker at a time.
-    """
+    """Apply fast pressure reductions and deliberately slow worker recovery."""
 
     def __init__(
         self,
@@ -100,7 +99,6 @@ class StabilizedWorkerLimit:
             try:
                 self._on_transition(event)
             except Exception:
-                # Observability must never interfere with admission control.
                 pass
         return self._current
 
@@ -147,14 +145,20 @@ class StabilizedWorkerLimit:
         decision = self._last_decision
         if decision is None:
             decision = self.policy.decide(self.configured_workers)
-            target = max(1, min(decision.allowed_workers, self.configured_workers))
-        else:
-            target = max(1, min(decision.allowed_workers, self.configured_workers))
+        target = max(1, min(decision.allowed_workers, self.configured_workers))
 
         remaining = 0.0
         if target > current:
             baseline = self._recovery_baseline(now)
             remaining = max(0.0, self.recovery_seconds - (now - baseline))
+
+        readiness = None
+        readiness_provider = getattr(self.policy, "readiness", None)
+        if callable(readiness_provider):
+            try:
+                readiness = readiness_provider()
+            except Exception:
+                readiness = None
 
         return WorkerLimitStatus(
             configured_workers=self.configured_workers,
@@ -165,4 +169,12 @@ class StabilizedWorkerLimit:
             recovery_seconds=self.recovery_seconds,
             recovery_remaining_seconds=remaining,
             health_score=max(0, min(100, int(getattr(decision, "health_score", 100)))),
+            shadow_promotion_ready=bool(getattr(readiness, "promotion_ready", False)),
+            shadow_readiness_reason=str(getattr(readiness, "reason", "shadow readiness unavailable")),
+            shadow_readiness_samples=max(0, int(getattr(readiness, "samples", 0))),
+            shadow_agreement_percent=max(0.0, min(100.0, float(getattr(readiness, "agreement_percent", 0.0)))),
+            shadow_observed_for_seconds=max(0.0, float(getattr(readiness, "observed_for_seconds", 0.0))),
+            shadow_required_observation_seconds=max(
+                0.0, float(getattr(readiness, "required_observation_seconds", 0.0))
+            ),
         )
