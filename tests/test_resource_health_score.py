@@ -94,12 +94,22 @@ class ResourceHealthScoreTests(unittest.TestCase):
         self.assertEqual(critical.allowed_workers, 1)
         self.assertEqual(critical.shadow_health_level, "critical")
         self.assertEqual(critical.shadow_allowed_workers, 1)
+        self.assertEqual(critical.shadow_worker_delta, 0)
+        self.assertEqual(critical.comparison_samples, 1)
+        self.assertEqual(critical.comparison_agreements, 1)
+        self.assertEqual(critical.comparison_disagreements, 0)
 
         recovered_sample = policy.decide(4)
         self.assertEqual(recovered_sample.allowed_workers, 4)
         self.assertEqual(recovered_sample.health_level, "healthy")
         self.assertEqual(recovered_sample.shadow_health_level, "high")
         self.assertEqual(recovered_sample.shadow_allowed_workers, 2)
+        self.assertEqual(recovered_sample.shadow_worker_delta, -2)
+        self.assertEqual(recovered_sample.comparison_samples, 2)
+        self.assertEqual(recovered_sample.comparison_agreements, 1)
+        self.assertEqual(recovered_sample.comparison_disagreements, 1)
+        self.assertEqual(recovered_sample.comparison_cumulative_abs_delta, 2)
+        self.assertEqual(recovered_sample.comparison_max_abs_delta, 2)
 
     def test_decision_and_diagnostics_expose_health_score(self) -> None:
         class FixedPolicy(HostResourcePolicy):
@@ -112,6 +122,8 @@ class ResourceHealthScoreTests(unittest.TestCase):
         diagnostics = format_decision(decision)
         self.assertIn(f"Health score: {decision.health_score}/100", diagnostics)
         self.assertIn(f"Shadow health: {decision.shadow_health_level}", diagnostics)
+        self.assertIn("Shadow comparison:", diagnostics)
+        self.assertIn("cumulative |delta|", diagnostics)
 
 
 if __name__ == "__main__":
