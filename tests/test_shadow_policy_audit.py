@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from resource_monitor import ResourceSnapshot, WorkerDecision
-from shadow_policy_audit import AuditedShadowPolicy
+from shadow_policy_audit import AuditedShadowPolicy, format_readiness
 
 
 SNAPSHOT = ResourceSnapshot(
@@ -75,11 +75,20 @@ class ShadowPolicyAuditTests(unittest.TestCase):
             observed.decide(4)
         self.assertEqual([outcome for _, outcome, _ in audit.events], ["started", "changed", "resolved"])
 
-    def test_readiness_requires_sustained_observation_time(self) -> None:
+    def test_readiness_requires_continuously_stable_evidence(self) -> None:
         now = [100.0]
         audit = FakeAudit()
+        decisions = [
+            decision(4, 5, "healthy", samples=1),
+            decision(4, 4, "healthy", samples=2),
+            decision(4, 4, "healthy", samples=3),
+            decision(4, 4, "healthy", samples=4),
+            decision(4, 4, "healthy", samples=5),
+            decision(4, 4, "healthy", samples=6),
+            decision(4, 4, "healthy", samples=7),
+        ]
         observed = AuditedShadowPolicy(
-            SequencePolicy([decision(4, 4, "healthy", samples=i) for i in range(1, 7)]),
+            SequencePolicy(decisions),
             audit,
             evaluation_window=5,
             promotion_min_samples=5,
@@ -87,24 +96,75 @@ class ShadowPolicyAuditTests(unittest.TestCase):
             promotion_max_mean_abs_delta=0.0,
             promotion_max_abs_delta=0,
             promotion_max_aggressive_percent=0.0,
-            promotion_min_observation_seconds=3600.0,
+            promotion_min_stable_seconds=3600.0,
             clock=lambda: now[0],
         )
+
         for _ in range(5):
             observed.decide(4)
-        early = observed.readiness()
-        self.assertFalse(early.promotion_ready)
-        self.assertIn("observation time", early.reason)
-        self.assertEqual(early.observed_for_seconds, 0.0)
+        self.assertFalse(observed.readiness().promotion_ready)
+
+        # A long process lifetime must not count if the rolling evidence only
+        # became statistically clean at this moment.
+        now[0] += 7200.0
+        observed.decide(4)
+        newly_clean = observed.readiness()
+        self.assertTrue(newly_clean.statistical_ready)
+        self.assertFalse(newly_clean.promotion_ready)
+        self.assertEqual(newly_clean.stable_for_seconds, 0.0)
+        self.assertIn("continuously stable", newly_clean.reason)
+
         now[0] += 3600.0
         observed.decide(4)
         ready = observed.readiness()
         self.assertTrue(ready.promotion_ready)
-        self.assertEqual(ready.observed_for_seconds, 3600.0)
+        self.assertEqual(ready.stable_for_seconds, 3600.0)
         readiness_events = [item for item in audit.events if item[0] == "adaptive_worker_shadow_readiness"]
         self.assertEqual([outcome for _, outcome, _ in readiness_events], ["not_ready", "ready"])
-        self.assertEqual(readiness_events[-1][2]["required_observation_seconds"], 3600.0)
+        self.assertEqual(readiness_events[-1][2]["required_stable_seconds"], 3600.0)
         self.assertTrue(readiness_events[-1][2]["advisory_only"])
+
+        text = format_readiness(ready)
+        self.assertIn("advisory only", text)
+        self.assertIn("3600/3600s", text)
+
+    def test_statistical_regression_resets_stability_clock(self) -> None:
+        now = [0.0]
+        policy = SequencePolicy([
+            decision(4, 4, "healthy", samples=1),
+            decision(4, 4, "healthy", samples=2),
+            decision(4, 4, "healthy", samples=3),
+            decision(4, 4, "healthy", samples=4),
+            decision(4, 4, "healthy", samples=5),
+            decision(4, 5, "healthy", samples=6),
+            decision(4, 4, "healthy", samples=7),
+            decision(4, 4, "healthy", samples=8),
+            decision(4, 4, "healthy", samples=9),
+            decision(4, 4, "healthy", samples=10),
+            decision(4, 4, "healthy", samples=11),
+        ])
+        observed = AuditedShadowPolicy(
+            policy,
+            FakeAudit(),
+            evaluation_window=5,
+            promotion_min_samples=5,
+            promotion_min_agreement_percent=100.0,
+            promotion_max_mean_abs_delta=0.0,
+            promotion_max_abs_delta=0,
+            promotion_max_aggressive_percent=0.0,
+            promotion_min_stable_seconds=10.0,
+            clock=lambda: now[0],
+        )
+        for _ in range(5):
+            observed.decide(4)
+        now[0] = 9.0
+        self.assertFalse(observed.readiness().promotion_ready)
+        observed.decide(4)  # regression enters the rolling window
+        self.assertFalse(observed.readiness().statistical_ready)
+        for _ in range(5):
+            observed.decide(4)
+        self.assertTrue(observed.readiness().statistical_ready)
+        self.assertEqual(observed.readiness().stable_for_seconds, 0.0)
 
     def test_readiness_distinguishes_conservative_from_aggressive_shadow_bias(self) -> None:
         conservative = AuditedShadowPolicy(
@@ -112,7 +172,7 @@ class ShadowPolicyAuditTests(unittest.TestCase):
             FakeAudit(),
             evaluation_window=5,
             promotion_min_samples=5,
-            promotion_min_observation_seconds=0,
+            promotion_min_stable_seconds=0,
         )
         for _ in range(5):
             conservative.decide(4)
