@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import json
+import math
+import os
 import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+
+_STATE_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -48,6 +55,10 @@ class AuditedShadowPolicy:
     rolling window that answers whether the shadow policy has accumulated enough
     continuously stable evidence to be considered for a future promotion.
     Promotion remains advisory only: ``allowed_workers`` is always production.
+
+    Optional runtime persistence retains recent evidence across short service
+    restarts. Persisted state is bounded, atomically replaced, age-validated,
+    and never counts service downtime as additional stable evidence.
     """
 
     def __init__(
@@ -64,6 +75,10 @@ class AuditedShadowPolicy:
         promotion_max_aggressive_percent: float = 2.0,
         promotion_min_stable_seconds: float = 6 * 60 * 60,
         clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
+        state_path: str | Path | None = None,
+        persist_interval_seconds: float = 60.0,
+        max_state_age_seconds: float = 15 * 60,
     ) -> None:
         self._policy = policy
         self._audit_logger = audit_logger
@@ -77,8 +92,14 @@ class AuditedShadowPolicy:
         self._promotion_max_aggressive_percent = max(0.0, min(100.0, float(promotion_max_aggressive_percent)))
         self._promotion_min_stable_seconds = max(0.0, float(promotion_min_stable_seconds))
         self._clock = clock
+        self._wall_clock = wall_clock
+        self._state_path = Path(state_path) if state_path is not None else None
+        self._persist_interval_seconds = max(0.0, float(persist_interval_seconds))
+        self._max_state_age_seconds = max(0.0, float(max_state_age_seconds))
+        self._last_persist_at: float | None = None
         self._statistically_ready_since: float | None = None
         self._last_readiness: bool | None = None
+        self._restore_state()
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._policy, name)
@@ -88,7 +109,7 @@ class AuditedShadowPolicy:
         self._observe(decision)
         return decision
 
-    def readiness(self) -> ShadowReadiness:
+    def _statistics(self) -> tuple[int, int, int, int, float, float, int, list[tuple[bool, str]]]:
         deltas = list(self._deltas)
         samples = len(deltas)
         agreements = sum(1 for value in deltas if value == 0)
@@ -98,7 +119,6 @@ class AuditedShadowPolicy:
         aggressive_percent = aggressive * 100.0 / samples if samples else 0.0
         mean_abs_delta = sum(abs(value) for value in deltas) / samples if samples else 0.0
         max_abs_delta = max((abs(value) for value in deltas), default=0)
-
         checks = [
             (samples >= self._promotion_min_samples, f"need {self._promotion_min_samples} samples"),
             (
@@ -115,6 +135,30 @@ class AuditedShadowPolicy:
                 f"aggressive rate above {self._promotion_max_aggressive_percent:.1f}%",
             ),
         ]
+        return (
+            samples,
+            agreements,
+            aggressive,
+            conservative,
+            agreement_percent,
+            aggressive_percent,
+            max_abs_delta,
+            checks,
+        )
+
+    def readiness(self) -> ShadowReadiness:
+        deltas = list(self._deltas)
+        (
+            samples,
+            agreements,
+            aggressive,
+            conservative,
+            agreement_percent,
+            aggressive_percent,
+            max_abs_delta,
+            checks,
+        ) = self._statistics()
+        mean_abs_delta = sum(abs(value) for value in deltas) / samples if samples else 0.0
         statistical_ready = all(ok for ok, _ in checks)
         now = self._clock()
         if statistical_ready:
@@ -163,6 +207,7 @@ class AuditedShadowPolicy:
         shadow_level = str(getattr(decision, "shadow_health_level", "unknown"))
         self._deltas.append(delta)
         self._audit_readiness_transition()
+        self._persist_state_if_due()
 
         if abs(delta) < self._min_abs_delta:
             if self._last_signature is not None:
@@ -186,6 +231,81 @@ class AuditedShadowPolicy:
             previous_delta=previous_delta, previous_shadow_level=previous_shadow_level,
         )
         self._last_signature = signature
+
+    def _restore_state(self) -> None:
+        if self._state_path is None or not self._state_path.exists():
+            return
+        try:
+            payload = json.loads(self._state_path.read_text(encoding="utf-8"))
+            if payload.get("version") != _STATE_VERSION:
+                raise ValueError("unsupported state version")
+            saved_at = float(payload["saved_at_unix"])
+            now_wall = float(self._wall_clock())
+            if not math.isfinite(saved_at) or saved_at > now_wall + 5.0:
+                raise ValueError("invalid state timestamp")
+            age = max(0.0, now_wall - saved_at)
+            if age > self._max_state_age_seconds:
+                raise ValueError("state too old")
+            raw_deltas = payload.get("deltas")
+            if not isinstance(raw_deltas, list) or len(raw_deltas) > (self._deltas.maxlen or 60):
+                raise ValueError("invalid delta window")
+            deltas: list[int] = []
+            for value in raw_deltas:
+                if isinstance(value, bool) or not isinstance(value, int) or abs(value) > 8:
+                    raise ValueError("invalid delta value")
+                deltas.append(value)
+            self._deltas.extend(deltas)
+
+            stable_elapsed = float(payload.get("stable_elapsed_seconds", 0.0))
+            if not math.isfinite(stable_elapsed) or stable_elapsed < 0.0:
+                raise ValueError("invalid stable duration")
+            stable_elapsed = min(stable_elapsed, self._promotion_min_stable_seconds)
+            checks = self._statistics()[-1]
+            if deltas and all(ok for ok, _ in checks) and stable_elapsed > 0.0:
+                self._statistically_ready_since = self._clock() - stable_elapsed
+            self._last_persist_at = self._clock()
+            self._audit_state("restored", {"samples": len(deltas), "age_seconds": round(age, 1)})
+        except Exception as exc:
+            self._deltas.clear()
+            self._statistically_ready_since = None
+            self._audit_state("ignored", {"reason": type(exc).__name__})
+
+    def _persist_state_if_due(self) -> None:
+        if self._state_path is None:
+            return
+        now = self._clock()
+        if self._last_persist_at is not None and now - self._last_persist_at < self._persist_interval_seconds:
+            return
+        status = self.readiness()
+        payload = {
+            "version": _STATE_VERSION,
+            "saved_at_unix": float(self._wall_clock()),
+            "deltas": list(self._deltas),
+            "stable_elapsed_seconds": status.stable_for_seconds if status.statistical_ready else 0.0,
+        }
+        try:
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = self._state_path.with_name(self._state_path.name + ".tmp")
+            tmp_path.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+            try:
+                os.chmod(tmp_path, 0o600)
+            except OSError:
+                pass
+            os.replace(tmp_path, self._state_path)
+            self._last_persist_at = now
+        except Exception:
+            # Persistence is observability-only and must never affect admission.
+            pass
+
+    def _audit_state(self, outcome: str, details: dict[str, Any]) -> None:
+        try:
+            self._audit_logger.write(
+                "adaptive_worker_shadow_state",
+                outcome,
+                details={**details, "advisory_only": True},
+            )
+        except Exception:
+            pass
 
     def _audit_readiness_transition(self) -> None:
         status = self.readiness()
