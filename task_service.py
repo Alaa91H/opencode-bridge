@@ -82,6 +82,7 @@ class TaskService(TaskServiceV3):
                 "stable_workers": transition.stable_workers,
                 "raw_target_workers": transition.raw_target_workers,
                 "pressure": transition.pressure,
+                "health_score": transition.health_score,
                 "reason": transition.reason,
                 "elapsed_since_last_change_seconds": transition.elapsed_since_last_change_seconds,
             },
