@@ -10,10 +10,17 @@ from task_queue import QueuedTask, TaskQueueStore
 
 log = logging.getLogger(__name__)
 TaskExecutor = Callable[[QueuedTask], Awaitable[None]]
+WorkerLimitProvider = Callable[[], int]
 
 
 class TaskServiceV3:
-    """Process independent owners concurrently while preserving per-owner order."""
+    """Process independent owners concurrently while preserving per-owner order.
+
+    ``max_workers`` is the hard concurrency ceiling. When a live
+    ``worker_limit_provider`` is supplied, workers above the current safe limit
+    remain idle and re-check before claiming new work. Running tasks are never
+    cancelled solely because host pressure increased.
+    """
 
     def __init__(
         self,
@@ -21,14 +28,31 @@ class TaskServiceV3:
         executor: TaskExecutor,
         poll_seconds: float = 5.0,
         max_workers: int = 2,
+        worker_limit_provider: WorkerLimitProvider | None = None,
     ) -> None:
         self.store = store
         self.executor = executor
         self.poll_seconds = max(0.5, float(poll_seconds))
         self.max_workers = max(1, min(int(max_workers), 8))
+        self.worker_limit_provider = worker_limit_provider
         self._wake = asyncio.Event()
         self._stop = asyncio.Event()
         self._workers: list[asyncio.Task[None]] = []
+
+    def active_worker_limit(self) -> int:
+        """Return the current claim-admission limit within the configured ceiling."""
+        if self.worker_limit_provider is None:
+            return self.max_workers
+        try:
+            requested = int(self.worker_limit_provider())
+        except Exception as exc:
+            log.warning("adaptive worker limit provider failed: %s", type(exc).__name__)
+            return 1
+        return max(1, min(requested, self.max_workers))
+
+    def worker_can_claim(self, worker_id: int) -> bool:
+        """Return whether this worker may claim a new task right now."""
+        return 1 <= worker_id <= self.active_worker_limit()
 
     async def start(self) -> int:
         interrupted = await self.store.recover_interrupted()
@@ -53,9 +77,19 @@ class TaskServiceV3:
     def wake(self) -> None:
         self._wake.set()
 
+    async def _wait_for_work(self) -> None:
+        self._wake.clear()
+        try:
+            await asyncio.wait_for(self._wake.wait(), timeout=self.poll_seconds)
+        except asyncio.TimeoutError:
+            pass
+
     async def _run(self, worker_id: int) -> None:
         while not self._stop.is_set():
             try:
+                if not self.worker_can_claim(worker_id):
+                    await self._wait_for_work()
+                    continue
                 await self.store.promote_due()
                 task = await self.store.claim_next()
                 if task is not None:
@@ -63,11 +97,7 @@ class TaskServiceV3:
                     await self._execute(task)
                     self._wake.set()
                     continue
-                self._wake.clear()
-                try:
-                    await asyncio.wait_for(self._wake.wait(), timeout=self.poll_seconds)
-                except asyncio.TimeoutError:
-                    pass
+                await self._wait_for_work()
             except asyncio.CancelledError:
                 raise
             except Exception:
