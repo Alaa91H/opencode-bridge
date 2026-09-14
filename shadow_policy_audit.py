@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -18,6 +20,8 @@ class ShadowReadiness:
     aggressive_samples: int
     conservative_samples: int
     aggressive_percent: float
+    observed_for_seconds: float
+    required_observation_seconds: float
     promotion_ready: bool
     reason: str
 
@@ -43,6 +47,8 @@ class AuditedShadowPolicy:
         promotion_max_mean_abs_delta: float = 0.10,
         promotion_max_abs_delta: int = 1,
         promotion_max_aggressive_percent: float = 2.0,
+        promotion_min_observation_seconds: float = 6 * 60 * 60,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._policy = policy
         self._audit_logger = audit_logger
@@ -54,6 +60,9 @@ class AuditedShadowPolicy:
         self._promotion_max_mean_abs_delta = max(0.0, float(promotion_max_mean_abs_delta))
         self._promotion_max_abs_delta = max(0, int(promotion_max_abs_delta))
         self._promotion_max_aggressive_percent = max(0.0, min(100.0, float(promotion_max_aggressive_percent)))
+        self._promotion_min_observation_seconds = max(0.0, float(promotion_min_observation_seconds))
+        self._clock = clock
+        self._observation_started_at: float | None = None
         self._last_readiness: bool | None = None
 
     def __getattr__(self, name: str) -> Any:
@@ -74,9 +83,18 @@ class AuditedShadowPolicy:
         aggressive_percent = aggressive * 100.0 / samples if samples else 0.0
         mean_abs_delta = sum(abs(value) for value in deltas) / samples if samples else 0.0
         max_abs_delta = max((abs(value) for value in deltas), default=0)
+        observed_for_seconds = (
+            0.0
+            if self._observation_started_at is None
+            else max(0.0, self._clock() - self._observation_started_at)
+        )
 
         checks = [
             (samples >= self._promotion_min_samples, f"need {self._promotion_min_samples} samples"),
+            (
+                observed_for_seconds >= self._promotion_min_observation_seconds,
+                f"observation time below {self._promotion_min_observation_seconds:.0f}s",
+            ),
             (
                 agreement_percent >= self._promotion_min_agreement_percent,
                 f"agreement below {self._promotion_min_agreement_percent:.1f}%",
@@ -105,6 +123,8 @@ class AuditedShadowPolicy:
             aggressive_samples=aggressive,
             conservative_samples=conservative,
             aggressive_percent=aggressive_percent,
+            observed_for_seconds=observed_for_seconds,
+            required_observation_seconds=self._promotion_min_observation_seconds,
             promotion_ready=promotion_ready,
             reason=reason,
         )
@@ -118,6 +138,8 @@ class AuditedShadowPolicy:
         shadow_workers = int(shadow_workers)
         delta = int(getattr(decision, "shadow_worker_delta", shadow_workers - production_workers))
         shadow_level = str(getattr(decision, "shadow_health_level", "unknown"))
+        if self._observation_started_at is None:
+            self._observation_started_at = self._clock()
         self._deltas.append(delta)
         self._audit_readiness_transition()
 
@@ -174,6 +196,8 @@ class AuditedShadowPolicy:
                     "aggressive_samples": status.aggressive_samples,
                     "conservative_samples": status.conservative_samples,
                     "aggressive_percent": round(status.aggressive_percent, 2),
+                    "observed_for_seconds": round(status.observed_for_seconds, 1),
+                    "required_observation_seconds": status.required_observation_seconds,
                     "reason": status.reason,
                     "advisory_only": True,
                 },
