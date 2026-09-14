@@ -45,6 +45,7 @@ def _format_controller(status: WorkerLimitStatus) -> str:
         f"Stable workers: {status.stable_workers}/{status.configured_workers}\n"
         f"Raw target: {status.raw_target_workers}\n"
         f"Controller pressure: {status.pressure}\n"
+        f"Controller health: {status.health_score}/100\n"
         f"Recovery: {recovery}\n"
         f"Last policy reason: {status.reason}"
     )
