@@ -4,14 +4,26 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 
-from resource_monitor import HostResourcePolicy
+from resource_monitor import HostResourcePolicy, WorkerDecision
 
 
 def choose_worker_limit(configured_workers: int, policy: HostResourcePolicy | None = None) -> int:
     """Return the live safe worker limit for the current host."""
     resource_policy = policy or HostResourcePolicy()
     return resource_policy.decide(configured_workers).allowed_workers
+
+
+@dataclass(frozen=True)
+class WorkerLimitStatus:
+    configured_workers: int
+    stable_workers: int
+    raw_target_workers: int
+    pressure: str
+    reason: str
+    recovery_seconds: float
+    recovery_remaining_seconds: float
 
 
 class StabilizedWorkerLimit:
@@ -38,11 +50,21 @@ class StabilizedWorkerLimit:
         self._current: int | None = None
         self._last_pressure_at: float | None = None
         self._last_increase_at: float | None = None
+        self._last_decision: WorkerDecision | None = None
+
+    def _recovery_baseline(self, now: float) -> float:
+        baseline = self._last_increase_at
+        if baseline is None:
+            baseline = self._last_pressure_at
+        if baseline is None:
+            baseline = now
+        return baseline
 
     def __call__(self) -> int:
         now = self._clock()
-        target = self.policy.decide(self.configured_workers).allowed_workers
-        target = max(1, min(target, self.configured_workers))
+        decision = self.policy.decide(self.configured_workers)
+        self._last_decision = decision
+        target = max(1, min(decision.allowed_workers, self.configured_workers))
 
         if self._current is None:
             self._current = target
@@ -61,14 +83,8 @@ class StabilizedWorkerLimit:
                 self._last_pressure_at = now
             return self._current
 
-        # A higher raw target is only trusted after a continuous recovery
-        # interval. Subsequent increases are also spaced by that interval so a
-        # suddenly idle sample cannot jump from one worker to the full ceiling.
-        baseline = self._last_increase_at
-        if baseline is None:
-            baseline = self._last_pressure_at
-        if baseline is None:
-            baseline = now
+        baseline = self._recovery_baseline(now)
+        if self._last_pressure_at is None and self._last_increase_at is None:
             self._last_pressure_at = now
         if now - baseline < self.recovery_seconds:
             return self._current
@@ -78,3 +94,29 @@ class StabilizedWorkerLimit:
         if self._current >= self.configured_workers:
             self._last_pressure_at = None
         return self._current
+
+    def status(self) -> WorkerLimitStatus:
+        """Return observable controller state without mutating admission limits."""
+        now = self._clock()
+        current = self._current if self._current is not None else self.configured_workers
+        decision = self._last_decision
+        if decision is None:
+            decision = self.policy.decide(self.configured_workers)
+            target = max(1, min(decision.allowed_workers, self.configured_workers))
+        else:
+            target = max(1, min(decision.allowed_workers, self.configured_workers))
+
+        remaining = 0.0
+        if target > current:
+            baseline = self._recovery_baseline(now)
+            remaining = max(0.0, self.recovery_seconds - (now - baseline))
+
+        return WorkerLimitStatus(
+            configured_workers=self.configured_workers,
+            stable_workers=max(1, current),
+            raw_target_workers=target,
+            pressure=decision.pressure,
+            reason=decision.reason,
+            recovery_seconds=self.recovery_seconds,
+            recovery_remaining_seconds=remaining,
+        )
