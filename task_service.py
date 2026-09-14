@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
-from adaptive_workers import StabilizedWorkerLimit
+from adaptive_workers import StabilizedWorkerLimit, WorkerLimitTransition
+from audit_log import AuditLogger
 from resource_monitor import HostResourcePolicy
 from task_service_v3 import TaskServiceV3
 
@@ -51,13 +53,16 @@ class TaskService(TaskServiceV3):
         max_workers: int | None = None,
         resource_policy: HostResourcePolicy | None = None,
         recovery_seconds: float | None = None,
+        audit_logger: AuditLogger | None = None,
     ) -> None:
         configured_workers = _configured_workers() if max_workers is None else max_workers
         self.resource_policy = resource_policy or HostResourcePolicy()
+        self.audit_logger = audit_logger or AuditLogger(Path(__file__).resolve().parent / "runtime" / "audit.jsonl")
         self.worker_limit = StabilizedWorkerLimit(
             configured_workers,
             self.resource_policy,
             recovery_seconds=_configured_recovery_seconds() if recovery_seconds is None else recovery_seconds,
+            on_transition=self._audit_worker_transition,
         )
         super().__init__(
             store,
@@ -65,4 +70,19 @@ class TaskService(TaskServiceV3):
             poll_seconds=_configured_poll_seconds() if poll_seconds is None else poll_seconds,
             max_workers=configured_workers,
             worker_limit_provider=self.worker_limit,
+        )
+
+    def _audit_worker_transition(self, transition: WorkerLimitTransition) -> None:
+        """Record only real admission-limit changes, never every resource sample."""
+        self.audit_logger.write(
+            "adaptive_worker_limit",
+            transition.direction,
+            details={
+                "previous_workers": transition.previous_workers,
+                "stable_workers": transition.stable_workers,
+                "raw_target_workers": transition.raw_target_workers,
+                "pressure": transition.pressure,
+                "reason": transition.reason,
+                "elapsed_since_last_change_seconds": transition.elapsed_since_last_change_seconds,
+            },
         )
