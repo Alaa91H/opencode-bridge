@@ -38,18 +38,19 @@ class SequencedPolicy:
 
 
 class ProductionAdaptiveWorkerTests(unittest.TestCase):
-    def test_default_service_uses_live_resource_policy(self) -> None:
+    def test_default_service_reduces_immediately_and_holds_recovery(self) -> None:
         policy = SequencedPolicy([3, 1, 4])
         service = TaskService(
             store=None,  # type: ignore[arg-type]
             executor=_executor,
             max_workers=4,
             resource_policy=policy,  # type: ignore[arg-type]
+            recovery_seconds=30,
         )
 
         self.assertEqual(service.active_worker_limit(), 3)
         self.assertEqual(service.active_worker_limit(), 1)
-        self.assertEqual(service.active_worker_limit(), 4)
+        self.assertEqual(service.active_worker_limit(), 1)
 
     def test_resource_policy_cannot_exceed_admin_ceiling(self) -> None:
         policy = SequencedPolicy([8])
