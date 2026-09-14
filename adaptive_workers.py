@@ -22,9 +22,9 @@ class WorkerLimitStatus:
     raw_target_workers: int
     pressure: str
     reason: str
-    health_score: int
     recovery_seconds: float
     recovery_remaining_seconds: float
+    health_score: int = 100
 
 
 @dataclass(frozen=True)
@@ -35,8 +35,8 @@ class WorkerLimitTransition:
     direction: str
     pressure: str
     reason: str
-    health_score: int
     elapsed_since_last_change_seconds: float | None
+    health_score: int = 100
 
 
 class StabilizedWorkerLimit:
@@ -92,8 +92,8 @@ class StabilizedWorkerLimit:
             direction="decreased" if self._current < previous else "increased",
             pressure=str(getattr(decision, "pressure", "unknown")),
             reason=str(getattr(decision, "reason", "resource policy transition")),
-            health_score=max(0, min(100, int(getattr(decision, "health_score", 100)))),
             elapsed_since_last_change_seconds=elapsed,
+            health_score=max(0, min(100, int(getattr(decision, "health_score", 100)))),
         )
         self._last_change_at = now
         if self._on_transition is not None:
@@ -162,7 +162,7 @@ class StabilizedWorkerLimit:
             raw_target_workers=target,
             pressure=str(getattr(decision, "pressure", "unknown")),
             reason=str(getattr(decision, "reason", "resource policy state unavailable")),
-            health_score=max(0, min(100, int(getattr(decision, "health_score", 100)))),
             recovery_seconds=self.recovery_seconds,
             recovery_remaining_seconds=remaining,
+            health_score=max(0, min(100, int(getattr(decision, "health_score", 100)))),
         )
