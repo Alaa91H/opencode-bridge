@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _MIB = 1024 * 1024
+_HEALTH_RANK = {"healthy": 0, "degraded": 1, "high": 2, "critical": 3}
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,9 @@ class WorkerDecision:
     reason: str
     snapshot: ResourceSnapshot
     health_score: int = 100
+    health_level: str = "healthy"
+    shadow_health_level: str = "healthy"
+    shadow_allowed_workers: int | None = None
 
 
 class HostResourcePolicy:
@@ -60,6 +64,7 @@ class HostResourcePolicy:
         self.root_path = root_path
         self._cached_at = 0.0
         self._cached_snapshot: ResourceSnapshot | None = None
+        self._shadow_health_level: str | None = None
 
     def snapshot(self, force: bool = False) -> ResourceSnapshot:
         now = time.monotonic()
@@ -142,6 +147,64 @@ class HostResourcePolicy:
 
         return max(0, min(100, 100 - penalty))
 
+    @staticmethod
+    def health_level(score: int) -> str:
+        """Map a health score to a human-readable pressure level."""
+        value = max(0, min(100, int(score)))
+        if value >= 80:
+            return "healthy"
+        if value >= 60:
+            return "degraded"
+        if value >= 35:
+            return "high"
+        return "critical"
+
+    @staticmethod
+    def shadow_worker_limit(configured_workers: int, health_level: str) -> int:
+        """Return the observational worker cap implied only by health score."""
+        configured = max(1, min(int(configured_workers), 8))
+        if health_level == "critical":
+            return 1
+        if health_level == "high":
+            return min(configured, 2)
+        if health_level == "degraded":
+            return min(configured, 3)
+        return configured
+
+    @classmethod
+    def stabilize_shadow_health_level(cls, score: int, previous: str | None) -> str:
+        """Apply immediate degradation and conservative recovery hysteresis.
+
+        The result is shadow-only and never changes production admission. A
+        worsening score takes effect immediately. Recovery requires clearing a
+        five-point margin above the next healthier boundary, preventing noisy
+        samples around 35/60/80 from making the shadow comparison oscillate.
+        """
+        raw = cls.health_level(score)
+        if previous not in _HEALTH_RANK:
+            return raw
+        if _HEALTH_RANK[raw] >= _HEALTH_RANK[previous]:
+            return raw
+
+        recovery_threshold = {
+            "critical": 40,
+            "high": 65,
+            "degraded": 85,
+            "healthy": 101,
+        }[previous]
+        if score < recovery_threshold:
+            return previous
+
+        # Recover at most one level per sample. This keeps the observational
+        # signal stable enough to compare with the production controller.
+        next_healthier = {
+            "critical": "high",
+            "high": "degraded",
+            "degraded": "healthy",
+            "healthy": "healthy",
+        }[previous]
+        return next_healthier
+
     def decide(self, configured_workers: int) -> WorkerDecision:
         configured = max(1, min(int(configured_workers), 8))
         snap = self.snapshot()
@@ -215,13 +278,20 @@ class HostResourcePolicy:
             reasons.append("memory-sized concurrency cap")
 
         reason = ", ".join(dict.fromkeys(reasons)) if reasons else "resources healthy"
+        score = self.health_score(snap)
+        raw_health_level = self.health_level(score)
+        shadow_health_level = self.stabilize_shadow_health_level(score, self._shadow_health_level)
+        self._shadow_health_level = shadow_health_level
         return WorkerDecision(
             allowed_workers=max(1, allowed),
             configured_workers=configured,
             pressure=pressure,
             reason=reason,
             snapshot=snap,
-            health_score=self.health_score(snap),
+            health_score=score,
+            health_level=raw_health_level,
+            shadow_health_level=shadow_health_level,
+            shadow_allowed_workers=self.shadow_worker_limit(configured, shadow_health_level),
         )
 
     @staticmethod
@@ -263,10 +333,14 @@ class HostResourcePolicy:
 def format_decision(decision: WorkerDecision) -> str:
     snap = decision.snapshot
     psi = "n/a" if snap.memory_psi_avg10 is None else f"{snap.memory_psi_avg10:.2f}%"
+    shadow_workers = decision.shadow_allowed_workers
+    if shadow_workers is None:
+        shadow_workers = decision.allowed_workers
     return (
         f"Pressure: {decision.pressure}\n"
-        f"Health score: {decision.health_score}/100\n"
+        f"Health score: {decision.health_score}/100 ({decision.health_level})\n"
         f"Workers: {decision.allowed_workers}/{decision.configured_workers}\n"
+        f"Shadow health: {decision.shadow_health_level}; workers {shadow_workers}/{decision.configured_workers}\n"
         f"Memory: {snap.available_memory_mib} MiB available / {snap.total_memory_mib} MiB total "
         f"({snap.memory_available_percent:.1f}% available)\n"
         f"Swap: {snap.swap_used_mib} MiB used / {snap.swap_total_mib} MiB total "
