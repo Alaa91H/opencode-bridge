@@ -20,10 +20,25 @@ class ShadowReadiness:
     aggressive_samples: int
     conservative_samples: int
     aggressive_percent: float
-    observed_for_seconds: float
-    required_observation_seconds: float
+    statistical_ready: bool
+    stable_for_seconds: float
+    required_stable_seconds: float
     promotion_ready: bool
     reason: str
+
+
+def format_readiness(status: ShadowReadiness) -> str:
+    """Render compact advisory diagnostics without implying automatic promotion."""
+    state = "ready" if status.promotion_ready else "not ready"
+    return (
+        "Shadow readiness (advisory only)\n"
+        f"State: {state}; {status.reason}\n"
+        f"Window: {status.samples}/{status.window_size} samples; agreement {status.agreement_percent:.1f}%\n"
+        f"Delta: mean |delta| {status.mean_abs_delta:.3f}; max |delta| {status.max_abs_delta}\n"
+        f"Bias: aggressive {status.aggressive_samples} ({status.aggressive_percent:.1f}%); "
+        f"conservative {status.conservative_samples}\n"
+        f"Stable evidence: {status.stable_for_seconds:.0f}/{status.required_stable_seconds:.0f}s"
+    )
 
 
 class AuditedShadowPolicy:
@@ -31,8 +46,8 @@ class AuditedShadowPolicy:
 
     Besides low-noise divergence audit events, the wrapper keeps a bounded
     rolling window that answers whether the shadow policy has accumulated enough
-    stable evidence to be considered for a future promotion. Promotion remains
-    advisory only: ``allowed_workers`` is always the production decision.
+    continuously stable evidence to be considered for a future promotion.
+    Promotion remains advisory only: ``allowed_workers`` is always production.
     """
 
     def __init__(
@@ -47,7 +62,7 @@ class AuditedShadowPolicy:
         promotion_max_mean_abs_delta: float = 0.10,
         promotion_max_abs_delta: int = 1,
         promotion_max_aggressive_percent: float = 2.0,
-        promotion_min_observation_seconds: float = 6 * 60 * 60,
+        promotion_min_stable_seconds: float = 6 * 60 * 60,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._policy = policy
@@ -60,9 +75,9 @@ class AuditedShadowPolicy:
         self._promotion_max_mean_abs_delta = max(0.0, float(promotion_max_mean_abs_delta))
         self._promotion_max_abs_delta = max(0, int(promotion_max_abs_delta))
         self._promotion_max_aggressive_percent = max(0.0, min(100.0, float(promotion_max_aggressive_percent)))
-        self._promotion_min_observation_seconds = max(0.0, float(promotion_min_observation_seconds))
+        self._promotion_min_stable_seconds = max(0.0, float(promotion_min_stable_seconds))
         self._clock = clock
-        self._observation_started_at: float | None = None
+        self._statistically_ready_since: float | None = None
         self._last_readiness: bool | None = None
 
     def __getattr__(self, name: str) -> Any:
@@ -83,18 +98,9 @@ class AuditedShadowPolicy:
         aggressive_percent = aggressive * 100.0 / samples if samples else 0.0
         mean_abs_delta = sum(abs(value) for value in deltas) / samples if samples else 0.0
         max_abs_delta = max((abs(value) for value in deltas), default=0)
-        observed_for_seconds = (
-            0.0
-            if self._observation_started_at is None
-            else max(0.0, self._clock() - self._observation_started_at)
-        )
 
         checks = [
             (samples >= self._promotion_min_samples, f"need {self._promotion_min_samples} samples"),
-            (
-                observed_for_seconds >= self._promotion_min_observation_seconds,
-                f"observation time below {self._promotion_min_observation_seconds:.0f}s",
-            ),
             (
                 agreement_percent >= self._promotion_min_agreement_percent,
                 f"agreement below {self._promotion_min_agreement_percent:.1f}%",
@@ -109,10 +115,26 @@ class AuditedShadowPolicy:
                 f"aggressive rate above {self._promotion_max_aggressive_percent:.1f}%",
             ),
         ]
-        promotion_ready = all(ok for ok, _ in checks)
-        reason = "shadow policy meets advisory promotion gates" if promotion_ready else next(
-            message for ok, message in checks if not ok
-        )
+        statistical_ready = all(ok for ok, _ in checks)
+        now = self._clock()
+        if statistical_ready:
+            if self._statistically_ready_since is None:
+                self._statistically_ready_since = now
+            stable_for_seconds = max(0.0, now - self._statistically_ready_since)
+        else:
+            self._statistically_ready_since = None
+            stable_for_seconds = 0.0
+
+        duration_ready = stable_for_seconds >= self._promotion_min_stable_seconds
+        promotion_ready = statistical_ready and duration_ready
+        if not statistical_ready:
+            reason = next(message for ok, message in checks if not ok)
+        elif not duration_ready:
+            remaining = max(0.0, self._promotion_min_stable_seconds - stable_for_seconds)
+            reason = f"need {remaining:.0f}s more continuously stable evidence"
+        else:
+            reason = "shadow policy meets advisory promotion gates"
+
         return ShadowReadiness(
             samples=samples,
             window_size=self._deltas.maxlen or samples,
@@ -123,8 +145,9 @@ class AuditedShadowPolicy:
             aggressive_samples=aggressive,
             conservative_samples=conservative,
             aggressive_percent=aggressive_percent,
-            observed_for_seconds=observed_for_seconds,
-            required_observation_seconds=self._promotion_min_observation_seconds,
+            statistical_ready=statistical_ready,
+            stable_for_seconds=stable_for_seconds,
+            required_stable_seconds=self._promotion_min_stable_seconds,
             promotion_ready=promotion_ready,
             reason=reason,
         )
@@ -138,8 +161,6 @@ class AuditedShadowPolicy:
         shadow_workers = int(shadow_workers)
         delta = int(getattr(decision, "shadow_worker_delta", shadow_workers - production_workers))
         shadow_level = str(getattr(decision, "shadow_health_level", "unknown"))
-        if self._observation_started_at is None:
-            self._observation_started_at = self._clock()
         self._deltas.append(delta)
         self._audit_readiness_transition()
 
@@ -147,13 +168,8 @@ class AuditedShadowPolicy:
             if self._last_signature is not None:
                 previous_delta, previous_shadow_level = self._last_signature
                 self._write_divergence(
-                    "resolved",
-                    decision,
-                    production_workers,
-                    shadow_workers,
-                    delta,
-                    previous_delta=previous_delta,
-                    previous_shadow_level=previous_shadow_level,
+                    "resolved", decision, production_workers, shadow_workers, delta,
+                    previous_delta=previous_delta, previous_shadow_level=previous_shadow_level,
                 )
                 self._last_signature = None
             return
@@ -166,13 +182,8 @@ class AuditedShadowPolicy:
         previous_delta = None if self._last_signature is None else self._last_signature[0]
         previous_shadow_level = None if self._last_signature is None else self._last_signature[1]
         self._write_divergence(
-            outcome,
-            decision,
-            production_workers,
-            shadow_workers,
-            delta,
-            previous_delta=previous_delta,
-            previous_shadow_level=previous_shadow_level,
+            outcome, decision, production_workers, shadow_workers, delta,
+            previous_delta=previous_delta, previous_shadow_level=previous_shadow_level,
         )
         self._last_signature = signature
 
@@ -196,8 +207,9 @@ class AuditedShadowPolicy:
                     "aggressive_samples": status.aggressive_samples,
                     "conservative_samples": status.conservative_samples,
                     "aggressive_percent": round(status.aggressive_percent, 2),
-                    "observed_for_seconds": round(status.observed_for_seconds, 1),
-                    "required_observation_seconds": status.required_observation_seconds,
+                    "statistical_ready": status.statistical_ready,
+                    "stable_for_seconds": round(status.stable_for_seconds, 1),
+                    "required_stable_seconds": status.required_stable_seconds,
                     "reason": status.reason,
                     "advisory_only": True,
                 },
@@ -232,11 +244,7 @@ class AuditedShadowPolicy:
             "previous_shadow_health_level": previous_shadow_level,
         }
         try:
-            self._audit_logger.write(
-                "adaptive_worker_shadow_divergence",
-                outcome,
-                details=details,
-            )
+            self._audit_logger.write("adaptive_worker_shadow_divergence", outcome, details=details)
         except Exception:
             # Audit/telemetry must never affect resource-policy admission.
             pass
