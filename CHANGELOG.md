@@ -1,3 +1,30 @@
+## [1.3.0] - 2026-09-14
+
+### Highlights
+
+- Upgraded adaptive worker management from one-time startup sizing to continuous live admission control in the V3 task worker pool.
+- Workers now re-evaluate host pressure before claiming each new task, allowing concurrency to contract under memory, swap, CPU, PSI, or disk pressure and expand again after recovery without restarting the bridge.
+- Preserved `AGENT_TASK_WORKERS` as the administrator-defined hard ceiling instead of permanently shrinking it during bootstrap.
+
+### Reliability and Safety
+
+- Running tasks are never cancelled merely because resource pressure increases; only new task claims are throttled.
+- Adaptive sampling failures fail safely to one worker rather than allowing unbounded concurrency during uncertain host state.
+- Disabled workers remain alive and periodically re-check the live policy, avoiding destructive process churn and enabling automatic recovery when pressure subsides.
+- Existing per-owner serialization, workspace isolation, direct-to-`main` development policy, and no-local-build guardrails remain unchanged.
+
+### Resource Policy
+
+- The live controller continues to use the lightweight `HostResourcePolicy`, including available memory, Linux memory PSI, normalized CPU load, disk headroom, and swap occupancy.
+- Sustained swap use now participates directly in worker throttling: high swap usage reduces concurrency and near-exhausted swap forces single-worker operation while ignoring very small swap devices.
+- Resource reporting includes swap utilization so operators can correlate concurrency decisions with reclaim pressure.
+
+### Verification
+
+- Added deterministic tests proving that worker admission can change from three workers to one and later recover to four without recreating the task service.
+- Added coverage proving the live limit cannot exceed the configured ceiling and provider failures fall back to one worker.
+- GitHub Actions remains the source of truth for syntax, unit tests, OpenCode configuration, semantic-version validation, and release publication.
+
 ## [1.2.5] - 2026-09-14
 
 ### Highlights
