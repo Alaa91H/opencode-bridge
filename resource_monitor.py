@@ -54,6 +54,12 @@ class WorkerDecision:
     health_level: str = "healthy"
     shadow_health_level: str = "healthy"
     shadow_allowed_workers: int | None = None
+    shadow_worker_delta: int = 0
+    comparison_samples: int = 0
+    comparison_agreements: int = 0
+    comparison_disagreements: int = 0
+    comparison_cumulative_abs_delta: int = 0
+    comparison_max_abs_delta: int = 0
 
 
 class HostResourcePolicy:
@@ -65,6 +71,11 @@ class HostResourcePolicy:
         self._cached_at = 0.0
         self._cached_snapshot: ResourceSnapshot | None = None
         self._shadow_health_level: str | None = None
+        self._comparison_samples = 0
+        self._comparison_agreements = 0
+        self._comparison_disagreements = 0
+        self._comparison_cumulative_abs_delta = 0
+        self._comparison_max_abs_delta = 0
 
     def snapshot(self, force: bool = False) -> ResourceSnapshot:
         now = time.monotonic()
@@ -95,14 +106,7 @@ class HostResourcePolicy:
 
     @staticmethod
     def health_score(snapshot: ResourceSnapshot) -> int:
-        """Return a 0..100 current-host health score from independent pressures.
-
-        This score is intentionally observational: worker admission continues to
-        use the explicit conservative thresholds below. Penalties accumulate so
-        several moderate pressures are visible even when none alone reaches a
-        critical threshold. Tiny swap devices are ignored consistently with the
-        admission policy.
-        """
+        """Return a 0..100 current-host health score from independent pressures."""
         penalty = 0
         memory_percent = snapshot.memory_available_percent
         if snapshot.available_memory_mib < 384 or memory_percent < 12.0:
@@ -149,7 +153,6 @@ class HostResourcePolicy:
 
     @staticmethod
     def health_level(score: int) -> str:
-        """Map a health score to a human-readable pressure level."""
         value = max(0, min(100, int(score)))
         if value >= 80:
             return "healthy"
@@ -161,7 +164,6 @@ class HostResourcePolicy:
 
     @staticmethod
     def shadow_worker_limit(configured_workers: int, health_level: str) -> int:
-        """Return the observational worker cap implied only by health score."""
         configured = max(1, min(int(configured_workers), 8))
         if health_level == "critical":
             return 1
@@ -173,13 +175,6 @@ class HostResourcePolicy:
 
     @classmethod
     def stabilize_shadow_health_level(cls, score: int, previous: str | None) -> str:
-        """Apply immediate degradation and conservative recovery hysteresis.
-
-        The result is shadow-only and never changes production admission. A
-        worsening score takes effect immediately. Recovery requires clearing a
-        five-point margin above the next healthier boundary, preventing noisy
-        samples around 35/60/80 from making the shadow comparison oscillate.
-        """
         raw = cls.health_level(score)
         if previous not in _HEALTH_RANK:
             return raw
@@ -195,15 +190,25 @@ class HostResourcePolicy:
         if score < recovery_threshold:
             return previous
 
-        # Recover at most one level per sample. This keeps the observational
-        # signal stable enough to compare with the production controller.
-        next_healthier = {
+        return {
             "critical": "high",
             "high": "degraded",
             "degraded": "healthy",
             "healthy": "healthy",
         }[previous]
-        return next_healthier
+
+    def _record_shadow_comparison(self, production_workers: int, shadow_workers: int) -> int:
+        """Accumulate process-local evidence without influencing admission."""
+        delta = shadow_workers - production_workers
+        abs_delta = abs(delta)
+        self._comparison_samples += 1
+        if delta == 0:
+            self._comparison_agreements += 1
+        else:
+            self._comparison_disagreements += 1
+        self._comparison_cumulative_abs_delta += abs_delta
+        self._comparison_max_abs_delta = max(self._comparison_max_abs_delta, abs_delta)
+        return delta
 
     def decide(self, configured_workers: int) -> WorkerDecision:
         configured = max(1, min(int(configured_workers), 8))
@@ -212,8 +217,6 @@ class HostResourcePolicy:
         pressure = "normal"
         reasons: list[str] = []
 
-        # Memory is the strongest limiter on small VPS hosts because concurrent
-        # LLM/tool sessions can spike Python, Git, and OpenCode memory at once.
         if snap.available_memory_mib < 384 or snap.memory_available_percent < 12:
             allowed = 1
             pressure = "critical"
@@ -234,9 +237,6 @@ class HostResourcePolicy:
                     pressure = "high"
                 reasons.append("memory stalls")
 
-        # Sustained swap occupancy is a strong sign that the host is carrying
-        # working sets larger than RAM. Keep this conservative because another
-        # concurrent coding session can turn reclaim pressure into an OOM event.
         if snap.swap_total_mib >= 256:
             if snap.swap_used_percent >= 90.0:
                 allowed = 1
@@ -269,7 +269,6 @@ class HostResourcePolicy:
                 pressure = "high"
             reasons.append("low disk space")
 
-        # Avoid aggressive concurrency on tiny hosts even when they are idle.
         if snap.total_memory_mib and snap.total_memory_mib < 1536:
             allowed = min(allowed, 1)
             reasons.append("small-memory host")
@@ -277,13 +276,16 @@ class HostResourcePolicy:
             allowed = min(allowed, 2)
             reasons.append("memory-sized concurrency cap")
 
+        production_workers = max(1, allowed)
         reason = ", ".join(dict.fromkeys(reasons)) if reasons else "resources healthy"
         score = self.health_score(snap)
         raw_health_level = self.health_level(score)
         shadow_health_level = self.stabilize_shadow_health_level(score, self._shadow_health_level)
         self._shadow_health_level = shadow_health_level
+        shadow_workers = self.shadow_worker_limit(configured, shadow_health_level)
+        shadow_delta = self._record_shadow_comparison(production_workers, shadow_workers)
         return WorkerDecision(
-            allowed_workers=max(1, allowed),
+            allowed_workers=production_workers,
             configured_workers=configured,
             pressure=pressure,
             reason=reason,
@@ -291,7 +293,13 @@ class HostResourcePolicy:
             health_score=score,
             health_level=raw_health_level,
             shadow_health_level=shadow_health_level,
-            shadow_allowed_workers=self.shadow_worker_limit(configured, shadow_health_level),
+            shadow_allowed_workers=shadow_workers,
+            shadow_worker_delta=shadow_delta,
+            comparison_samples=self._comparison_samples,
+            comparison_agreements=self._comparison_agreements,
+            comparison_disagreements=self._comparison_disagreements,
+            comparison_cumulative_abs_delta=self._comparison_cumulative_abs_delta,
+            comparison_max_abs_delta=self._comparison_max_abs_delta,
         )
 
     @staticmethod
@@ -336,11 +344,20 @@ def format_decision(decision: WorkerDecision) -> str:
     shadow_workers = decision.shadow_allowed_workers
     if shadow_workers is None:
         shadow_workers = decision.allowed_workers
+    agreement_percent = (
+        decision.comparison_agreements * 100.0 / decision.comparison_samples
+        if decision.comparison_samples
+        else 100.0
+    )
     return (
         f"Pressure: {decision.pressure}\n"
         f"Health score: {decision.health_score}/100 ({decision.health_level})\n"
         f"Workers: {decision.allowed_workers}/{decision.configured_workers}\n"
-        f"Shadow health: {decision.shadow_health_level}; workers {shadow_workers}/{decision.configured_workers}\n"
+        f"Shadow health: {decision.shadow_health_level}; workers {shadow_workers}/{decision.configured_workers} "
+        f"(delta {decision.shadow_worker_delta:+d})\n"
+        f"Shadow comparison: {decision.comparison_agreements}/{decision.comparison_samples} agree "
+        f"({agreement_percent:.1f}%); disagreements {decision.comparison_disagreements}; "
+        f"cumulative |delta| {decision.comparison_cumulative_abs_delta}; max |delta| {decision.comparison_max_abs_delta}\n"
         f"Memory: {snap.available_memory_mib} MiB available / {snap.total_memory_mib} MiB total "
         f"({snap.memory_available_percent:.1f}% available)\n"
         f"Swap: {snap.swap_used_mib} MiB used / {snap.swap_total_mib} MiB total "
