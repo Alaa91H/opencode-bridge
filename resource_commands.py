@@ -10,6 +10,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 import bot as core
 from adaptive_workers import WorkerLimitStatus
 from resource_monitor import HostResourcePolicy, format_decision
+from shadow_policy_audit import ShadowReadiness, format_readiness
 
 _policy = HostResourcePolicy(cache_seconds=3.0)
 
@@ -30,6 +31,18 @@ def _controller_status() -> WorkerLimitStatus | None:
         return None
     try:
         return status()
+    except Exception:
+        return None
+
+
+def _shadow_readiness() -> ShadowReadiness | None:
+    service = getattr(core, "task_service", None)
+    policy = getattr(service, "resource_policy", None)
+    readiness = getattr(policy, "readiness", None)
+    if not callable(readiness):
+        return None
+    try:
+        return readiness()
     except Exception:
         return None
 
@@ -61,6 +74,9 @@ async def cmd_resources(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     status = _controller_status()
     if status is not None:
         text += _format_controller(status)
+    readiness = _shadow_readiness()
+    if readiness is not None:
+        text += "\n\n" + format_readiness(readiness)
     await core._safe_reply(update.message, text)
 
 
