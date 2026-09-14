@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
 from adaptive_workers import StabilizedWorkerLimit
 from resource_monitor import ResourceSnapshot, WorkerDecision
@@ -26,6 +27,18 @@ class FakePolicy:
         return WorkerDecision(self.allowed, configured_workers, pressure, reason, snapshot)
 
 
+class ReadinessPolicy(FakePolicy):
+    def readiness(self):
+        return SimpleNamespace(
+            promotion_ready=False,
+            reason="observation time below 21600s",
+            samples=30,
+            agreement_percent=96.7,
+            observed_for_seconds=1800.0,
+            required_observation_seconds=21600.0,
+        )
+
+
 class WorkerTelemetryTests(unittest.TestCase):
     def test_status_exposes_stable_target_and_recovery_window(self) -> None:
         now = [100.0]
@@ -49,6 +62,20 @@ class WorkerTelemetryTests(unittest.TestCase):
         self.assertEqual(status.stable_workers, 2)
         self.assertEqual(status.raw_target_workers, 4)
         self.assertGreater(status.recovery_remaining_seconds, 0.0)
+
+    def test_status_exposes_advisory_shadow_readiness_without_mutating_limit(self) -> None:
+        policy = ReadinessPolicy()
+        policy.allowed = 2
+        limiter = StabilizedWorkerLimit(4, policy, recovery_seconds=30.0, clock=lambda: 100.0)
+        self.assertEqual(limiter(), 2)
+        status = limiter.status()
+        self.assertEqual(status.stable_workers, 2)
+        self.assertFalse(status.shadow_promotion_ready)
+        self.assertEqual(status.shadow_readiness_samples, 30)
+        self.assertAlmostEqual(status.shadow_agreement_percent, 96.7)
+        self.assertEqual(status.shadow_observed_for_seconds, 1800.0)
+        self.assertEqual(status.shadow_required_observation_seconds, 21600.0)
+        self.assertIn("observation time", status.shadow_readiness_reason)
 
 
 if __name__ == "__main__":
