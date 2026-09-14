@@ -13,6 +13,7 @@ from telegram import BotCommand, Update
 from telegram.ext import Application, ApplicationHandlerStop, CommandHandler, ContextTypes, MessageHandler, filters
 
 import bot as core
+from resource_monitor import HostResourcePolicy
 from task_service_v3 import TaskServiceV3
 from workspace_manager import GitWorkspaceManager, WorkspaceError
 from workspace_store import WorkspaceStore
@@ -20,6 +21,7 @@ from workspace_store import WorkspaceStore
 WORKSPACE_ROOT = Path(os.environ.get("GITHUB_WORKSPACE_ROOT", "/home/ubuntu/github-workspaces"))
 ALLOWED_REPOS = tuple(value.strip() for value in os.environ.get("GITHUB_ALLOWED_REPOS", "").split(",") if value.strip())
 TASK_WORKERS = max(1, min(int(os.environ.get("AGENT_TASK_WORKERS", "2")), 8))
+ADAPTIVE_WORKERS = os.environ.get("AGENT_ADAPTIVE_WORKERS", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 workspace_manager = GitWorkspaceManager(WORKSPACE_ROOT, ALLOWED_REPOS)
 workspace_store = WorkspaceStore(core.BRIDGE_DIR / "sessions.db")
@@ -27,7 +29,17 @@ workspace_store = WorkspaceStore(core.BRIDGE_DIR / "sessions.db")
 
 class V3TaskService(TaskServiceV3):
     def __init__(self, store, executor, poll_seconds: float = 5.0) -> None:
-        super().__init__(store, executor, poll_seconds=poll_seconds, max_workers=TASK_WORKERS)
+        self.resource_policy = HostResourcePolicy() if ADAPTIVE_WORKERS else None
+        provider = None
+        if self.resource_policy is not None:
+            provider = lambda: self.resource_policy.decide(TASK_WORKERS).allowed_workers
+        super().__init__(
+            store,
+            executor,
+            poll_seconds=poll_seconds,
+            max_workers=TASK_WORKERS,
+            worker_limit_provider=provider,
+        )
 
 
 def workspace_prompt(repo_slug: str, directory: str, request: str) -> str:
