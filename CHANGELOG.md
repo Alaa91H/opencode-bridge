@@ -1,3 +1,38 @@
+## [1.4.0] - 2026-09-14
+
+### Highlights
+
+- Added a unified 0–100 host health score that combines memory headroom, Linux memory PSI, swap pressure, normalized CPU load, and free disk capacity without replacing the existing production admission guardrails.
+- Added explicit health levels (`healthy`, `degraded`, `high`, and `critical`) plus a shadow worker recommendation so score-based concurrency can be evaluated safely before it is allowed to affect production.
+- Added rolling shadow-policy readiness evaluation with agreement, mean/max worker delta, aggressive-vs-conservative bias, and continuous-stability gates before any future promotion can be considered.
+- Extended `/resources` diagnostics with controller health, shadow readiness, worker-delta evidence, and advisory promotion state.
+
+### Adaptive Worker Reliability
+
+- Production now keeps a single stabilized adaptive controller instead of bypassing it during V3 bootstrap.
+- Resource-pressure reductions apply immediately, while recovery uses hysteresis and a configurable cooldown so worker counts increase gradually instead of oscillating near thresholds.
+- `AGENT_TASK_WORKERS` remains the hard administrative ceiling and running tasks are never cancelled solely to reduce concurrency.
+- Adaptive decisions expose stable workers, raw targets, pressure, health score, recovery time, and decision reason without read-only diagnostics mutating the production controller state.
+
+### Shadow Evaluation and Audit
+
+- Added low-noise `adaptive_worker_shadow_divergence` audit events for meaningful production-vs-shadow divergence transitions instead of logging every sample.
+- Added `adaptive_worker_shadow_readiness` events only when advisory readiness changes between ready and not-ready states.
+- Added bounded rolling comparison metrics including agreement percentage, aggressive and conservative samples, average absolute delta, and maximum absolute delta.
+- Promotion remains advisory only in this release; the shadow policy cannot change production worker admission.
+
+### Restart-Safe Evidence
+
+- Added bounded persistence for recent shadow-readiness evidence under `runtime/shadow-readiness.json` with atomic replacement and restrictive file permissions.
+- Recent validated evidence can survive short service restarts without counting downtime as additional stable time.
+- Stale, malformed, future-dated, oversized, or otherwise invalid persisted state is rejected and evaluation restarts safely.
+- Persistence and audit failures are non-disruptive and can never override production resource admission decisions.
+
+### Verification
+
+- Added deterministic coverage for health-score boundaries, shadow-level hysteresis, production/shadow divergence telemetry, rolling readiness gates, sustained stability, diagnostics visibility, restart-safe persistence, stale-state rejection, and runtime-path derivation.
+- GitHub Actions remains the source of truth for syntax, unit tests, OpenCode configuration, semantic-version validation, and release publication.
+
 ## [1.3.0] - 2026-09-14
 
 ### Highlights
