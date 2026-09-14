@@ -8,6 +8,7 @@ from pathlib import Path
 from adaptive_workers import StabilizedWorkerLimit, WorkerLimitTransition
 from audit_log import AuditLogger
 from resource_monitor import HostResourcePolicy
+from shadow_policy_audit import AuditedShadowPolicy
 from task_service_v3 import TaskServiceV3
 
 
@@ -56,8 +57,9 @@ class TaskService(TaskServiceV3):
         audit_logger: AuditLogger | None = None,
     ) -> None:
         configured_workers = _configured_workers() if max_workers is None else max_workers
-        self.resource_policy = resource_policy or HostResourcePolicy()
         self.audit_logger = audit_logger or AuditLogger(Path(__file__).resolve().parent / "runtime" / "audit.jsonl")
+        base_resource_policy = resource_policy or HostResourcePolicy()
+        self.resource_policy = AuditedShadowPolicy(base_resource_policy, self.audit_logger)
         self.worker_limit = StabilizedWorkerLimit(
             configured_workers,
             self.resource_policy,
