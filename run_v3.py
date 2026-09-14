@@ -6,15 +6,14 @@ import asyncio
 import logging
 import os
 
-from adaptive_workers import choose_worker_limit
-
 log = logging.getLogger("opencode_bridge.bootstrap")
 configured_workers = max(1, min(int(os.environ.get("AGENT_TASK_WORKERS", "2")), 8))
 adaptive_workers = os.environ.get("AGENT_ADAPTIVE_WORKERS", "1").strip().lower() not in {"0", "false", "no", "off"}
-if adaptive_workers:
-    safe_workers = choose_worker_limit(configured_workers)
-    os.environ["AGENT_TASK_WORKERS"] = str(safe_workers)
-    log.info("adaptive worker sizing configured=%s active=%s", configured_workers, safe_workers)
+log.info(
+    "worker admission configured_max=%s adaptive=%s",
+    configured_workers,
+    adaptive_workers,
+)
 
 import bot as core
 import ci_plugin
