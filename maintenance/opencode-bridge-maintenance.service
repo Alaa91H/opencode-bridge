@@ -15,4 +15,4 @@ IOSchedulingClass=idle
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectHome=read-only
-ReadWritePaths=/home/ubuntu/opencode-bridge/runtime
+ReadWritePaths=/home/ubuntu/opencode-bridge /home/ubuntu/.config/systemd/user
