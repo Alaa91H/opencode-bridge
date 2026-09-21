@@ -6,18 +6,21 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import httpx
 
+BRIDGE_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BRIDGE_DIR))
+
 from audit_log import AuditLogger
 from model_manager import ModelManager
 from opencode_client import OpenCodeClient, extract_text_response
 from session_store import SessionStore
 
-BRIDGE_DIR = Path(__file__).resolve().parents[1]
 RUNTIME_DIR = BRIDGE_DIR / "runtime"
 REPORT_PATH = RUNTIME_DIR / "agent-maintenance-latest.md"
 STATE_PATH = RUNTIME_DIR / "agent-maintenance-latest.json"
@@ -59,6 +62,15 @@ async def run() -> dict[str, Any]:
     manager.scout_web_research = True
     session_id: str | None = None
     try:
+        healthy = False
+        for _ in range(20):
+            if await client.health_check():
+                healthy = True
+                break
+            await asyncio.sleep(3)
+        if not healthy:
+            raise RuntimeError("OpenCode did not become healthy before the daily agent task")
+
         selection = await manager.scout_once()
         model = selection.get("selected_model") if isinstance(selection, dict) else await manager.best_available()
         if not isinstance(model, str) or not model:
