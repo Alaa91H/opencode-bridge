@@ -35,6 +35,9 @@ It is intentionally designed so the production server acts as an **agent executi
 - Adaptive task-worker concurrency based on live host pressure.
 - Host health scoring and resource diagnostics.
 - Watchdog and maintenance reporting.
+- Daily guarded system/package cleanup and upgrades.
+- Validated fast-forward self-update from `Alaa91H/opencode-bridge` with pre-deployment tests.
+- Daily autonomous post-maintenance agent audit and strongest-free model selection.
 - Structured, redacted audit logging.
 - GitHub CI integration for verification and release workflows.
 - systemd-based deployment for long-running services.
@@ -74,10 +77,10 @@ The project also maintains a shadow recommendation path so alternative worker po
 The bridge includes a persistent model manager and agent scout that can:
 
 - inspect the live OpenCode agent/model catalog;
-- prefer the configured `opencode/muse-spark-1.3-contributor-free` model when it remains zero-cost and available;
-- send the configured `xhigh` reasoning variant on every Muse Spark 1.3 task;
-- fall back temporarily to another verified zero-cost candidate when the pinned model is unavailable;
-- reject stale or newly paid selections;
+- research the strongest currently zero-cost OpenCode Zen model every day for agentic software development;
+- apply the highest known reasoning variant announced by the selected model's live catalog metadata;
+- keep Muse Spark 1.3 Contributor Free as a safe configured fallback instead of a permanent pin;
+- reject stale, unavailable, or newly paid selections before applying them;
 - persist validated decisions across restarts;
 - fall back deterministically when external research is unavailable.
 
