@@ -45,6 +45,7 @@ STEPS=()
 BRIDGE_UPDATE_JSON='{"status":"not_checked"}'
 BRIDGE_UPDATE_STATUS="not_checked"
 AGENT_MAINTENANCE_JSON='{"status":"not_run"}'
+AGENT_MAINTENANCE_STATUS="not_run"
 
 record_step() {
   local label="$1"
@@ -82,16 +83,21 @@ bridge_self_update() {
 }
 
 refresh_deployment_assets() {
+  case "$BRIDGE_UPDATE_STATUS" in
+    updated|up_to_date) ;;
+    *)
+      echo "deployment asset refresh skipped because repository state is not trusted: $BRIDGE_UPDATE_STATUS"
+      return 0
+      ;;
+  esac
   bash "${BRIDGE_DIR}/maintenance/install-root-assets.sh"
   run_as_bridge_user "$PYTHON_BIN" "${BRIDGE_DIR}/systemd.py"
 }
 
-restart_bridge_after_update() {
+restart_opencode_after_update() {
   [[ "$BRIDGE_UPDATE_STATUS" == "updated" ]] || return 0
   run_as_bridge_user systemctl --user restart opencode-serve.service
   sleep 3
-  run_as_bridge_user systemctl --user restart opencode-bridge-telegram.service
-  run_as_bridge_user bash -c 'git -C "$1" rev-parse HEAD > "$1/runtime/deployed-ref"' _ "$BRIDGE_DIR"
 }
 
 run_daily_agent_maintenance() {
@@ -103,7 +109,18 @@ run_daily_agent_maintenance() {
     return 1
   }
   AGENT_MAINTENANCE_JSON="$output"
+  AGENT_MAINTENANCE_STATUS="$(printf '%s' "$output" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("status","unknown"))' 2>/dev/null || echo unknown)"
   printf '%s\n' "$AGENT_MAINTENANCE_JSON"
+}
+
+activate_telegram_after_maintenance() {
+  if [[ "$BRIDGE_UPDATE_STATUS" != "updated" && "$AGENT_MAINTENANCE_STATUS" != "success" ]]; then
+    return 0
+  fi
+  run_as_bridge_user systemctl --user restart opencode-bridge-telegram.service
+  if [[ "$BRIDGE_UPDATE_STATUS" == "updated" ]]; then
+    run_as_bridge_user bash -c 'git -C "$1" rev-parse HEAD > "$1/runtime/deployed-ref"' _ "$BRIDGE_DIR"
+  fi
 }
 
 apt_update() {
@@ -150,8 +167,9 @@ record_step "الاحتفاظ بسجل النظام لآخر 14 يومًا" clea
 record_step "حذف مرفقات البوت المدارة الأقدم من 7 أيام" cleanup_managed_attachments
 record_step "فحص GitHub وتطبيق تحديث OpenCode Bridge الموثق" bridge_self_update
 record_step "مزامنة ملفات systemd والصيانة من النسخة الحالية" refresh_deployment_assets
-record_step "إعادة تشغيل خدمات الجسر بعد تحديث الكود فقط" restart_bridge_after_update
+record_step "إعادة تشغيل OpenCode بعد تحديث الكود فقط" restart_opencode_after_update
 record_step "تشغيل مهمة الوكيل اليومية واختيار أقوى نموذج مجاني" run_daily_agent_maintenance
+record_step "تفعيل الكود والنموذج اليومي في جسر تيليجرام" activate_telegram_after_maintenance
 
 REBOOT_REQUIRED="لا"
 [[ -f /var/run/reboot-required ]] && REBOOT_REQUIRED="نعم — سيُطلب التأكيد عبر حارس إعادة التشغيل"
