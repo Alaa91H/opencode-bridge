@@ -29,7 +29,8 @@ sys.path.insert(0, str(BRIDGE_DIR))
 from attachments import AttachmentError, AttachmentStore, attachment_prompt_note
 from audit_log import AuditLogger
 from block_patterns import check_build, check_hardline
-from formatter import format_and_chunk
+from formatter import MAX_MESSAGE_LENGTH, chunk_message, format_and_chunk
+from free_points import FreePointsTracker, format_free_points_header
 from model_catalog import ranked_zen_general_model_ids
 from model_manager import ModelManager
 from messages import (
@@ -103,6 +104,7 @@ PIN_DEFAULT_MODEL = (
 DEFAULT_AGENT = os.environ.get("OPENCODE_AGENT", "telegram-operator")
 MODEL_CATALOG_SYNC_SECONDS = max(60, int(os.environ.get("OPENCODE_MODEL_SYNC_SECONDS", "900")))
 ATTACHMENT_MAX_BYTES = max(1, int(os.environ.get("TELEGRAM_ATTACHMENT_MAX_BYTES", str(20 * 1024 * 1024))))
+FREE_DAILY_POINTS = max(1, int(os.environ.get("OPENCODE_FREE_DAILY_POINTS", "200")))
 DAILY_TASK_COUNTER_TIMEZONE_NAME = os.environ.get("TELEGRAM_DAILY_TASK_COUNTER_TIMEZONE", "Etc/GMT-2").strip()
 try:
     DAILY_TASK_COUNTER_TIMEZONE = ZoneInfo(DAILY_TASK_COUNTER_TIMEZONE_NAME)
@@ -113,7 +115,17 @@ except ZoneInfoNotFoundError as exc:
 
 store = SessionStore(BRIDGE_DIR / "sessions.db")
 task_store = TaskQueueStore(BRIDGE_DIR / "sessions.db")
-client = OpenCodeClient(host=OPENCODE_HOST, port=OPENCODE_PORT, password=OPENCODE_PASSWORD)
+free_points_tracker = FreePointsTracker(
+    BRIDGE_DIR / "runtime" / "free-points.db",
+    daily_limit=FREE_DAILY_POINTS,
+    timezone_name=DAILY_TASK_COUNTER_TIMEZONE_NAME,
+)
+client = OpenCodeClient(
+    host=OPENCODE_HOST,
+    port=OPENCODE_PORT,
+    password=OPENCODE_PASSWORD,
+    free_points_tracker=free_points_tracker,
+)
 audit = AuditLogger(BRIDGE_DIR / "runtime" / "audit.jsonl")
 attachment_store = AttachmentStore(ATTACHMENT_ROOT, max_bytes=ATTACHMENT_MAX_BYTES)
 progress_store = ProgressStore()
@@ -274,6 +286,23 @@ async def _send_task_output_files(task: QueuedTask, bot) -> int:
     return sent
 
 
+def _response_usage_points(response: dict | None) -> int:
+    if not isinstance(response, dict):
+        return 0
+    value = response.get("_bridge_usage_points", 0)
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _task_reply_chunks(text: str, command_points: int) -> list[str]:
+    """Prefix every final Telegram result chunk with exactly two usage lines."""
+    header = format_free_points_header(free_points_tracker.snapshot(), command_points)
+    body_limit = max(512, MAX_MESSAGE_LENGTH - len(header) - 2)
+    return [f"{header}\n\n{chunk}" for chunk in chunk_message(text, max_len=body_limit)]
+
+
 def _variant_for_model(model_id: str | None) -> str | None:
     """Return the strongest validated reasoning variant for the selected model."""
     if model_manager is not None:
@@ -291,7 +320,7 @@ async def _send_prompt_with_model_fallback(
     prompt: str,
     parts: list[dict],
     selected_model: str | None,
-) -> tuple[dict, str | None]:
+) -> tuple[dict, str | None, int]:
     """Send once, then retry once with the next catalog model if selection vanished."""
     selected_variant = _variant_for_model(selected_model)
     try:
@@ -303,7 +332,7 @@ async def _send_prompt_with_model_fallback(
             parts=parts,
             variant=selected_variant,
         )
-        return response, selected_model
+        return response, selected_model, _response_usage_points(response)
     except httpx.HTTPStatusError as exc:
         if selected_variant and exc.response.status_code in {400, 404, 422}:
             audit.write(
@@ -321,7 +350,7 @@ async def _send_prompt_with_model_fallback(
                     parts=parts,
                     variant=None,
                 )
-                return response, selected_model
+                return response, selected_model, _response_usage_points(response)
             except httpx.HTTPStatusError as retry_exc:
                 exc = retry_exc
         if model_manager is None or selected_model is None or exc.response.status_code not in {400, 404, 422}:
@@ -348,7 +377,7 @@ async def _send_prompt_with_model_fallback(
             parts=parts,
             variant=_variant_for_model(fallback_model),
         )
-        return response, fallback_model
+        return response, fallback_model, _response_usage_points(response)
 
 
 async def _execute_agent_task(task: QueuedTask, bot) -> None:
@@ -362,6 +391,7 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
     stop_typing = asyncio.Event()
     typing_task: asyncio.Task[None] | None = None
     event_task: asyncio.Task[None] | None = None
+    command_points = 0
     try:
         await reporter.start()
         requested_mode: ResearchMode | None = None
@@ -397,24 +427,26 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
         event_task = asyncio.create_task(reporter.consume_events(client, session_id))
         started_at = time.monotonic()
         await reporter.record("processing", "الوكيل استلم المهمة وعم يعالجها.")
-        response, selected_model = await _send_prompt_with_model_fallback(
+        response, selected_model, usage_points = await _send_prompt_with_model_fallback(
             task,
             session_id,
             prompt,
             message_parts,
             selected_model,
         )
+        command_points += usage_points
         reply_text = extract_text_response(response)
         output_files = attachment_store.collect_task_outputs(task.id)
         if not reply_text and not output_files:
             await reporter.record("retry", "ما وصل ناتج واضح؛ عم نجرب مرة أخيرة.", "warning", force=True)
-            response, selected_model = await _send_prompt_with_model_fallback(
+            response, selected_model, usage_points = await _send_prompt_with_model_fallback(
                 task,
                 session_id,
                 prompt,
                 message_parts,
                 selected_model,
             )
+            command_points += usage_points
             reply_text = extract_text_response(response)
             output_files = attachment_store.collect_task_outputs(task.id)
         elapsed = time.monotonic() - started_at
@@ -425,7 +457,8 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
             audit.write("task_cancelled", "cancelled", actor_id=task.owner_id, details={"task_id": task.id})
             return
         if not reply_text and not output_files:
-            await bot.send_message(chat_id=task.chat_id, text=empty_response_message())
+            for chunk in _task_reply_chunks(empty_response_message(), command_points):
+                await bot.send_message(chat_id=task.chat_id, text=chunk)
             await task_store.finish(task.id, success=False, error="empty_response")
             await reporter.finish("failed", "المهمة ما رجّعت نتيجة واضحة بعد إعادة المحاولة.", "error")
             audit.write(
@@ -437,11 +470,15 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
             return
         await reporter.record("delivering", "عم نجهّز النتيجة والملفات للإرسال.", force=True)
         if reply_text:
-            for chunk in format_and_chunk(reply_text):
+            for chunk in _task_reply_chunks(reply_text, command_points):
                 await bot.send_message(chat_id=task.chat_id, text=chunk, disable_web_page_preview=True)
         delivered_files = await _send_task_output_files(task, bot)
         if delivered_files and not reply_text:
-            await bot.send_message(chat_id=task.chat_id, text=f"تم تجهيز وإرسال {delivered_files} ملف من المهمة #{task.id}.")
+            for chunk in _task_reply_chunks(
+                f"تم تجهيز وإرسال {delivered_files} ملف من المهمة #{task.id}.",
+                command_points,
+            ):
+                await bot.send_message(chat_id=task.chat_id, text=chunk)
         await task_store.finish(task.id, success=True)
         await reporter.finish("completed", f"اكتملت المهمة خلال {round(elapsed, 1)} ثانية.")
         audit.write(
@@ -455,6 +492,8 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
                 "attachment_count": len(attachments),
                 "output_files": delivered_files,
                 "agent_file_parts": len(extract_file_response(response)),
+                "free_points_used": command_points,
+                "free_points_remaining": free_points_tracker.snapshot().remaining,
             },
         )
     except AttachmentError as exc:
