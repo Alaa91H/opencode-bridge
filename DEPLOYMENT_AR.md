@@ -27,6 +27,22 @@ curl --fail --silent --user "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.
 journalctl --user -u opencode-bridge-telegram.service -n 50 --no-pager
 ```
 
+## الصيانة اليومية والتحديث الذاتي
+
+ثبّت خدمة الصيانة ذات صلاحية root مرة واحدة من النسخة الموثوقة للمستودع:
+
+```bash
+cd /home/ubuntu/opencode-bridge
+sudo bash maintenance/install-root-assets.sh
+systemctl status opencode-bridge-maintenance.timer --no-pager
+```
+
+المؤقت يعمل يوميًا عند 08:30 UTC مع تأخير عشوائي يصل إلى 20 دقيقة. الدورة اليومية تنفذ تحديثات APT الآمنة والتنظيف، ثم تفحص `origin/main` للمستودع `Alaa91H/opencode-bridge`. لا يطبّق التحديث إذا كان الفرع المحلي متسخًا أو متشعبًا. عند وجود تحديث fast-forward، تُختبر النسخة الجديدة أولًا داخل Git worktree مؤقت عبر Python syntax واختبارات الوحدة وJSON وshell syntax، ثم تُطبّق فقط بعد نجاح التحقق وتُعاد مزامنة وحدات systemd وإعادة تشغيل خدمات الجسر.
+
+بعد ذلك تُشغّل مهمة OpenCode مستقلة كمستخدم `ubuntu`: تعيد Agent Scout تقييم نماذج Zen ذات التكلفة الصفرية، تختار الأقوى للتطوير الوكيلي، تستخدم أعلى reasoning variant معلن في الكتالوج عندما يكون متاحًا، ثم تنفذ تدقيقًا يوميًا للسلامة وتكتب التقرير داخل `runtime/agent-maintenance-latest.md`.
+
+يمكن تعطيل الاختيار التلقائي للأقوى فقط عند الحاجة بوضع `AGENT_SCOUT_AUTO_STRONGEST=0`. القيمة الافتراضية هي `1`، وهي تتغلب على إعداد pin قديم حتى لا يبقى الخادم مثبتًا على نموذج أضعف.
+
 ## الضوابط
 
 إذا كانت شبكة الخادم تحجب `api.telegram.org`، حدّد `TELEGRAM_PROXY_URL` بعنوان وكيل HTTP(S) أو SOCKS موثوق، ثم أعد تشغيل خدمة البوت. لا تسجل بيانات اعتماد الوكيل أو تشاركها في المحادثات.
