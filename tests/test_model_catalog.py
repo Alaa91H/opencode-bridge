@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import unittest
 
-from model_catalog import best_zen_general_model_id, free_model_ids, is_zero_cost_model, ranked_zen_general_model_ids, zen_free_model_ids
+from model_catalog import (
+    best_zen_general_model_id,
+    free_model_ids,
+    is_zero_cost_model,
+    model_variant_ids,
+    ranked_zen_general_model_ids,
+    strongest_model_variant,
+    zen_free_model_ids,
+)
 
 
 class ModelCatalogTests(unittest.TestCase):
@@ -65,6 +73,39 @@ class ModelCatalogTests(unittest.TestCase):
         self.assertEqual(ranked_zen_general_model_ids(providers), ["opencode/general-rich", "opencode/text-only"])
         self.assertEqual(best_zen_general_model_id(providers), "opencode/general-rich")
         self.assertEqual(best_zen_general_model_id(providers, {"opencode/general-rich"}), "opencode/text-only")
+
+    def test_strongest_variant_uses_live_catalog_without_guessing(self) -> None:
+        providers = {
+            "all": [
+                {
+                    "id": "opencode",
+                    "models": {
+                        "reasoning-free": {
+                            "cost": {"input": 0, "output": 0},
+                            "variants": {
+                                "low": {},
+                                "high": {},
+                                "xhigh": {},
+                                "disabled-max": {"disabled": True},
+                            },
+                        },
+                        "custom-only": {
+                            "cost": {"input": 0, "output": 0},
+                            "variants": [{"id": "creative"}, {"id": "turbo"}],
+                        },
+                    },
+                }
+            ]
+        }
+        self.assertEqual(
+            model_variant_ids(providers, "opencode/reasoning-free"),
+            ["high", "low", "xhigh"],
+        )
+        self.assertEqual(
+            strongest_model_variant(providers, "opencode/reasoning-free"),
+            "xhigh",
+        )
+        self.assertIsNone(strongest_model_variant(providers, "opencode/custom-only"))
 
     def test_zen_catalog_excludes_free_models_from_other_providers(self) -> None:
         providers = {
