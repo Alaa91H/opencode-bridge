@@ -271,7 +271,11 @@ async def _send_task_output_files(task: QueuedTask, bot) -> int:
 
 
 def _variant_for_model(model_id: str | None) -> str | None:
-    """Return the configured reasoning variant only for its intended model."""
+    """Return the strongest validated reasoning variant for the selected model."""
+    if model_manager is not None:
+        dynamic = model_manager.variant_for_model(model_id)
+        if dynamic:
+            return dynamic
     if not DEFAULT_MODEL_VARIANT or not model_id:
         return None
     return DEFAULT_MODEL_VARIANT if model_id == VARIANT_MODEL else None
@@ -285,6 +289,7 @@ async def _send_prompt_with_model_fallback(
     selected_model: str | None,
 ) -> tuple[dict, str | None]:
     """Send once, then retry once with the next catalog model if selection vanished."""
+    selected_variant = _variant_for_model(selected_model)
     try:
         response = await client.send_prompt(
             session_id,
@@ -292,10 +297,29 @@ async def _send_prompt_with_model_fallback(
             model=selected_model,
             agent=DEFAULT_AGENT,
             parts=parts,
-            variant=_variant_for_model(selected_model),
+            variant=selected_variant,
         )
         return response, selected_model
     except httpx.HTTPStatusError as exc:
+        if selected_variant and exc.response.status_code in {400, 404, 422}:
+            audit.write(
+                "model_variant_fallback",
+                "retry_default",
+                actor_id=task.owner_id,
+                details={"model": selected_model, "variant": selected_variant},
+            )
+            try:
+                response = await client.send_prompt(
+                    session_id,
+                    prompt,
+                    model=selected_model,
+                    agent=DEFAULT_AGENT,
+                    parts=parts,
+                    variant=None,
+                )
+                return response, selected_model
+            except httpx.HTTPStatusError as retry_exc:
+                exc = retry_exc
         if model_manager is None or selected_model is None or exc.response.status_code not in {400, 404, 422}:
             raise
         fallback_model = await model_manager.ensure_session_model(
@@ -650,7 +674,7 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if context.args:
             await _safe_reply(
                 update.message,
-                "النموذج مضبوط تلقائيًا على Muse Spark 1.3 Free بمستوى xhigh عند توفره، مع fallback مجاني آمن عند الحاجة. استخدم /model لعرض الحالة الحالية.",
+                "اختيار النموذج تلقائي يوميًا من نماذج OpenCode Zen المجانية، ويُستخدم أعلى variant مدعوم للاستدلال عندما يعلنه الكتالوج. استخدم /model لعرض الحالة الحالية.",
             )
             return
 
@@ -665,10 +689,10 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _safe_reply(
             update.message,
             f"النموذج الحالي: {current_model}\n"
-            f"النموذج المفضل: {VARIANT_MODEL}\n"
-            f"مستوى الاستدلال: {_variant_for_model(current_model) or 'افتراضي'}\n\n"
+            f"النموذج المختار تلقائيًا: {model_manager.preferred_model if model_manager and model_manager.preferred_model else current_model}\n"
+            f"مستوى الاستدلال: {_variant_for_model(current_model) or 'افتراضي/أقصى ما يدعمه النموذج'}\n\n"
             f"ترتيب النماذج العامة المتاحة ({len(models)}):\n{listed}\n\n"
-            "يُفضّل البوت Muse Spark 1.3 Free عند توفره، ويستخدم بديلًا مجانيًا مؤقتًا فقط عند عدم توفره.",
+            "يعيد Agent Scout تقييم النماذج المجانية يوميًا ويختار الأقوى للتطوير الوكيلي، مع التحقق من أن التكلفة صفر قبل التطبيق.",
         )
     except Exception as exc:
         log.exception("فشل التعامل مع أمر النموذج")
