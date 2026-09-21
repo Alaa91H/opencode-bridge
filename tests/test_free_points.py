@@ -49,7 +49,7 @@ class FreePointsTrackerTests(unittest.TestCase):
             self.assertEqual(
                 header,
                 "النقاط المجانية المتبقية اليوم (تقديري): 197/200\n"
-                "استهلاك هذا الأمر: 3 نقطة",
+                "استهلاك هذا الأمر: 3 نقاط",
             )
             self.assertEqual(len(header.splitlines()), 2)
 
