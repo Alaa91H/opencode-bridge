@@ -25,6 +25,7 @@ It is intentionally designed so the production server acts as an **agent executi
 
 - Arabic Telegram interface for interacting with OpenCode.
 - Persistent OpenCode conversations and task state.
+- Two-line free-points usage header above every final agent response, with persistent daily local accounting.
 - Durable task queue backed by local storage.
 - Multi-repository Git/GitHub development workflows.
 - Attachment intake with bounded storage handling.
@@ -84,6 +85,8 @@ The bridge includes a persistent model manager and agent scout that can:
 - reject stale, unavailable, or newly paid selections before applying them;
 - persist validated decisions across restarts;
 - fall back deterministically when external research is unavailable.
+
+Because OpenCode Zen does not currently expose an authoritative remaining-free-quota counter, the Telegram bridge keeps a persistent local estimate in `runtime/free-points.db`. `OPENCODE_FREE_DAILY_POINTS` controls the local daily ceiling (default `200`). Each completed agent request is measured from the number of new assistant/model turns created by OpenCode, so tool-call loops and automatic retries are reflected in the command's consumption instead of being flattened to one point.
 
 ## Architecture
 
