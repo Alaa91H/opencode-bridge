@@ -33,6 +33,11 @@ jobs:
       - name: Run unit tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
 
+      - name: Validate shell maintenance scripts
+        run: |
+          bash -n start.sh
+          for file in maintenance/*.sh; do bash -n "$file"; done
+
       - name: Validate OpenCode configuration
         run: python -m json.tool opencode.json >/dev/null
 
