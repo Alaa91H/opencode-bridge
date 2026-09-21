@@ -1,3 +1,41 @@
+## [1.6.0] - 2026-09-21
+
+### Highlights
+
+- Added a persistent two-line free-points usage header above final Telegram agent responses.
+- Added per-command local usage metering for OpenCode assistant/model turns, including tool-call loops and retries.
+- Included daily Agent Scout and autonomous maintenance-agent requests in the same free-tier accounting.
+- Consolidated and deleted all non-`main` GitHub branches after verifying their work was already integrated.
+
+### Free-Points Visibility
+
+- Final Telegram responses now show the estimated daily remaining points and points consumed by the current command in exactly two lines.
+- Usage persists in `runtime/free-points.db` across service restarts and resets automatically on the next configured local day.
+- `OPENCODE_FREE_DAILY_POINTS` defines the local daily estimate and defaults to `200`.
+- The remaining value is explicitly labelled as estimated because OpenCode Zen does not currently expose an authoritative remaining-free-quota counter to clients.
+- Upstream free-tier exhaustion responses immediately set the local remaining estimate to zero.
+
+### Usage Metering
+
+- The bridge measures newly created assistant/model turns around each OpenCode prompt rather than flattening every user command to one point.
+- Tool-call loops, automatic retries, and multi-turn agent work therefore contribute to the command's displayed consumption.
+- Daily Agent Scout and maintenance-agent traffic use the same persistent accounting database.
+
+### Repository Consolidation
+
+- Verified every historical branch against `main` before cleanup.
+- Confirmed the squash-merged free-points branch was byte-equivalent at the Git tree level before deletion.
+- Deleted all non-default branches from GitHub.
+- Used a scoped one-shot cleanup workflow and removed it immediately after successful branch deletion.
+- The repository now contains only the `main` branch.
+
+### Verification
+
+- Feature PR CI succeeded before merge.
+- Main-branch CI succeeded after the free-points feature merge.
+- Branch cleanup completed successfully and the final branch inventory was verified through the GitHub API.
+- GitHub Release publication remains gated on successful CI for the final release commit.
+
 ## [1.5.0] - 2026-09-21
 
 ### Highlights
