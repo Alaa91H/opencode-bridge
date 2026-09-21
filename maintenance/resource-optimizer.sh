@@ -10,7 +10,8 @@ readonly REPORT_PATH="${RUNTIME_DIR}/resource-latest.md"
 readonly LOCK_PATH="/run/lock/opencode-bridge-resource-optimizer.lock"
 readonly SWAPFILE="${OPENCODE_SWAPFILE_PATH:-/swapfile}"
 readonly ZRAM_PERCENT="${OPENCODE_ZRAM_PERCENT:-50}"
-readonly ZRAM_MAX_MIB="${OPENCODE_ZRAM_MAX_MIB:-2048}"
+# 0 means no artificial cap. The default target is exactly half of physical RAM.
+readonly ZRAM_MAX_MIB="${OPENCODE_ZRAM_MAX_MIB:-0}"
 readonly SWAPFILE_GIB="${OPENCODE_SWAPFILE_GIB:-1}"
 readonly MIN_FREE_GIB="${OPENCODE_SWAP_MIN_FREE_GIB:-4}"
 
@@ -36,7 +37,11 @@ clamp_int() {
 }
 
 zram_percent="$(clamp_int "$ZRAM_PERCENT" 25 100)"
-zram_max_mib="$(clamp_int "$ZRAM_MAX_MIB" 256 8192)"
+if [[ "$ZRAM_MAX_MIB" =~ ^[0-9]+$ ]]; then
+  zram_max_mib="$ZRAM_MAX_MIB"
+else
+  zram_max_mib=0
+fi
 swapfile_gib="$(clamp_int "$SWAPFILE_GIB" 0 8)"
 min_free_gib="$(clamp_int "$MIN_FREE_GIB" 2 32)"
 
@@ -47,17 +52,20 @@ active_swap_names() {
   swapon --show=NAME --noheadings 2>/dev/null | sed '/^[[:space:]]*$/d' || true
 }
 
-ensure_zram() {
-  if active_swap_names | grep -Fxq '/dev/zram0'; then
-    zram_status="already active"
-    return 0
+zram_target_mib() {
+  local mem_kib target_mib
+  mem_kib="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)"
+  [[ "$mem_kib" =~ ^[0-9]+$ ]] || return 1
+  target_mib="$(( mem_kib * zram_percent / 100 / 1024 ))"
+  (( target_mib < 32 )) && target_mib=32
+  if (( zram_max_mib > 0 && target_mib > zram_max_mib )); then
+    target_mib="$zram_max_mib"
   fi
+  printf '%s' "$target_mib"
+}
 
-  if [[ ! -b /dev/zram0 ]]; then
-    modprobe zram num_devices=1 >/dev/null 2>&1 || true
-  fi
-  [[ -b /dev/zram0 ]] || return 1
-
+configure_zram_device() {
+  local target_mib="$1"
   if [[ -r /sys/block/zram0/comp_algorithm ]]; then
     algorithms="$(cat /sys/block/zram0/comp_algorithm 2>/dev/null || true)"
     if grep -qw zstd <<<"$algorithms"; then
@@ -67,20 +75,59 @@ ensure_zram() {
     fi
   fi
 
-  mem_kib="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)"
-  target_mib="$(( mem_kib * zram_percent / 100 / 1024 ))"
-  (( target_mib < 256 )) && target_mib=256
-  (( target_mib > zram_max_mib )) && target_mib="$zram_max_mib"
-
-  if [[ -w /sys/block/zram0/disksize ]]; then
-    echo "$(( target_mib * 1024 * 1024 ))" > /sys/block/zram0/disksize
-  else
-    return 1
-  fi
-
+  [[ -w /sys/block/zram0/disksize ]] || return 1
+  echo "$(( target_mib * 1024 * 1024 ))" > /sys/block/zram0/disksize
   mkswap -f /dev/zram0 >/dev/null
   swapon -p 100 /dev/zram0
-  zram_status="active (${target_mib} MiB, priority 100)"
+  zram_status="active (${target_mib} MiB = ${zram_percent}% RAM, priority 100)"
+}
+
+ensure_zram() {
+  local target_mib target_bytes current_bytes used_bytes
+  target_mib="$(zram_target_mib)" || return 1
+  target_bytes="$(( target_mib * 1024 * 1024 ))"
+
+  if [[ ! -b /dev/zram0 ]]; then
+    modprobe zram num_devices=1 >/dev/null 2>&1 || true
+  fi
+  [[ -b /dev/zram0 ]] || return 1
+
+  current_bytes="$(cat /sys/block/zram0/disksize 2>/dev/null || echo 0)"
+  if active_swap_names | grep -Fxq '/dev/zram0'; then
+    if [[ "$current_bytes" == "$target_bytes" ]]; then
+      zram_status="active (${target_mib} MiB = ${zram_percent}% RAM, priority 100)"
+      return 0
+    fi
+
+    # Resize immediately only when no swap pages are in use. Otherwise keep the
+    # active device untouched and apply the new target safely on the next boot.
+    used_bytes="$(swapon --show=NAME,USED --bytes --noheadings 2>/dev/null | awk '$1=="/dev/zram0" {print $2; exit}')"
+    used_bytes="${used_bytes:-0}"
+    if [[ "$used_bytes" =~ ^[0-9]+$ ]] && (( used_bytes == 0 )); then
+      swapoff /dev/zram0
+      if [[ -w /sys/block/zram0/reset ]]; then
+        echo 1 > /sys/block/zram0/reset
+      else
+        zramctl --reset /dev/zram0 >/dev/null 2>&1 || true
+      fi
+      configure_zram_device "$target_mib"
+      zram_status="resized and active (${target_mib} MiB = ${zram_percent}% RAM, priority 100)"
+      return 0
+    fi
+
+    current_mib="$(( current_bytes / 1024 / 1024 ))"
+    zram_status="active (${current_mib} MiB); target ${target_mib} MiB deferred until reboot because ZRAM is in use"
+    return 0
+  fi
+
+  if (( current_bytes > 0 )); then
+    if [[ -w /sys/block/zram0/reset ]]; then
+      echo 1 > /sys/block/zram0/reset
+    else
+      zramctl --reset /dev/zram0 >/dev/null 2>&1 || true
+    fi
+  fi
+  configure_zram_device "$target_mib"
 }
 
 ensure_swapfile() {
