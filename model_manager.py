@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_scout import parse_research_model, primary_agent_ids, research_prompt, select_primary_agent
-from model_catalog import best_zen_general_model_id, ranked_zen_general_model_ids
+from model_catalog import best_zen_general_model_id, ranked_zen_general_model_ids, strongest_model_variant
 from opencode_client import extract_text_response
 
 log = logging.getLogger("opencode_bridge.model_manager")
@@ -46,6 +46,8 @@ class ModelManager:
         self.audit = audit
         self.fallback_model = fallback_model
         self.configured_model = fallback_model
+        self.configured_variant = os.environ.get("OPENCODE_MODEL_VARIANT", "").strip() or None
+        self.configured_variant_model = os.environ.get("OPENCODE_VARIANT_MODEL", fallback_model).strip() or fallback_model
         if pin_default_model is None:
             self.pin_default_model = os.environ.get("OPENCODE_PIN_DEFAULT_MODEL", "0").strip().lower() not in {"0", "false", "no", "off"}
         else:
@@ -61,7 +63,9 @@ class ModelManager:
         self._scout_lock = asyncio.Lock()
         self._last_best: str | None = None
         self._preferred_model: str | None = self.configured_model if self.pin_default_model else None
+        self._preferred_variant: str | None = None
         self._preferred_agent: str | None = None
+        self._providers_cache: dict[str, Any] | list[dict[str, Any]] | None = None
 
     @property
     def preferred_model(self) -> str | None:
@@ -71,26 +75,58 @@ class ModelManager:
     def preferred_agent(self) -> str | None:
         return self._preferred_agent
 
+    @property
+    def preferred_variant(self) -> str | None:
+        return self._preferred_variant
+
+    def variant_for_model(self, model_id: str | None) -> str | None:
+        if not model_id:
+            return None
+        if self._providers_cache is not None:
+            catalog_variant = strongest_model_variant(self._providers_cache, model_id)
+            if catalog_variant:
+                return catalog_variant
+        if model_id == self.configured_variant_model:
+            return self.configured_variant
+        return None
+
     def set_preferred_model(self, model_id: str | None) -> None:
         self._preferred_model = model_id.strip() if isinstance(model_id, str) and model_id.strip() else None
 
     def current_agent(self, fallback: str) -> str:
         return self._preferred_agent or fallback
 
-    def _apply_live_defaults(self, agent: str, model: str) -> None:
-        self._preferred_agent = agent
+    def _apply_model_defaults(
+        self,
+        model: str,
+        providers: dict[str, Any] | list[dict[str, Any]] | None = None,
+    ) -> None:
+        if providers is not None:
+            self._providers_cache = providers
         self.set_preferred_model(model)
         self.fallback_model = model
-        # bot.py is already fully imported when ModelManager.start() runs. Updating
-        # these two module globals changes the next prompt for existing sessions,
-        # queued tasks, new tasks, and every allowed Telegram user without a restart.
+        self._preferred_variant = self.variant_for_model(model)
+        core = sys.modules.get("bot")
+        if core is not None:
+            setattr(core, "DEFAULT_MODEL", model)
+            setattr(core, "VARIANT_MODEL", model)
+            setattr(core, "DEFAULT_MODEL_VARIANT", self._preferred_variant)
+
+    def _apply_live_defaults(
+        self,
+        agent: str,
+        model: str,
+        providers: dict[str, Any] | list[dict[str, Any]] | None = None,
+    ) -> None:
+        self._preferred_agent = agent
+        self._apply_model_defaults(model, providers)
         core = sys.modules.get("bot")
         if core is not None:
             setattr(core, "DEFAULT_AGENT", agent)
-            setattr(core, "DEFAULT_MODEL", model)
 
     async def best_available(self, excluded_ids: set[str] | None = None) -> str | None:
         providers = await self.client.list_providers()
+        self._providers_cache = providers
         excluded = excluded_ids or set()
         ranked = ranked_zen_general_model_ids(providers)
         if self.pin_default_model and self.configured_model in ranked and self.configured_model not in excluded:
@@ -238,7 +274,7 @@ class ModelManager:
             previous_agent = previous.get("selected_agent")
             previous_model = previous.get("selected_model")
 
-            self._apply_live_defaults(agent, model)
+            self._apply_live_defaults(agent, model, providers)
             changed_sessions, failed_sessions = await self.force_all_sessions(model)
             now = datetime.now(UTC)
             payload = {
@@ -246,6 +282,7 @@ class ModelManager:
                 "next_due_at": datetime.fromtimestamp(now.timestamp() + self.scout_interval_seconds, tz=UTC).isoformat(),
                 "selected_agent": agent,
                 "selected_model": model,
+                "selected_variant": self._preferred_variant,
                 "selection_method": "pinned_default" if pinned else ("web_research" if researched else "live_catalog_fallback"),
                 "previous_agent": previous_agent,
                 "previous_model": previous_model,
@@ -261,6 +298,7 @@ class ModelManager:
                 details={
                     "agent": agent,
                     "model": model,
+                    "variant": self._preferred_variant,
                     "method": payload["selection_method"],
                     "previous_agent": previous_agent,
                     "previous_model": previous_model,
@@ -268,7 +306,7 @@ class ModelManager:
                     "sessions_failed": failed_sessions,
                 },
             )
-            log.info("Daily Agent Scout selected agent=%s model=%s", agent, model)
+            log.info("Daily Agent Scout selected agent=%s model=%s variant=%s", agent, model, self._preferred_variant or "default")
             return payload
 
     async def _restore_scout_state(self) -> bool:
@@ -285,11 +323,11 @@ class ModelManager:
         if agent not in primary_agent_ids(agents):
             return False
         if self.pin_default_model and self.configured_model in ranked:
-            self._apply_live_defaults(agent, self.configured_model)
+            self._apply_live_defaults(agent, self.configured_model, providers)
             return True
         if model not in ranked:
             return False
-        self._apply_live_defaults(agent, model)
+        self._apply_live_defaults(agent, model, providers)
         return True
 
     async def reconcile_once(self) -> str | None:
@@ -303,6 +341,7 @@ class ModelManager:
             if selected is None:
                 log.warning("كتالوج OpenCode Zen لا يحتوي نموذجًا مجانيًا نشطًا للتحويل التلقائي.")
                 return None
+            self._apply_model_defaults(selected, self._providers_cache)
             if selected != self._last_best:
                 self.audit.write(
                     "model_catalog_reconciled",
