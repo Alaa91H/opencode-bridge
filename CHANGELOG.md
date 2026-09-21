@@ -1,3 +1,43 @@
+## [1.5.0] - 2026-09-21
+
+### Highlights
+
+- Added production-ready Telegram control for the OpenCode development agent with per-task reasoning-variant forwarding and stronger repository-development instructions.
+- Added daily automatic selection of the strongest verified zero-cost OpenCode Zen model, using the highest supported reasoning variant exposed by live catalog metadata.
+- Added autonomous daily host maintenance, safe package updates, cleanup, guarded self-update, and a read-only post-maintenance agent audit.
+- Added boot-persistent ZRAM sized to 50% of physical RAM by default without the previous 2 GiB cap.
+
+### Autonomous Model Management
+
+- Agent Scout now re-evaluates zero-cost Zen models every day rather than permanently pinning a single model.
+- The bridge dynamically selects recognized maximum reasoning variants such as `xhigh`, `max`, or `high` when the selected model advertises them.
+- Unsupported variants retry safely without the variant before switching models.
+- Muse Spark 1.3 Contributor Free remains a safe fallback configuration.
+
+### Maintenance and Self-Update
+
+- Daily maintenance now covers APT refresh and safe upgrades, autoremove, cache cleanup, temporary files, journal retention, and managed attachment cleanup.
+- Self-update accepts only the trusted `Alaa91H/opencode-bridge` origin and clean fast-forward updates from `main`.
+- Candidate revisions are verified in a detached temporary worktree using Python syntax checks, unit tests, OpenCode JSON validation, and shell syntax checks before deployment.
+- systemd maintenance assets are synchronized after verified updates and unsafe local/divergent states stop automatic deployment without discarding local work.
+
+### ZRAM and Resource Reliability
+
+- ZRAM is installed and enabled automatically as a boot-level system service.
+- The default compressed-swap target is 50% of detected physical RAM with no artificial 2 GiB ceiling.
+- `zstd` is preferred when supported, then `lz4`, and ZRAM keeps a higher swap priority than disk fallback.
+- Active ZRAM is resized only when no swap pages are in use; otherwise the new target is deferred safely until reboot.
+
+### Repository Consolidation
+
+- Reconciled all existing development branch heads to the current `main` state after verifying that squash-merged and legacy V3 work was already integrated or superseded.
+- Preserved the newer modular `run_v3.py` production path instead of restoring the obsolete legacy `bot_v3.py` entrypoint.
+
+### Verification
+
+- CI validates Python syntax, the complete unit-test suite, maintenance shell scripts, both OpenCode configurations, and semantic-version format.
+- GitHub Release publication remains gated on successful CI for `main`.
+
 ## [1.4.0] - 2026-09-14
 
 ### Highlights
