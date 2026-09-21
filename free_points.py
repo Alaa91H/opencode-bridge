@@ -123,7 +123,9 @@ class FreePointsTracker:
 
 def format_free_points_header(snapshot: FreePointsSnapshot, command_points: int) -> str:
     """Render exactly two operator-facing lines for Telegram output."""
+    used = max(0, int(command_points))
+    unit = "نقطة" if used == 1 else "نقاط"
     return (
         f"النقاط المجانية المتبقية اليوم (تقديري): {snapshot.remaining}/{snapshot.limit}\n"
-        f"استهلاك هذا الأمر: {max(0, int(command_points))} نقطة"
+        f"استهلاك هذا الأمر: {used} {unit}"
     )
