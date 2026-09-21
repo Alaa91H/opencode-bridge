@@ -92,6 +92,7 @@ class OpenCodeClient:
         model: Optional[dict[str, str] | str] = None,
         agent: Optional[str] = None,
         parts: list[dict[str, Any]] | None = None,
+        variant: Optional[str] = None,
     ) -> dict[str, Any]:
         message_parts = list(parts or [])
         if text:
@@ -103,6 +104,8 @@ class OpenCodeClient:
             body["model"] = message_model_reference(model)
         if agent:
             body["agent"] = agent
+        if variant:
+            body["variant"] = variant
         response = await self._client.post(f"/session/{session_id}/message", json=body)
         response.raise_for_status()
         return response.json()
