@@ -1,8 +1,7 @@
 [Unit]
-Description=OpenCode Bridge Host Resource Optimizer
+Description=OpenCode Bridge ZRAM and Host Resource Optimizer
 After=local-fs.target
-Before=opencode-serve.service opencode-bridge-telegram.service
-PartOf=opencode-bridge.target
+Before=multi-user.target
 
 [Service]
 Type=oneshot
