@@ -95,7 +95,8 @@ OPENCODE_PASSWORD = os.environ.get("OPENCODE_PASSWORD")
 DEFAULT_MODEL = os.environ.get("OPENCODE_DEFAULT_MODEL", "opencode/muse-spark-1.3-contributor-free")
 DEFAULT_MODEL_VARIANT = os.environ.get("OPENCODE_MODEL_VARIANT", "xhigh").strip() or None
 VARIANT_MODEL = os.environ.get("OPENCODE_VARIANT_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
-DEFAULT_AGENT = os.environ.get("OPENCODE_AGENT", "development-agent")
+PIN_DEFAULT_MODEL = os.environ.get("OPENCODE_PIN_DEFAULT_MODEL", "1").strip().lower() not in {"0", "false", "no", "off"}
+DEFAULT_AGENT = os.environ.get("OPENCODE_AGENT", "telegram-operator")
 MODEL_CATALOG_SYNC_SECONDS = max(60, int(os.environ.get("OPENCODE_MODEL_SYNC_SECONDS", "900")))
 ATTACHMENT_MAX_BYTES = max(1, int(os.environ.get("TELEGRAM_ATTACHMENT_MAX_BYTES", str(20 * 1024 * 1024))))
 DAILY_TASK_COUNTER_TIMEZONE_NAME = os.environ.get("TELEGRAM_DAILY_TASK_COUNTER_TIMEZONE", "Etc/GMT-2").strip()
@@ -988,6 +989,7 @@ async def post_init(app: Application) -> None:
             audit=audit,
             fallback_model=DEFAULT_MODEL,
             sync_seconds=MODEL_CATALOG_SYNC_SECONDS,
+            pin_default_model=PIN_DEFAULT_MODEL,
         )
         await model_manager.start()
     try:
