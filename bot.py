@@ -95,7 +95,11 @@ OPENCODE_PASSWORD = os.environ.get("OPENCODE_PASSWORD")
 DEFAULT_MODEL = os.environ.get("OPENCODE_DEFAULT_MODEL", "opencode/muse-spark-1.3-contributor-free")
 DEFAULT_MODEL_VARIANT = os.environ.get("OPENCODE_MODEL_VARIANT", "xhigh").strip() or None
 VARIANT_MODEL = os.environ.get("OPENCODE_VARIANT_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
-PIN_DEFAULT_MODEL = os.environ.get("OPENCODE_PIN_DEFAULT_MODEL", "1").strip().lower() not in {"0", "false", "no", "off"}
+AUTO_STRONGEST_FREE_MODEL = os.environ.get("AGENT_SCOUT_AUTO_STRONGEST", "1").strip().lower() not in {"0", "false", "no", "off"}
+PIN_DEFAULT_MODEL = (
+    os.environ.get("OPENCODE_PIN_DEFAULT_MODEL", "1").strip().lower() not in {"0", "false", "no", "off"}
+    and not AUTO_STRONGEST_FREE_MODEL
+)
 DEFAULT_AGENT = os.environ.get("OPENCODE_AGENT", "telegram-operator")
 MODEL_CATALOG_SYNC_SECONDS = max(60, int(os.environ.get("OPENCODE_MODEL_SYNC_SECONDS", "900")))
 ATTACHMENT_MAX_BYTES = max(1, int(os.environ.get("TELEGRAM_ATTACHMENT_MAX_BYTES", str(20 * 1024 * 1024))))
