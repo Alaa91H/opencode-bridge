@@ -649,7 +649,7 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if context.args:
             await _safe_reply(
                 update.message,
-                "اختيار النموذج صار تلقائيًا لضمان استخدام أفضل نموذج عام متاح دائمًا. استخدم /model لعرض النموذج والترتيب الحاليين.",
+                "النموذج مضبوط تلقائيًا على Muse Spark 1.3 Free بمستوى xhigh عند توفره، مع fallback مجاني آمن عند الحاجة. استخدم /model لعرض الحالة الحالية.",
             )
             return
 
