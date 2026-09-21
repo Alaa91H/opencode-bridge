@@ -47,7 +47,7 @@ class ModelManager:
         self.fallback_model = fallback_model
         self.configured_model = fallback_model
         if pin_default_model is None:
-            self.pin_default_model = os.environ.get("OPENCODE_PIN_DEFAULT_MODEL", "1").strip().lower() not in {"0", "false", "no", "off"}
+            self.pin_default_model = os.environ.get("OPENCODE_PIN_DEFAULT_MODEL", "0").strip().lower() not in {"0", "false", "no", "off"}
         else:
             self.pin_default_model = bool(pin_default_model)
         self.sync_seconds = max(60.0, float(sync_seconds))
