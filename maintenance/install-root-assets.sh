@@ -17,6 +17,6 @@ install -m 0644 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-maintenance.
 install -m 0644 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-reboot-guard.service" /etc/systemd/system/opencode-bridge-reboot-guard.service
 
 systemctl daemon-reload
-systemctl enable opencode-bridge-maintenance.timer >/dev/null
+systemctl enable --now opencode-bridge-maintenance.timer >/dev/null
 
 echo "root_maintenance_assets=installed"

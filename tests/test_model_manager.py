@@ -43,6 +43,7 @@ def provider_catalog() -> dict:
                             "input": {"text": True, "image": True, "pdf": True},
                         },
                         "limit": {"context": 200_000, "output": 64_000},
+                        "variants": {"low": {}, "high": {}, "xhigh": {}},
                     },
                 },
             }
@@ -113,6 +114,15 @@ class ModelManagerTests(unittest.IsolatedAsyncioTestCase):
         )
         selected = await manager.best_available()
         self.assertEqual(selected, "opencode/text-only")
+
+    async def test_best_available_caches_maximum_variant(self) -> None:
+        client = FakeClient()
+        store = FakeStore()
+        audit = FakeAudit()
+        manager = ModelManager(client, store, audit, fallback_model="opencode/legacy")
+        selected = await manager.best_available()
+        self.assertEqual(selected, "opencode/general-rich")
+        self.assertEqual(manager.variant_for_model(selected), "xhigh")
 
     async def test_ensure_session_can_exclude_failed_model(self) -> None:
         client = FakeClient()
