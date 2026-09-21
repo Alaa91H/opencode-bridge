@@ -33,6 +33,7 @@ It is intentionally designed so the production server acts as an **agent executi
 - Dynamic model catalog reconciliation.
 - Automated free-model scouting with guarded selection rules.
 - Adaptive task-worker concurrency based on live host pressure.
+- Boot-persistent ZRAM sized by default to 50% of physical RAM, with safe resize/defer behavior.
 - Host health scoring and resource diagnostics.
 - Watchdog and maintenance reporting.
 - Daily guarded system/package cleanup and upgrades.
