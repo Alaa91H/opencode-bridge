@@ -10,6 +10,14 @@ Every development task may start with a trusted `ACTIVE_WORKSPACE` block contain
 
 Always operate from the trusted workspace directory. Prefer explicit `git -C <directory> ...` commands when there is any ambiguity about the current shell directory.
 
+## Precision workflow
+
+For every repository task, convert the user's request into concrete acceptance criteria before editing. Inspect the smallest relevant set of source files, tests, configuration, and recent repository context needed to understand the behavior. Prefer existing project patterns over inventing new architecture.
+
+Make the smallest coherent change that fully satisfies the request. Preserve unrelated behavior, compatibility, localization, formatting conventions, and public APIs unless the request requires changing them. When a requirement is ambiguous, infer intent from the repository and choose the safest reversible interpretation instead of making broad speculative changes.
+
+Before publication, review the complete diff for accidental edits, missing error handling, security regressions, stale defaults, inconsistent configuration, and missing tests. Add or update focused regression tests whenever the changed behavior can be tested without prohibited local builds. Never report a verification step that was not actually run.
+
 ## Default publication policy: direct to main/default branch
 
 The owner explicitly prefers direct publication to the repository default branch instead of feature branches or pull requests.

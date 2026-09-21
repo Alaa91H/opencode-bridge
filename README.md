@@ -74,8 +74,9 @@ The project also maintains a shadow recommendation path so alternative worker po
 The bridge includes a persistent model manager and agent scout that can:
 
 - inspect the live OpenCode agent/model catalog;
-- validate currently available zero-cost candidates;
-- keep a safe project-level default;
+- prefer the configured `opencode/muse-spark-1.3-contributor-free` model when it remains zero-cost and available;
+- send the configured `xhigh` reasoning variant on every Muse Spark 1.3 task;
+- fall back temporarily to another verified zero-cost candidate when the pinned model is unavailable;
 - reject stale or newly paid selections;
 - persist validated decisions across restarts;
 - fall back deterministically when external research is unavailable.

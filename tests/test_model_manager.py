@@ -100,6 +100,20 @@ class ModelManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.updated, [("session-1", "opencode/general-rich")])
         self.assertEqual(store.updated, [("user-1", "opencode/general-rich")])
 
+    async def test_pinned_default_wins_when_available(self) -> None:
+        client = FakeClient()
+        store = FakeStore()
+        audit = FakeAudit()
+        manager = ModelManager(
+            client,
+            store,
+            audit,
+            fallback_model="opencode/text-only",
+            pin_default_model=True,
+        )
+        selected = await manager.best_available()
+        self.assertEqual(selected, "opencode/text-only")
+
     async def test_ensure_session_can_exclude_failed_model(self) -> None:
         client = FakeClient()
         store = FakeStore()

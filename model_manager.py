@@ -39,11 +39,17 @@ class ModelManager:
         fallback_model: str,
         sync_seconds: float = 900.0,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        pin_default_model: bool | None = None,
     ) -> None:
         self.client = client
         self.store = store
         self.audit = audit
         self.fallback_model = fallback_model
+        self.configured_model = fallback_model
+        if pin_default_model is None:
+            self.pin_default_model = os.environ.get("OPENCODE_PIN_DEFAULT_MODEL", "0").strip().lower() not in {"0", "false", "no", "off"}
+        else:
+            self.pin_default_model = bool(pin_default_model)
         self.sync_seconds = max(60.0, float(sync_seconds))
         self.scout_interval_seconds = max(3600.0, float(os.environ.get("AGENT_SCOUT_INTERVAL_SECONDS", "86400")))
         self.scout_preferred_agent = os.environ.get("AGENT_SCOUT_PREFERRED_AGENT", "development-agent").strip() or "development-agent"
@@ -54,7 +60,7 @@ class ModelManager:
         self._lock = asyncio.Lock()
         self._scout_lock = asyncio.Lock()
         self._last_best: str | None = None
-        self._preferred_model: str | None = None
+        self._preferred_model: str | None = self.configured_model if self.pin_default_model else None
         self._preferred_agent: str | None = None
 
     @property
@@ -87,6 +93,8 @@ class ModelManager:
         providers = await self.client.list_providers()
         excluded = excluded_ids or set()
         ranked = ranked_zen_general_model_ids(providers)
+        if self.pin_default_model and self.configured_model in ranked and self.configured_model not in excluded:
+            return self.configured_model
         preferred = self._preferred_model
         if preferred and preferred in ranked and preferred not in excluded:
             return preferred
@@ -223,8 +231,9 @@ class ModelManager:
                 )
                 return None
 
-            researched = await self._research_free_model(agent, free_models)
-            model = researched if researched in free_models else free_models[0]
+            pinned = self.configured_model if self.pin_default_model and self.configured_model in free_models else None
+            researched = None if pinned else await self._research_free_model(agent, free_models)
+            model = pinned or (researched if researched in free_models else free_models[0])
             previous = self._load_scout_state()
             previous_agent = previous.get("selected_agent")
             previous_model = previous.get("selected_model")
@@ -237,7 +246,7 @@ class ModelManager:
                 "next_due_at": datetime.fromtimestamp(now.timestamp() + self.scout_interval_seconds, tz=UTC).isoformat(),
                 "selected_agent": agent,
                 "selected_model": model,
-                "selection_method": "web_research" if researched else "live_catalog_fallback",
+                "selection_method": "pinned_default" if pinned else ("web_research" if researched else "live_catalog_fallback"),
                 "previous_agent": previous_agent,
                 "previous_model": previous_model,
                 "primary_agents": primary_agent_ids(agents),
@@ -272,7 +281,13 @@ class ModelManager:
             agents, providers = await asyncio.gather(self.client.list_agents(), self.client.list_providers())
         except Exception:
             return False
-        if agent not in primary_agent_ids(agents) or model not in ranked_zen_general_model_ids(providers):
+        ranked = ranked_zen_general_model_ids(providers)
+        if agent not in primary_agent_ids(agents):
+            return False
+        if self.pin_default_model and self.configured_model in ranked:
+            self._apply_live_defaults(agent, self.configured_model)
+            return True
+        if model not in ranked:
             return False
         self._apply_live_defaults(agent, model)
         return True

@@ -92,7 +92,10 @@ ALLOWED_CHAT_IDS = {
 OPENCODE_HOST = os.environ.get("OPENCODE_HOST", "127.0.0.1")
 OPENCODE_PORT = int(os.environ.get("OPENCODE_PORT", "4096"))
 OPENCODE_PASSWORD = os.environ.get("OPENCODE_PASSWORD")
-DEFAULT_MODEL = os.environ.get("OPENCODE_DEFAULT_MODEL", "meta/muse-spark-1.2")
+DEFAULT_MODEL = os.environ.get("OPENCODE_DEFAULT_MODEL", "opencode/muse-spark-1.3-contributor-free")
+DEFAULT_MODEL_VARIANT = os.environ.get("OPENCODE_MODEL_VARIANT", "xhigh").strip() or None
+VARIANT_MODEL = os.environ.get("OPENCODE_VARIANT_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+PIN_DEFAULT_MODEL = os.environ.get("OPENCODE_PIN_DEFAULT_MODEL", "1").strip().lower() not in {"0", "false", "no", "off"}
 DEFAULT_AGENT = os.environ.get("OPENCODE_AGENT", "telegram-operator")
 MODEL_CATALOG_SYNC_SECONDS = max(60, int(os.environ.get("OPENCODE_MODEL_SYNC_SECONDS", "900")))
 ATTACHMENT_MAX_BYTES = max(1, int(os.environ.get("TELEGRAM_ATTACHMENT_MAX_BYTES", str(20 * 1024 * 1024))))
@@ -267,6 +270,13 @@ async def _send_task_output_files(task: QueuedTask, bot) -> int:
     return sent
 
 
+def _variant_for_model(model_id: str | None) -> str | None:
+    """Return the configured reasoning variant only for its intended model."""
+    if not DEFAULT_MODEL_VARIANT or not model_id:
+        return None
+    return DEFAULT_MODEL_VARIANT if model_id == VARIANT_MODEL else None
+
+
 async def _send_prompt_with_model_fallback(
     task: QueuedTask,
     session_id: str,
@@ -276,7 +286,14 @@ async def _send_prompt_with_model_fallback(
 ) -> tuple[dict, str | None]:
     """Send once, then retry once with the next catalog model if selection vanished."""
     try:
-        response = await client.send_prompt(session_id, prompt, model=selected_model, agent=DEFAULT_AGENT, parts=parts)
+        response = await client.send_prompt(
+            session_id,
+            prompt,
+            model=selected_model,
+            agent=DEFAULT_AGENT,
+            parts=parts,
+            variant=_variant_for_model(selected_model),
+        )
         return response, selected_model
     except httpx.HTTPStatusError as exc:
         if model_manager is None or selected_model is None or exc.response.status_code not in {400, 404, 422}:
@@ -295,7 +312,14 @@ async def _send_prompt_with_model_fallback(
             actor_id=task.owner_id,
             details={"from_model": selected_model, "to_model": fallback_model, "reason": "inference_model_unavailable"},
         )
-        response = await client.send_prompt(session_id, prompt, model=fallback_model, agent=DEFAULT_AGENT, parts=parts)
+        response = await client.send_prompt(
+            session_id,
+            prompt,
+            model=fallback_model,
+            agent=DEFAULT_AGENT,
+            parts=parts,
+            variant=_variant_for_model(fallback_model),
+        )
         return response, fallback_model
 
 
@@ -626,7 +650,7 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if context.args:
             await _safe_reply(
                 update.message,
-                "اختيار النموذج صار تلقائيًا لضمان استخدام أفضل نموذج عام متاح دائمًا. استخدم /model لعرض النموذج والترتيب الحاليين.",
+                "النموذج مضبوط تلقائيًا على Muse Spark 1.3 Free بمستوى xhigh عند توفره، مع fallback مجاني آمن عند الحاجة. استخدم /model لعرض الحالة الحالية.",
             )
             return
 
@@ -640,7 +664,11 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         listed = "\n".join(f"• {name}" for name in models)
         await _safe_reply(
             update.message,
-            f"النموذج التلقائي الحالي: {current_model}\n\nترتيب النماذج العامة المتاحة ({len(models)}):\n{listed}\n\nيتحقق البوت من الكتالوج عند كل مهمة ودوريًا، ويبدّل تلقائيًا عند التغيّر أو عدم التوفر.",
+            f"النموذج الحالي: {current_model}\n"
+            f"النموذج المفضل: {VARIANT_MODEL}\n"
+            f"مستوى الاستدلال: {_variant_for_model(current_model) or 'افتراضي'}\n\n"
+            f"ترتيب النماذج العامة المتاحة ({len(models)}):\n{listed}\n\n"
+            "يُفضّل البوت Muse Spark 1.3 Free عند توفره، ويستخدم بديلًا مجانيًا مؤقتًا فقط عند عدم توفره.",
         )
     except Exception as exc:
         log.exception("فشل التعامل مع أمر النموذج")
@@ -738,6 +766,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             f"• المعرّف: {session.opencode_session_id}\n"
             f"• الحالة: {state}\n"
             f"• النموذج: {session.model or DEFAULT_MODEL}\n"
+            f"• مستوى الاستدلال: {_variant_for_model(session.model or DEFAULT_MODEL) or 'افتراضي'}\n"
             f"• الوكيل: {DEFAULT_AGENT}\n"
             f"• مهام اليوم: {today_count}\n"
             f"• الإنشاء: {session.created_at.strftime('%Y-%m-%d %H:%M UTC')}"
@@ -960,6 +989,7 @@ async def post_init(app: Application) -> None:
             audit=audit,
             fallback_model=DEFAULT_MODEL,
             sync_seconds=MODEL_CATALOG_SYNC_SECONDS,
+            pin_default_model=PIN_DEFAULT_MODEL,
         )
         await model_manager.start()
     try:
@@ -1003,8 +1033,9 @@ async def post_init(app: Application) -> None:
     ]
     await app.bot.set_my_commands(commands)
     log.info(
-        "تم تسجيل أوامر البوت. النموذج: %s، الوكيل: %s، وكيل تيليغرام: %s",
+        "تم تسجيل أوامر البوت. النموذج: %s، الاستدلال: %s، الوكيل: %s، وكيل تيليغرام: %s",
         DEFAULT_MODEL,
+        DEFAULT_MODEL_VARIANT or "default",
         DEFAULT_AGENT,
         "مفعّل" if TELEGRAM_PROXY_URL else "غير مفعّل",
     )
@@ -1095,7 +1126,7 @@ async def main() -> None:
 
     await app.start()
     await app.updater.start_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=False)
-    log.info("البوت يعمل. النموذج: %s، الوكيل: %s", DEFAULT_MODEL, DEFAULT_AGENT)
+    log.info("البوت يعمل. النموذج: %s، الاستدلال: %s، الوكيل: %s", DEFAULT_MODEL, DEFAULT_MODEL_VARIANT or "default", DEFAULT_AGENT)
     await stop_event.wait()
     await app.updater.stop()
     await app.stop()
