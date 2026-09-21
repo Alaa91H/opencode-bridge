@@ -17,6 +17,7 @@ BRIDGE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRIDGE_DIR))
 
 from audit_log import AuditLogger
+from free_points import FreePointsTracker
 from model_manager import ModelManager
 from opencode_client import OpenCodeClient, extract_text_response
 from session_store import SessionStore
@@ -45,10 +46,19 @@ async def run() -> dict[str, Any]:
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     store = SessionStore(BRIDGE_DIR / "sessions.db")
     await store.init()
+    free_points_tracker = FreePointsTracker(
+        RUNTIME_DIR / "free-points.db",
+        daily_limit=max(1, int(os.environ.get("OPENCODE_FREE_DAILY_POINTS", "200"))),
+        timezone_name=os.environ.get(
+            "TELEGRAM_DAILY_TASK_COUNTER_TIMEZONE",
+            "Europe/Berlin",
+        ).strip(),
+    )
     client = OpenCodeClient(
         host=os.environ.get("OPENCODE_HOST", "127.0.0.1"),
         port=int(os.environ.get("OPENCODE_PORT", "4096")),
         password=os.environ.get("OPENCODE_PASSWORD") or os.environ.get("OPENCODE_SERVER_PASSWORD"),
+        free_points_tracker=free_points_tracker,
     )
     audit = AuditLogger(RUNTIME_DIR / "audit.jsonl")
     manager = ModelManager(
@@ -128,6 +138,7 @@ async def run() -> dict[str, Any]:
             "selected_variant": variant,
             "selected_agent": agent,
             "selection_method": selection.get("selection_method") if isinstance(selection, dict) else "catalog_fallback",
+            "free_points_remaining": free_points_tracker.snapshot().remaining,
         }
         STATE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         os.chmod(STATE_PATH, 0o640)
