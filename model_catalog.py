@@ -7,6 +7,7 @@ from typing import Any
 
 OPENCODE_ZEN_PROVIDER_ID = "opencode"
 ACTIVE_MODEL_STATUSES = {"active", "available", "stable"}
+MAX_PERFORMANCE_VARIANTS = ("xhigh", "max", "high", "medium", "low", "minimal", "none")
 
 
 def _numeric_values(value: Any) -> list[float]:
@@ -139,3 +140,66 @@ def best_zen_general_model_id(
 def zen_free_model_ids(provider_data: dict[str, Any] | list[dict[str, Any]]) -> list[str]:
     """List only zero-cost models offered by the built-in OpenCode Zen provider."""
     return sorted((model_id for model_id, _ in _zen_free_models(provider_data)), key=str.casefold)
+
+
+def model_metadata(
+    provider_data: dict[str, Any] | list[dict[str, Any]],
+    qualified_model_id: str,
+) -> dict[str, Any] | None:
+    """Return live metadata for one exact provider/model identifier."""
+    if not isinstance(qualified_model_id, str) or "/" not in qualified_model_id:
+        return None
+    provider_id, model_id = qualified_model_id.split("/", 1)
+    providers: Any = provider_data.get("all", []) if isinstance(provider_data, dict) else provider_data
+    if not isinstance(providers, list):
+        return None
+    for provider in providers:
+        if not isinstance(provider, dict) or provider.get("id") != provider_id:
+            continue
+        models = provider.get("models")
+        if not isinstance(models, dict):
+            return None
+        metadata = models.get(model_id)
+        return metadata if isinstance(metadata, dict) else None
+    return None
+
+
+def model_variant_ids(
+    provider_data: dict[str, Any] | list[dict[str, Any]],
+    qualified_model_id: str,
+) -> list[str]:
+    """Read enabled variant IDs from current OpenCode catalog metadata."""
+    metadata = model_metadata(provider_data, qualified_model_id)
+    if metadata is None:
+        return []
+    raw = metadata.get("variants")
+    results: set[str] = set()
+    if isinstance(raw, dict):
+        for variant_id, value in raw.items():
+            if not isinstance(variant_id, str) or not variant_id.strip():
+                continue
+            if isinstance(value, dict) and value.get("disabled") is True:
+                continue
+            results.add(variant_id.strip())
+    elif isinstance(raw, list):
+        for value in raw:
+            if isinstance(value, str) and value.strip():
+                results.add(value.strip())
+            elif isinstance(value, dict) and value.get("disabled") is not True:
+                variant_id = value.get("id") or value.get("name")
+                if isinstance(variant_id, str) and variant_id.strip():
+                    results.add(variant_id.strip())
+    return sorted(results, key=str.casefold)
+
+
+def strongest_model_variant(
+    provider_data: dict[str, Any] | list[dict[str, Any]],
+    qualified_model_id: str,
+) -> str | None:
+    """Choose the strongest known reasoning variant without inventing an ID."""
+    variants = model_variant_ids(provider_data, qualified_model_id)
+    by_fold = {value.casefold(): value for value in variants}
+    for preferred in MAX_PERFORMANCE_VARIANTS:
+        if preferred in by_fold:
+            return by_fold[preferred]
+    return None
