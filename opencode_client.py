@@ -7,6 +7,8 @@ from typing import Any, AsyncIterator, Optional
 
 import httpx
 
+from free_points import FreePointsTracker
+
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 4096
 TIMEOUT = 600.0
@@ -40,9 +42,11 @@ class OpenCodeClient:
         port: int = DEFAULT_PORT,
         password: Optional[str] = None,
         timeout: float = TIMEOUT,
+        free_points_tracker: FreePointsTracker | None = None,
     ) -> None:
         self.base_url = f"http://{host}:{port}"
         self.timeout = timeout
+        self.free_points_tracker = free_points_tracker
         auth = ("opencode", password) if password else None
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
@@ -85,6 +89,56 @@ class OpenCodeClient:
         response = await self._client.delete(f"/session/{session_id}")
         return response.status_code in (200, 204)
 
+    async def list_session_messages(self, session_id: str, limit: int = 200) -> list[dict[str, Any]]:
+        response = await self._client.get(
+            f"/session/{session_id}/message",
+            params={"limit": max(1, min(int(limit), 200))},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+        if isinstance(payload, dict):
+            items = payload.get("items")
+            if isinstance(items, list):
+                return [item for item in items if isinstance(item, dict)]
+        return []
+
+    @staticmethod
+    def _assistant_message_ids(messages: list[dict[str, Any]]) -> set[str]:
+        ids: set[str] = set()
+        for message in messages:
+            info = message.get("info")
+            if not isinstance(info, dict) or info.get("role") != "assistant":
+                continue
+            message_id = info.get("id") or message.get("id")
+            if isinstance(message_id, str) and message_id:
+                ids.add(message_id)
+        return ids
+
+    async def _usage_baseline(self, session_id: str) -> set[str] | None:
+        if self.free_points_tracker is None:
+            return None
+        try:
+            return self._assistant_message_ids(await self.list_session_messages(session_id))
+        except (httpx.HTTPError, ValueError):
+            return None
+
+    async def _record_prompt_usage(self, session_id: str, baseline: set[str] | None) -> int:
+        if self.free_points_tracker is None:
+            return 0
+        points = 1
+        if baseline is not None:
+            try:
+                current = self._assistant_message_ids(await self.list_session_messages(session_id))
+                created = current - baseline
+                if created:
+                    points = len(created)
+            except (httpx.HTTPError, ValueError):
+                pass
+        self.free_points_tracker.record(points)
+        return points
+
     async def send_prompt(
         self,
         session_id: str,
@@ -94,6 +148,7 @@ class OpenCodeClient:
         parts: list[dict[str, Any]] | None = None,
         variant: Optional[str] = None,
     ) -> dict[str, Any]:
+        usage_baseline = await self._usage_baseline(session_id)
         message_parts = list(parts or [])
         if text:
             message_parts.insert(0, {"type": "text", "text": text})
@@ -107,8 +162,22 @@ class OpenCodeClient:
         if variant:
             body["variant"] = variant
         response = await self._client.post(f"/session/{session_id}/message", json=body)
+        if response.status_code >= 400 and self.free_points_tracker is not None:
+            error_text = response.text.casefold()
+            if (
+                response.status_code == 429
+                or "freeusagelimiterror" in error_text
+                or "free usage exceeded" in error_text
+            ):
+                self.free_points_tracker.mark_exhausted()
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            payload = {}
+        points = await self._record_prompt_usage(session_id, usage_baseline)
+        if self.free_points_tracker is not None:
+            payload["_bridge_usage_points"] = points
+        return payload
 
     async def abort_session(self, session_id: str) -> bool:
         response = await self._client.post(f"/session/{session_id}/abort")
