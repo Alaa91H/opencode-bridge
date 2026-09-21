@@ -80,6 +80,11 @@ bridge_self_update() {
   BRIDGE_UPDATE_JSON="$output"
   BRIDGE_UPDATE_STATUS="$(printf '%s' "$output" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("status","unknown"))' 2>/dev/null || echo unknown)"
   printf '%s\n' "$BRIDGE_UPDATE_JSON"
+  case "$BRIDGE_UPDATE_STATUS" in
+    updated|up_to_date) return 0 ;;
+    skipped) return 3 ;;
+    *) return 2 ;;
+  esac
 }
 
 refresh_deployment_assets() {
