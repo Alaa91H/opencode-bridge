@@ -5,6 +5,10 @@
 set -Eeuo pipefail
 
 readonly BRIDGE_DIR="/home/ubuntu/opencode-bridge"
+readonly BRIDGE_USER="ubuntu"
+readonly BRIDGE_UID="$(id -u "$BRIDGE_USER")"
+readonly USER_RUNTIME_DIR="/run/user/${BRIDGE_UID}"
+readonly PYTHON_BIN="${BRIDGE_DIR}/venv/bin/python"
 readonly RUNTIME_DIR="${BRIDGE_DIR}/runtime"
 readonly REPORT_PATH="${RUNTIME_DIR}/maintenance-latest.md"
 readonly HISTORY_DIR="${RUNTIME_DIR}/maintenance-history"
@@ -38,6 +42,9 @@ RUN_ID="$(date -u +'%Y%m%dT%H%M%SZ')"
 STATUS="نجاح"
 FAILURES=()
 STEPS=()
+BRIDGE_UPDATE_JSON='{"status":"not_checked"}'
+BRIDGE_UPDATE_STATUS="not_checked"
+AGENT_MAINTENANCE_JSON='{"status":"not_run"}'
 
 record_step() {
   local label="$1"
@@ -51,6 +58,52 @@ record_step() {
     FAILURES+=("${label} (رمز الخروج ${code})")
     STEPS+=("⚠️ ${label}")
   fi
+}
+
+run_as_bridge_user() {
+  runuser -u "$BRIDGE_USER" -- env \
+    XDG_RUNTIME_DIR="$USER_RUNTIME_DIR" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=${USER_RUNTIME_DIR}/bus" \
+    "$@"
+}
+
+bridge_self_update() {
+  [[ -x "$PYTHON_BIN" ]] || { echo "prepared Python environment is missing"; return 1; }
+  local output
+  if ! output="$(run_as_bridge_user "$PYTHON_BIN" "${BRIDGE_DIR}/maintenance/self_update.py")"; then
+    BRIDGE_UPDATE_JSON="${output:-{\"status\":\"error\"}}"
+    BRIDGE_UPDATE_STATUS="error"
+    printf '%s\n' "$BRIDGE_UPDATE_JSON"
+    return 1
+  fi
+  BRIDGE_UPDATE_JSON="$output"
+  BRIDGE_UPDATE_STATUS="$(printf '%s' "$output" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("status","unknown"))' 2>/dev/null || echo unknown)"
+  printf '%s\n' "$BRIDGE_UPDATE_JSON"
+}
+
+refresh_deployment_assets() {
+  bash "${BRIDGE_DIR}/maintenance/install-root-assets.sh"
+  run_as_bridge_user "$PYTHON_BIN" "${BRIDGE_DIR}/systemd.py"
+}
+
+restart_bridge_after_update() {
+  [[ "$BRIDGE_UPDATE_STATUS" == "updated" ]] || return 0
+  run_as_bridge_user systemctl --user restart opencode-serve.service
+  sleep 3
+  run_as_bridge_user systemctl --user restart opencode-bridge-telegram.service
+  run_as_bridge_user bash -c 'git -C "$1" rev-parse HEAD > "$1/runtime/deployed-ref"' _ "$BRIDGE_DIR"
+}
+
+run_daily_agent_maintenance() {
+  [[ -x "$PYTHON_BIN" ]] || return 1
+  local output
+  output="$(run_as_bridge_user "$PYTHON_BIN" "${BRIDGE_DIR}/maintenance/daily_agent_maintenance.py")" || {
+    AGENT_MAINTENANCE_JSON="${output:-{\"status\":\"error\"}}"
+    printf '%s\n' "$AGENT_MAINTENANCE_JSON"
+    return 1
+  }
+  AGENT_MAINTENANCE_JSON="$output"
+  printf '%s\n' "$AGENT_MAINTENANCE_JSON"
 }
 
 apt_update() {
@@ -95,6 +148,10 @@ record_step "تنظيف ذاكرة حزم APT" apt_clean
 record_step "تنظيف الملفات المؤقتة وفق سياسة النظام" cleanup_temporary_files
 record_step "الاحتفاظ بسجل النظام لآخر 14 يومًا" cleanup_journal
 record_step "حذف مرفقات البوت المدارة الأقدم من 7 أيام" cleanup_managed_attachments
+record_step "فحص GitHub وتطبيق تحديث OpenCode Bridge الموثق" bridge_self_update
+record_step "مزامنة ملفات systemd والصيانة من النسخة الحالية" refresh_deployment_assets
+record_step "إعادة تشغيل خدمات الجسر بعد تحديث الكود فقط" restart_bridge_after_update
+record_step "تشغيل مهمة الوكيل اليومية واختيار أقوى نموذج مجاني" run_daily_agent_maintenance
 
 REBOOT_REQUIRED="لا"
 [[ -f /var/run/reboot-required ]] && REBOOT_REQUIRED="نعم — سيُطلب التأكيد عبر حارس إعادة التشغيل"
@@ -113,14 +170,16 @@ REPORT_TMP="$(mktemp "${RUNTIME_DIR}/.maintenance-${RUN_ID}.XXXXXX")"
   printf '| مساحة القرص | %s |\n' "$DISK_SUMMARY"
   printf '| تحديثات متبقية | %s |\n' "$UPGRADABLE_LEFT"
   printf '| إعادة تشغيل مطلوبة | %s |\n' "$REBOOT_REQUIRED"
-  printf '| مرفقات البوت المحذوفة (أقدم من 7 أيام) | %s |\n\n' "$ATTACHMENT_CLEANUP_SUMMARY"
+  printf '| مرفقات البوت المحذوفة (أقدم من 7 أيام) | %s |\n' "$ATTACHMENT_CLEANUP_SUMMARY"
+  printf '| تحديث المستودع | `%s` |\n' "$BRIDGE_UPDATE_STATUS"
+  printf '| نتيجة مهمة الوكيل | `%s` |\n\n' "$(printf '%s' "$AGENT_MAINTENANCE_JSON" | tr '\n' ' ' | cut -c1-300)"
   printf '## الخطوات المنفذة\n\n'
   printf '%s\n' "${STEPS[@]}"
   if (( ${#FAILURES[@]} > 0 )); then
     printf '\n## ملاحظات تحتاج متابعة\n\n'
     printf '%s\n' "${FAILURES[@]}"
   fi
-  printf '\n> لا ينفّذ هذا السكربت بناء مشاريع، أو تثبيت اعتماديات تطبيقات، أو حذف ملفات مستخدمين أو ملفات مشروع. الاستثناء الوحيد هو مرفقات البوت المدارة داخل runtime/attachments بعد مرور 7 أيام. إعادة التشغيل، عند الحاجة، تمر حصريًا عبر حارس منفصل يطلب التأكيد ثم يتحقق من خلو الطابور.\n'
+  printf '\n> تحديث البرنامج ذاتي وآمن: fetch من المستودع الموثوق فقط، تحقق كامل في worktree مؤقت، ثم fast-forward فقط إذا كان الفرع نظيفًا وغير متشعب. لا يوجد force/reset. تحديث النظام يستخدم APT فقط، ولا ينفّذ بناء مشاريع أو تثبيت اعتماديات تطبيقات. إعادة تشغيل النظام تمر حصريًا عبر حارس التأكيد.\n'
 } >"$REPORT_TMP"
 
 install -m 640 -o ubuntu -g ubuntu "$REPORT_TMP" "$REPORT_PATH"
