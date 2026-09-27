@@ -1016,10 +1016,16 @@ async def _queue_attachment_task(
     combined_records = [*pending_records, *records]
     attachment_store.validate_input_records(combined_records)
 
-    reason = check_build(prompt) or check_hardline(prompt)
-    if reason:
+    build_reason = check_build(prompt)
+    hardline_reason = check_hardline(prompt)
+    if build_reason or hardline_reason:
         attachment_store.delete_input_records(combined_records)
-        await bot.send_message(chat_id=chat_id, text=build_blocked_message(reason))
+        blocked_text = (
+            build_blocked_message(build_reason)
+            if build_reason
+            else f"لم يُنفذ الطلب لأنه محظور لحماية الخادم: {hardline_reason}."
+        )
+        await bot.send_message(chat_id=chat_id, text=blocked_text)
         return
 
     task, position = await task_store.enqueue(
@@ -1028,17 +1034,27 @@ async def _queue_attachment_task(
         prompt,
         attachments=combined_records,
     )
-    today_count = await task_store.count_created_for_day(owner_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
     assert task_service is not None
     task_service.wake()
-    position_text = "وهي الجاية بالتنفيذ" if position == 1 else f"بترتيب {position}"
-    await bot.send_message(
-        chat_id=chat_id,
-        text=(
-            f"تم ربط الأمر مع {len(combined_records)} مرفق وتسجيل مهمة اليوم رقم "
-            f"{today_count} {position_text}."
-        ),
-    )
+    try:
+        today_count = await task_store.count_created_for_day(
+            owner_id,
+            day_timezone=DAILY_TASK_COUNTER_TIMEZONE,
+        )
+        position_text = "وهي الجاية بالتنفيذ" if position == 1 else f"بترتيب {position}"
+        await bot.send_message(
+            chat_id=chat_id,
+            text=(
+                f"تم ربط الأمر مع {len(combined_records)} مرفق وتسجيل مهمة اليوم رقم "
+                f"{today_count} {position_text}."
+            ),
+        )
+    except Exception as exc:
+        log.warning(
+            "تم إنشاء مهمة المرفقات #%s لكن تعذر إرسال تأكيد تيليغرام: %s",
+            task.id,
+            type(exc).__name__,
+        )
     audit.write(
         "attachment_task_queued",
         "accepted",
@@ -1110,6 +1126,7 @@ async def _ingest_attachment_batch(
 
 async def _flush_media_group_after_delay(key: tuple[int, str], bot) -> None:
     current_task = asyncio.current_task()
+    batch: dict[str, object] | None = None
     try:
         await asyncio.sleep(MEDIA_GROUP_DEBOUNCE_SECONDS)
         batch = media_group_batches.pop(key, None)
@@ -1126,13 +1143,16 @@ async def _flush_media_group_after_delay(key: tuple[int, str], bot) -> None:
     except asyncio.CancelledError:
         return
     except (AttachmentError, ValueError) as exc:
-        batch = media_group_batches.pop(key, None)
         if batch:
             attachment_store.delete_input_records(
                 [item.to_record() for item in list(batch.get("attachments") or [])]
             )
         await bot.send_message(chat_id=key[0], text=f"ما قدرت أجهّز مجموعة المرفقات: {exc}.")
     except Exception as exc:
+        if batch:
+            attachment_store.delete_input_records(
+                [item.to_record() for item in list(batch.get("attachments") or [])]
+            )
         log.exception("فشل تجهيز مجموعة مرفقات تيليغرام")
         await bot.send_message(chat_id=key[0], text=user_error(exc, "تجهيز مجموعة المرفقات"))
     finally:
