@@ -29,15 +29,18 @@ class TaskQueueAttachmentTests(unittest.IsolatedAsyncioTestCase):
                     }
                 ],
                 execution_mode="deepresearch",
+                status_message_id=555,
             )
             self.assertEqual(position, 1)
             self.assertEqual(task.attachments[0]["filename"], "report.pdf")
             self.assertEqual(task.execution_mode, "deepresearch")
+            self.assertEqual(task.status_message_id, 555)
             restored = await store.get(task.id)
             self.assertIsNotNone(restored)
             assert restored is not None
             self.assertEqual(restored.attachments, task.attachments)
             self.assertEqual(restored.execution_mode, "deepresearch")
+            self.assertEqual(restored.status_message_id, 555)
             await store.close()
 
     async def test_daily_counter_resets_at_local_midnight_without_deleting_history(self) -> None:
@@ -101,6 +104,11 @@ class TaskQueueAttachmentTests(unittest.IsolatedAsyncioTestCase):
             await store.init()
             task, _ = await store.enqueue("7", 9, "مهمة قديمة البنية")
             self.assertEqual(task.attachments, ())
+            self.assertIsNone(task.status_message_id)
+            await store.set_status_message_id(task.id, 777)
+            task = await store.get(task.id)
+            assert task is not None
+            self.assertEqual(task.status_message_id, 777)
             await store.update_activity(
                 task.id,
                 [{"time": "2026-08-22T14:00:00+00:00", "phase": "started", "message": "بدأت المهمة", "kind": "info"}],
