@@ -1049,23 +1049,36 @@ async def cmd_schedtime(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def cmd_schedinterval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         name, interval_text = _split_pipe_args(" ".join(context.args), 2)
-        repeat_seconds = _parse_interval_seconds(interval_text)
-        due_at = datetime.now(UTC) + timedelta(seconds=repeat_seconds)
+        owner_id = str(update.effective_user.id)
+        current = await task_store.get_scheduled_job(owner_id, name)
+        if current is None:
+            await _safe_reply(update.message, "لم أجد مهمة مجدولة بهذا الاسم.")
+            return
+        if interval_text.strip().lower() in {"once", "one", "مرة", "مرة واحدة"}:
+            repeat_seconds = None
+            due_at = current.next_run_at
+            if due_at is None or due_at <= datetime.now(UTC):
+                due_at = datetime.now(UTC) + timedelta(minutes=1)
+            interval_label = "مرة واحدة"
+        else:
+            repeat_seconds = _parse_interval_seconds(interval_text)
+            due_at = datetime.now(UTC) + timedelta(seconds=repeat_seconds)
+            interval_label = interval_text
         job = await task_store.update_scheduled_job_timing(
-            str(update.effective_user.id),
+            owner_id,
             name,
             due_at,
             repeat_seconds,
-            timezone_name="UTC",
+            timezone_name=current.timezone_name,
         )
-        if job is None:
-            await _safe_reply(update.message, "لم أجد مهمة مجدولة بهذا الاسم.")
-            return
         assert task_service is not None
         task_service.wake()
-        await _safe_reply(update.message, f"تم تغيير تكرار «{job.name}» إلى {interval_text}.")
+        await _safe_reply(update.message, f"تم تغيير تكرار «{job.name}» إلى {interval_label}.")
     except ValueError as exc:
-        await _safe_reply(update.message, f"تعذر تغيير التكرار: {exc}.\nالصيغة: /schedinterval الاسم | 1d")
+        await _safe_reply(
+            update.message,
+            f"تعذر تغيير التكرار: {exc}.\nالصيغة: /schedinterval الاسم | 1d أو once",
+        )
 
 
 @authorized
