@@ -68,11 +68,17 @@ class V2BaselineContractTests(unittest.TestCase):
         self.assertEqual(primary["permission"]["bash"]["reboot*"], "deny")
 
     def test_v3_workspace_tasks_use_the_single_message_lifecycle(self) -> None:
-        source = (ROOT / "v3_plugin.py").read_text(encoding="utf-8")
-        self.assertNotIn("Queued task #", source)
-        self.assertNotIn("Queued development task #", source)
-        self.assertIn("_create_task_status_message", source)
-        self.assertGreaterEqual(source.count("status_message_id=status_message_id"), 2)
+        plugin = (ROOT / "v3_plugin.py").read_text(encoding="utf-8")
+        adapter = (ROOT / "bridge" / "telegram" / "commands" / "workspaces.py").read_text(encoding="utf-8")
+        service = (ROOT / "bridge" / "services" / "workspace_service.py").read_text(encoding="utf-8")
+        task_service = (ROOT / "bridge" / "services" / "task_service.py").read_text(encoding="utf-8")
+        combined = "\n".join((plugin, adapter, service, task_service))
+        self.assertNotIn("Queued task #", combined)
+        self.assertNotIn("Queued development task #", combined)
+        self.assertIn("status_message_id = await self.create_status", adapter)
+        self.assertIn("status_message_id=status_message_id", adapter)
+        self.assertIn("status_message_id=status_message_id", service)
+        self.assertIn("stored_prompt=prepared", service)
 
     def test_base_task_ui_does_not_restore_chunked_numbered_results(self) -> None:
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
