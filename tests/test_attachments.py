@@ -116,6 +116,56 @@ class AttachmentStoreTests(unittest.TestCase):
         self.assertIn("\n- instructions.txt", note)
         self.assertNotIn("\\n", note)
 
+    def test_direct_model_visibility_matches_current_opencode_formats(self) -> None:
+        visible = [
+            StoredAttachment("/tmp/a.txt", "a.txt", "text/plain", 1, "document"),
+            StoredAttachment("/tmp/a.json", "a.json", "application/json", 1, "document"),
+            StoredAttachment("/tmp/a.svg", "a.svg", "image/svg+xml", 1, "document"),
+            StoredAttachment("/tmp/a.png", "a.png", "image/png", 1, "photo"),
+            StoredAttachment("/tmp/a.webp", "a.webp", "image/webp", 1, "photo"),
+        ]
+        hidden = [
+            StoredAttachment("/tmp/a.pdf", "a.pdf", "application/pdf", 1, "document"),
+            StoredAttachment("/tmp/a.mp4", "a.mp4", "video/mp4", 1, "video"),
+            StoredAttachment("/tmp/a.ogg", "a.ogg", "audio/ogg", 1, "voice"),
+            StoredAttachment("/tmp/a.zip", "a.zip", "application/zip", 1, "document"),
+        ]
+        self.assertTrue(all(item.is_direct_model_visible() for item in visible))
+        self.assertTrue(all(not item.is_direct_model_visible() for item in hidden))
+
+    def test_task_work_cleanup_never_removes_outputs_or_inputs(self) -> None:
+        incoming = self.store.incoming_directory("1") / "source.bin"
+        incoming.write_bytes(b"source")
+        output = self.store.task_output_directory(13)
+        result = output / "result.txt"
+        result.write_text("result", encoding="utf-8")
+        work = self.store.task_work_directory(13)
+        (work / "frame.jpg").write_bytes(b"derived")
+
+        self.store.cleanup_task_work(13)
+
+        self.assertFalse(work.exists())
+        self.assertTrue(incoming.exists())
+        self.assertTrue(result.exists())
+
+    def test_prompt_routes_binary_media_to_server_tools_and_scratch(self) -> None:
+        incoming = self.store.incoming_directory("4") / "clip.mp4"
+        incoming.write_bytes(b"video")
+        attachment = StoredAttachment(
+            path=str(incoming),
+            filename="clip.mp4",
+            mime="video/mp4",
+            size=incoming.stat().st_size,
+            kind="video",
+        )
+        output = self.store.task_output_directory(14)
+        work = self.store.task_work_directory(14)
+        note = attachment_prompt_note([attachment], output, work)
+        self.assertIn("direct_model_input=no", note)
+        self.assertIn("ffprobe/ffmpeg", note)
+        self.assertIn(str(work), note)
+        self.assertIn(str(output), note)
+
     def test_sticker_is_exposed_as_a_managed_file_type(self) -> None:
         from attachments import select_telegram_attachment
 
