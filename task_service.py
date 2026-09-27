@@ -2,38 +2,26 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from adaptive_workers import StabilizedWorkerLimit, WorkerLimitTransition
 from audit_log import AuditLogger
+from bridge.config import get_settings
 from resource_monitor import HostResourcePolicy
 from shadow_policy_audit import AuditedShadowPolicy
 from task_service_v3 import TaskServiceV3
 
 
 def _configured_workers() -> int:
-    try:
-        value = int(os.environ.get("AGENT_TASK_WORKERS", "2"))
-    except ValueError:
-        value = 2
-    return max(1, min(value, 8))
+    return get_settings().agent.task_workers
 
 
 def _configured_poll_seconds() -> float:
-    try:
-        value = float(os.environ.get("AGENT_TASK_POLL_SECONDS", "5"))
-    except ValueError:
-        value = 5.0
-    return max(0.5, min(value, 60.0))
+    return get_settings().agent.task_poll_seconds
 
 
 def _configured_recovery_seconds() -> float:
-    try:
-        value = float(os.environ.get("AGENT_WORKER_RECOVERY_SECONDS", "30"))
-    except ValueError:
-        value = 30.0
-    return max(1.0, min(value, 600.0))
+    return get_settings().agent.worker_recovery_seconds
 
 
 class TaskService(TaskServiceV3):
