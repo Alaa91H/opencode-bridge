@@ -33,6 +33,12 @@ jobs:
       - name: Run unit tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
 
+      - name: Record v2 baseline inventory
+        run: python scripts/v2_baseline_probe.py --inventory-only
+
+      - name: Run v2 baseline micro-benchmark
+        run: python scripts/v2_baseline_probe.py --benchmark-only
+
       - name: Validate shell maintenance scripts
         run: |
           bash -n start.sh
