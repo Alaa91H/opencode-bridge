@@ -466,8 +466,17 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
         await reporter.record("preparing", "عم نتحقق من المرفقات ونحضّر مساحة النتيجة.")
         attachments = attachment_store.validate_input_records(task.attachments)
         output_directory = attachment_store.task_output_directory(task.id)
-        prompt = enhanced.text + "\n\n" + attachment_prompt_note(attachments, output_directory)
-        message_parts = [attachment.to_message_part() for attachment in attachments]
+        work_directory = attachment_store.task_work_directory(task.id)
+        prompt = enhanced.text + "\n\n" + attachment_prompt_note(
+            attachments,
+            output_directory,
+            work_directory,
+        )
+        message_parts = [
+            attachment.to_message_part()
+            for attachment in attachments
+            if attachment.is_direct_model_visible()
+        ]
         session_id = await _ensure_session(task.owner_id)
         session = await store.get_session(task.owner_id)
         selected_model = session.model if session else DEFAULT_MODEL
@@ -560,6 +569,10 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
         else:
             await reporter.finish("cancelled", "تم إلغاء المهمة أثناء التنفيذ.", "warning")
     finally:
+        try:
+            attachment_store.cleanup_task_work(task.id)
+        except Exception as exc:
+            log.warning("تعذر تنظيف مساحة العمل المؤقتة للمهمة %s: %s", task.id, type(exc).__name__)
         stop_typing.set()
         if event_task:
             event_task.cancel()
