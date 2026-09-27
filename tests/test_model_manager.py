@@ -115,6 +115,21 @@ class ModelManagerTests(unittest.IsolatedAsyncioTestCase):
         selected = await manager.best_available()
         self.assertEqual(selected, "opencode/text-only")
 
+    async def test_media_selection_overrides_text_only_pin_only_for_capability(self) -> None:
+        client = FakeClient()
+        store = FakeStore()
+        audit = FakeAudit()
+        manager = ModelManager(
+            client,
+            store,
+            audit,
+            fallback_model="opencode/text-only",
+            pin_default_model=True,
+        )
+        selected = await manager.best_available_for_inputs({"image"})
+        self.assertEqual(selected, "opencode/general-rich")
+        self.assertEqual(manager.configured_model, "opencode/text-only")
+
     async def test_best_available_caches_maximum_variant(self) -> None:
         client = FakeClient()
         store = FakeStore()
