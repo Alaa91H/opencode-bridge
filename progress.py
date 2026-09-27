@@ -153,34 +153,37 @@ def summarize_agent_event(event: dict[str, Any]) -> tuple[str, str, str] | None:
 
 
 def render_progress(progress: TaskProgress, detail: bool = False) -> str:
-    """Render a compact Telegram-safe status message."""
+    """Render one compact Telegram-safe status message without task identifiers."""
     labels = {
         "queued": "بانتظار التنفيذ",
-        "started": "قيد البدء",
-        "processing": "قيد التحليل",
-        "tool_pending": "تحضير خطوة",
-        "tool_running": "قيد التنفيذ",
-        "tool_completed": "استكمال خطوة",
-        "plan": "تحديث الخطة",
-        "command": "تنفيذ خطوة",
+        "started": "جاري تجهيز الطلب",
+        "preparing": "جاري تجهيز الملفات",
+        "session": "جاري تجهيز الوكيل",
+        "processing": "جاري التنفيذ",
+        "tool_pending": "جاري تجهيز خطوة",
+        "tool_running": "جاري تنفيذ خطوة",
+        "tool_completed": "جاري متابعة التنفيذ",
+        "plan": "جاري تنفيذ الخطة",
+        "command": "جاري تنفيذ خطوة",
         "approval": "بانتظار قرار",
-        "agent_idle": "تحضير النتيجة",
-        "completed": "مكتملة",
-        "failed": "فشلت",
-        "cancelled": "ملغاة",
+        "retry": "جاري إعادة المحاولة",
+        "agent_idle": "جاري تجهيز النتيجة",
+        "delivering": "جاري تجهيز النتيجة",
+        "completed": "اكتمل",
+        "failed": "تعذر إكمال الطلب",
+        "cancelled": "تم الإلغاء",
     }
-    elapsed = max(0, int((progress.updated_at - progress.started_at).total_seconds()))
-    lines = [
-        f"تقدم المهمة #{progress.task_id}",
-        f"• الحالة: {labels.get(progress.phase, progress.phase)}",
-        f"• الزمن: {elapsed} ثانية",
-    ]
-    events = progress.entries[-MAX_RENDERED_EVENTS if detail else -3 :]
-    if events:
-        lines.append("\nآخر النشاط:")
-        for entry in events:
-            stamp = entry.created_at.strftime("%H:%M:%S UTC")
-            lines.append(f"• [{stamp}] {entry.message}")
+    title = labels.get(progress.phase, "جاري التنفيذ")
+    latest = progress.entries[-1].message if progress.entries else ""
+    if not detail:
+        return title if not latest else f"{title}\n{latest}"
+
+    safe_entries = progress.entries[-MAX_RENDERED_EVENTS:]
+    if not safe_entries:
+        return title
+    lines = [title]
+    for entry in safe_entries:
+        lines.append(f"• {entry.message}")
     return "\n".join(lines)
 
 
@@ -198,7 +201,7 @@ def serialize_progress(progress: TaskProgress) -> list[dict[str, str]]:
 
 
 def render_persisted_activity(task_id: int, status: str, activity: tuple[dict[str, Any], ...], detail: bool = True) -> str:
-    """Render activity stored in SQLite without reconstructing private agent data."""
+    """Render stored activity without exposing internal task identifiers."""
     labels = {
         "queued": "بانتظار التنفيذ",
         "scheduled": "مجدولة",
@@ -207,15 +210,12 @@ def render_persisted_activity(task_id: int, status: str, activity: tuple[dict[st
         "failed": "فشلت",
         "cancelled": "ملغاة",
     }
-    lines = [f"سجل المهمة #{task_id}", f"• الحالة: {labels.get(status, status)}"]
+    lines = [f"الحالة: {labels.get(status, status)}"]
     safe_entries = [item for item in activity if isinstance(item, dict)][-MAX_RENDERED_EVENTS if detail else -3 :]
     if not safe_entries:
-        lines.append("\nلا يوجد نشاط مفصل محفوظ لهذه المهمة بعد.")
         return "\n".join(lines)
-    lines.append("\nسجل التنفيذ:")
     for item in safe_entries:
-        raw_time = str(item.get("time") or "")
-        stamp = raw_time[11:19] + " UTC" if len(raw_time) >= 19 else "الآن"
         message = str(item.get("message") or "تحديث تنفيذ")[:260]
-        lines.append(f"• [{stamp}] {message}")
+        lines.append(f"• {message}")
     return "\n".join(lines)
+
