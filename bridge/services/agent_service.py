@@ -7,6 +7,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+import httpx
+
 from model_catalog import ranked_zen_general_model_ids
 
 
@@ -26,6 +28,16 @@ class OpenCodePort(Protocol):
     async def get_session_status(self) -> dict: ...
     async def list_agents(self) -> list[dict]: ...
     async def list_providers(self) -> Any: ...
+    async def send_prompt(
+        self,
+        session_id: str,
+        prompt: str,
+        *,
+        model: str | None = None,
+        agent: str | None = None,
+        parts: list[dict] | None = None,
+        variant: str | None = None,
+    ) -> dict: ...
 
 
 class NoActiveSession(LookupError):
@@ -196,6 +208,147 @@ class AgentService:
             variant=self.variant_for_model(model),
             agent=self.default_agent,
         )
+
+    async def current_model(self, user_id: str) -> tuple[str, str]:
+        session_id = await self.ensure_session(user_id)
+        session = await self.sessions.get_session(user_id)
+        model = session.model if session and session.model else self.default_model
+        return session_id, model
+
+    async def best_model_for_inputs(
+        self,
+        current_model: str | None,
+        required_inputs: set[str],
+    ) -> str | None:
+        manager = self.model_manager_provider()
+        if manager is None:
+            return current_model
+        try:
+            candidate = await manager.best_available_for_inputs(required_inputs)
+        except Exception as exc:
+            self.log.info(
+                "تعذر اختيار نموذج خاص بمدخلات المهمة: %s",
+                type(exc).__name__,
+            )
+            return current_model
+        return candidate or current_model
+
+    @staticmethod
+    def response_usage_points(response: dict | None) -> int:
+        if not isinstance(response, dict):
+            return 0
+        try:
+            return max(0, int(response.get("_bridge_usage_points", 0)))
+        except (TypeError, ValueError):
+            return 0
+
+    async def send_prompt_with_fallback(
+        self,
+        owner_id: str,
+        session_id: str,
+        prompt: str,
+        parts: list[dict],
+        selected_model: str | None,
+        *,
+        audit_write: Callable[..., None] | None = None,
+        task_id: int | None = None,
+    ) -> tuple[dict, str | None, int]:
+        """Send through OpenCode with variant, file-transport, and model fallback."""
+
+        def audit(event: str, outcome: str, details: dict[str, Any]) -> None:
+            if audit_write is not None:
+                audit_write(
+                    event,
+                    outcome,
+                    actor_id=owner_id,
+                    details=details,
+                )
+
+        async def send_for_model(model_id: str | None) -> dict:
+            variant = self.variant_for_model(model_id)
+            try:
+                return await self.client.send_prompt(
+                    session_id,
+                    prompt,
+                    model=model_id,
+                    agent=self.default_agent,
+                    parts=parts,
+                    variant=variant,
+                )
+            except httpx.HTTPStatusError as exc:
+                if variant and exc.response.status_code in {400, 404, 422}:
+                    audit(
+                        "model_variant_fallback",
+                        "retry_default",
+                        {"model": model_id, "variant": variant},
+                    )
+                    variant = None
+                    try:
+                        return await self.client.send_prompt(
+                            session_id,
+                            prompt,
+                            model=model_id,
+                            agent=self.default_agent,
+                            parts=parts,
+                            variant=None,
+                        )
+                    except httpx.HTTPStatusError as retry_exc:
+                        exc = retry_exc
+
+                if parts and exc.response.status_code in {400, 413, 415, 422}:
+                    audit(
+                        "attachment_transport_fallback",
+                        "local_path",
+                        {
+                            "task_id": task_id,
+                            "model": model_id,
+                            "status_code": exc.response.status_code,
+                            "attachment_count": len(parts),
+                        },
+                    )
+                    try:
+                        return await self.client.send_prompt(
+                            session_id,
+                            prompt,
+                            model=model_id,
+                            agent=self.default_agent,
+                            parts=[],
+                            variant=variant,
+                        )
+                    except httpx.HTTPStatusError as retry_exc:
+                        exc = retry_exc
+                raise exc
+
+        try:
+            response = await send_for_model(selected_model)
+            return response, selected_model, self.response_usage_points(response)
+        except httpx.HTTPStatusError as exc:
+            manager = self.model_manager_provider()
+            if (
+                manager is None
+                or selected_model is None
+                or exc.response.status_code not in {400, 404, 422}
+            ):
+                raise
+            fallback_model = await manager.ensure_session_model(
+                owner_id,
+                session_id,
+                selected_model,
+                excluded_ids={selected_model},
+            )
+            if fallback_model == selected_model:
+                raise
+            audit(
+                "model_auto_switched",
+                "fallback",
+                {
+                    "from_model": selected_model,
+                    "to_model": fallback_model,
+                    "reason": "inference_model_unavailable",
+                },
+            )
+            response = await send_for_model(fallback_model)
+            return response, fallback_model, self.response_usage_points(response)
 
     async def health(self) -> dict:
         return await self.client.health()
