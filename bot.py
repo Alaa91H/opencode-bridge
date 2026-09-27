@@ -480,6 +480,31 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
         session_id = await _ensure_session(task.owner_id)
         session = await store.get_session(task.owner_id)
         selected_model = session.model if session else DEFAULT_MODEL
+        needs_image_input = any(
+            attachment.mime.startswith("image/")
+            or attachment.mime == "application/pdf"
+            or attachment.kind in {"video", "animation", "video_note"}
+            for attachment in attachments
+        )
+        if needs_image_input and model_manager is not None:
+            try:
+                media_model = await model_manager.best_available_for_inputs({"image"})
+            except Exception as exc:
+                media_model = None
+                log.info("تعذر اختيار نموذج صور خاص بالمهمة: %s", type(exc).__name__)
+            if media_model and media_model != selected_model:
+                audit.write(
+                    "task_media_model_selected",
+                    "changed",
+                    actor_id=task.owner_id,
+                    details={
+                        "task_id": task.id,
+                        "from_model": selected_model,
+                        "to_model": media_model,
+                        "required_input": "image",
+                    },
+                )
+                selected_model = media_model
         await reporter.record("session", "تم تجهيز جلسة الوكيل. عم نبدأ التنفيذ.")
         typing_task = asyncio.create_task(_typing_loop(task.chat_id, bot, stop_typing))
         event_task = asyncio.create_task(reporter.consume_events(client, session_id))
