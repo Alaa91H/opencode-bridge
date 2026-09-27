@@ -1,0 +1,5 @@
+# Direct runtime dependency intent for OpenCode Bridge.
+# Keep this file on stable release lines; requirements.txt carries exact pins.
+python-telegram-bot>=22.8,<23
+httpx>=0.28.1,<1
+aiosqlite>=0.22.1,<0.23
