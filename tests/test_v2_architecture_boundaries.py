@@ -37,8 +37,39 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             BRIDGE / "telegram",
             BRIDGE / "domain",
             BRIDGE / "services",
+            BRIDGE / "infrastructure",
+            BRIDGE / "workers",
+            BRIDGE / "config",
+            BRIDGE / "domain" / "tasks",
+            BRIDGE / "domain" / "schedules",
+            BRIDGE / "domain" / "attachments",
+            BRIDGE / "domain" / "sessions",
+            BRIDGE / "domain" / "policies",
+            BRIDGE / "infrastructure" / "database",
+            BRIDGE / "infrastructure" / "opencode",
+            BRIDGE / "infrastructure" / "telegram",
+            BRIDGE / "infrastructure" / "storage",
+            BRIDGE / "infrastructure" / "metrics",
         }
         self.assertTrue(all(path.is_dir() for path in expected))
+
+    def test_telegram_command_adapters_contain_no_sql(self) -> None:
+        forbidden = ("SELECT ", "INSERT INTO ", "UPDATE ", "CREATE TABLE ", "ALTER TABLE ")
+        for path in (BRIDGE / "telegram" / "commands").rglob("*.py"):
+            source = path.read_text(encoding="utf-8").upper()
+            for token in forbidden:
+                self.assertNotIn(token, source, path)
+
+    def test_opencode_layers_do_not_import_telegram(self) -> None:
+        for relative in (
+            "opencode_client.py",
+            "bridge/services/agent_service.py",
+            "bridge/services/task_execution_service.py",
+        ):
+            path = ROOT / relative
+            roots = imported_roots(path)
+            self.assertNotIn("telegram", roots, relative)
+            self.assertNotIn("bot", roots, relative)
 
     def test_schedule_handlers_in_bot_are_thin_delegates(self) -> None:
         tree = ast.parse((ROOT / "bot.py").read_text(encoding="utf-8"))
