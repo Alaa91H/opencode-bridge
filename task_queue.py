@@ -77,6 +77,16 @@ class QueuedTask:
         return bool(self.repeat_seconds)
 
 
+@dataclass(frozen=True)
+class PendingAttachmentBatch:
+    owner_id: str
+    chat_id: int
+    attachments: tuple[dict[str, Any], ...]
+    created_at: datetime
+    updated_at: datetime
+    expires_at: datetime
+
+
 class TaskQueueStore:
     """SQLite-backed task queue. All timestamps are stored in UTC."""
 
@@ -135,6 +145,23 @@ class TaskQueueStore:
             "CREATE INDEX IF NOT EXISTS idx_agent_tasks_owner_created "
             "ON agent_tasks(owner_id, created_at)"
         )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pending_attachment_batches (
+                owner_id TEXT NOT NULL,
+                chat_id INTEGER NOT NULL,
+                attachments_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                PRIMARY KEY (owner_id, chat_id)
+            )
+            """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pending_attachment_expiry "
+            "ON pending_attachment_batches(expires_at)"
+        )
         await db.commit()
 
     @staticmethod
@@ -169,6 +196,173 @@ class TaskQueueStore:
                 (encode_activity(activity[-40:]), now, task_id),
             )
             await db.commit()
+
+    @staticmethod
+    def _pending_from_row(row: aiosqlite.Row) -> PendingAttachmentBatch:
+        return PendingAttachmentBatch(
+            owner_id=str(row["owner_id"]),
+            chat_id=int(row["chat_id"]),
+            attachments=decode_attachments(row["attachments_json"]),
+            created_at=decode_time(row["created_at"]) or utc_now(),
+            updated_at=decode_time(row["updated_at"]) or utc_now(),
+            expires_at=decode_time(row["expires_at"]) or utc_now(),
+        )
+
+    async def stage_pending_attachments(
+        self,
+        owner_id: str,
+        chat_id: int,
+        attachments: list[dict[str, Any]],
+        ttl_seconds: int,
+        max_count: int,
+        max_total_bytes: int,
+    ) -> tuple[PendingAttachmentBatch, tuple[dict[str, Any], ...]]:
+        """Persist files waiting for the user's next instruction.
+
+        Returns the active batch plus any expired records it replaced so the
+        caller can remove their managed files safely.
+        """
+        if not attachments:
+            raise ValueError("لا توجد مرفقات لحفظها")
+        now_dt = utc_now()
+        now = encode_time(now_dt)
+        expires_at = now_dt + timedelta(seconds=max(60, int(ttl_seconds)))
+        db = await self._get_db()
+        expired_records: tuple[dict[str, Any], ...] = ()
+        async with self._lock:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    "SELECT * FROM pending_attachment_batches WHERE owner_id = ? AND chat_id = ?",
+                    (owner_id, chat_id),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                existing: list[dict[str, Any]] = []
+                created_at = now
+                if row is not None:
+                    previous = self._pending_from_row(row)
+                    if previous.expires_at <= now_dt:
+                        expired_records = previous.attachments
+                    else:
+                        existing = list(previous.attachments)
+                        created_at = encode_time(previous.created_at)
+
+                merged: list[dict[str, Any]] = []
+                seen_paths: set[str] = set()
+                for record in [*existing, *attachments]:
+                    path = str(record.get("path", ""))
+                    if path and path in seen_paths:
+                        continue
+                    if path:
+                        seen_paths.add(path)
+                    merged.append(record)
+
+                if len(merged) > max(1, int(max_count)):
+                    raise ValueError(f"عدد المرفقات أكبر من الحد المسموح ({max_count})")
+                total_size = 0
+                for record in merged:
+                    try:
+                        size = int(record.get("size", 0))
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError("حجم أحد المرفقات غير صالح") from exc
+                    if size < 0:
+                        raise ValueError("حجم أحد المرفقات غير صالح")
+                    total_size += size
+                if total_size > max(1, int(max_total_bytes)):
+                    raise ValueError(
+                        f"الحجم الإجمالي للمرفقات يتجاوز الحد المسموح ({max_total_bytes // (1024 * 1024)} MiB)"
+                    )
+
+                await db.execute(
+                    """
+                    INSERT INTO pending_attachment_batches
+                    (owner_id, chat_id, attachments_json, created_at, updated_at, expires_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(owner_id, chat_id) DO UPDATE SET
+                        attachments_json = excluded.attachments_json,
+                        updated_at = excluded.updated_at,
+                        expires_at = excluded.expires_at
+                    """,
+                    (
+                        owner_id,
+                        chat_id,
+                        encode_attachments(merged),
+                        created_at,
+                        now,
+                        encode_time(expires_at),
+                    ),
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+
+        return (
+            PendingAttachmentBatch(
+                owner_id=owner_id,
+                chat_id=chat_id,
+                attachments=tuple(merged),
+                created_at=decode_time(created_at) or now_dt,
+                updated_at=now_dt,
+                expires_at=expires_at,
+            ),
+            expired_records,
+        )
+
+    async def pop_pending_attachments(
+        self,
+        owner_id: str,
+        chat_id: int,
+    ) -> tuple[tuple[dict[str, Any], ...], bool]:
+        """Atomically remove and return one pending batch and whether it expired."""
+        now_dt = utc_now()
+        db = await self._get_db()
+        async with self._lock:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    "SELECT * FROM pending_attachment_batches WHERE owner_id = ? AND chat_id = ?",
+                    (owner_id, chat_id),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                if row is None:
+                    await db.commit()
+                    return (), False
+                batch = self._pending_from_row(row)
+                await db.execute(
+                    "DELETE FROM pending_attachment_batches WHERE owner_id = ? AND chat_id = ?",
+                    (owner_id, chat_id),
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        return batch.attachments, batch.expires_at <= now_dt
+
+    async def purge_expired_pending_attachments(self) -> tuple[dict[str, Any], ...]:
+        """Delete expired pending rows and return their records for managed file cleanup."""
+        now = encode_time(utc_now())
+        db = await self._get_db()
+        records: list[dict[str, Any]] = []
+        async with self._lock:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    "SELECT attachments_json FROM pending_attachment_batches WHERE expires_at <= ?",
+                    (now,),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                for row in rows:
+                    records.extend(decode_attachments(row["attachments_json"]))
+                await db.execute(
+                    "DELETE FROM pending_attachment_batches WHERE expires_at <= ?",
+                    (now,),
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        return tuple(records)
 
     async def enqueue(
         self,
