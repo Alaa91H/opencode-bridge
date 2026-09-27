@@ -29,6 +29,7 @@ It is intentionally designed so the production server acts as an **agent executi
 - Durable task queue backed by local storage.
 - Multi-repository Git/GitHub development workflows.
 - Instruction-bound Telegram attachment tasks for images, video, audio and arbitrary documents, with persistent staging, album grouping, bounded storage and secure output delivery.
+- Single-message Telegram task lifecycle: one status message is created after the instruction, edited live during execution, then replaced in place by the final answer.
 - Live task progress and persisted activity reporting.
 - Research-oriented commands for search, deep research, comparison, verification and source inspection.
 - Dynamic model catalog reconciliation.
