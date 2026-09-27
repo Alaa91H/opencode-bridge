@@ -137,6 +137,46 @@ def best_zen_general_model_id(
     return next((model_id for model_id in ranked_zen_general_model_ids(provider_data) if model_id not in excluded), None)
 
 
+def model_supports_inputs(
+    provider_data: dict[str, Any] | list[dict[str, Any]],
+    qualified_model_id: str,
+    required_inputs: set[str],
+) -> bool:
+    """Return true when live catalog metadata explicitly supports every required input."""
+    if not required_inputs:
+        return True
+    metadata = model_metadata(provider_data, qualified_model_id)
+    if metadata is None:
+        return False
+    capabilities = metadata.get("capabilities")
+    if not isinstance(capabilities, dict):
+        return False
+    inputs = capabilities.get("input")
+    if not isinstance(inputs, dict):
+        return False
+    return all(inputs.get(kind) is True for kind in required_inputs)
+
+
+def ranked_zen_model_ids_for_inputs(
+    provider_data: dict[str, Any] | list[dict[str, Any]],
+    required_inputs: set[str],
+) -> list[str]:
+    """Rank active zero-cost Zen models that explicitly support required input types."""
+    ranked = [
+        (model_id, _general_model_score(model))
+        for model_id, model in _zen_free_models(provider_data)
+        if model_supports_inputs(provider_data, model_id, required_inputs)
+    ]
+    ranked = [(model_id, score) for model_id, score in ranked if score[0] >= 0]
+    return [
+        model_id
+        for model_id, _ in sorted(
+            ranked,
+            key=lambda item: (-item[1][0], -item[1][1], -item[1][2], -item[1][3], item[0].casefold()),
+        )
+    ]
+
+
 def zen_free_model_ids(provider_data: dict[str, Any] | list[dict[str, Any]]) -> list[str]:
     """List only zero-cost models offered by the built-in OpenCode Zen provider."""
     return sorted((model_id for model_id, _ in _zen_free_models(provider_data)), key=str.casefold)
