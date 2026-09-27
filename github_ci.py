@@ -10,12 +10,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import time
 from dataclasses import asdict, dataclass
 from typing import Any
 
 import httpx
+
+from bridge.config import get_settings
 
 GITHUB_API = "https://api.github.com"
 TERMINAL_CONCLUSIONS = {
@@ -113,7 +114,7 @@ def failed_steps_from_jobs(payload: dict[str, Any]) -> tuple[str, ...]:
 
 class GitHubCIClient:
     def __init__(self, token: str | None = None, timeout: float = 20.0) -> None:
-        resolved_token = token if token is not None else os.environ.get("GITHUB_TOKEN", "")
+        resolved_token = token if token is not None else get_settings().github.token
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
