@@ -71,6 +71,34 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             self.assertNotIn("telegram", roots, relative)
             self.assertNotIn("bot", roots, relative)
 
+    def test_all_legacy_bot_handlers_are_thin_delegates(self) -> None:
+        tree = ast.parse((ROOT / "bot.py").read_text(encoding="utf-8"))
+        handler_names = {
+            node.name
+            for node in tree.body
+            if isinstance(node, ast.AsyncFunctionDef)
+            and (node.name.startswith("cmd_") or node.name.startswith("handle_"))
+        }
+        self.assertTrue(handler_names)
+        for node in tree.body:
+            if not isinstance(node, ast.AsyncFunctionDef) or node.name not in handler_names:
+                continue
+            self.assertEqual(len(node.body), 1, node.name)
+            self.assertIsInstance(node.body[0], ast.Expr, node.name)
+            self.assertIsInstance(node.body[0].value, ast.Await, node.name)
+
+    def test_compatibility_plugins_keep_handlers_thin(self) -> None:
+        for relative in ("v3_plugin.py", "ci_plugin.py", "resource_commands.py"):
+            tree = ast.parse((ROOT / relative).read_text(encoding="utf-8"))
+            for node in tree.body:
+                if not isinstance(node, ast.AsyncFunctionDef):
+                    continue
+                if not (node.name.startswith("cmd_") or node.name.startswith("handle_")):
+                    continue
+                self.assertEqual(len(node.body), 1, f"{relative}:{node.name}")
+                self.assertIsInstance(node.body[0], ast.Expr, f"{relative}:{node.name}")
+                self.assertIsInstance(node.body[0].value, ast.Await, f"{relative}:{node.name}")
+
     def test_schedule_handlers_in_bot_are_thin_delegates(self) -> None:
         tree = ast.parse((ROOT / "bot.py").read_text(encoding="utf-8"))
         names = {
