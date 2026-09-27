@@ -117,7 +117,7 @@ class TaskApplicationServiceTests(unittest.IsolatedAsyncioTestCase):
         )
         cancelled = await self.service.cancel_current("u")
         self.assertEqual(cancelled.id, task.id)
-        self.assertEqual(self.attachments.deleted, ({"path": "/managed/a"},))
+        self.assertEqual(self.attachments.deleted, [{"path": "/managed/a"}])
 
 
 if __name__ == "__main__":
