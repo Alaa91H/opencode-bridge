@@ -1,7 +1,7 @@
-"""V3 workspace plugin for the existing Telegram bridge.
+"""V3 workspace compatibility plugin.
 
-The plugin keeps the mature bot runtime intact and layers repository selection,
-workspace context injection, and bounded queue concurrency on top.
+Business rules live in bridge.services.workspace_service. This module remains
+as the production compatibility/install surface for run_v3 during T02.
 """
 
 from __future__ import annotations
@@ -10,21 +10,38 @@ import os
 from pathlib import Path
 
 from telegram import BotCommand, Update
-from telegram.ext import Application, ApplicationHandlerStop, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 import bot as core
+from bridge.services.workspace_service import WorkspaceService, workspace_prompt
+from bridge.telegram.commands.workspaces import WorkspaceCommands
 from resource_monitor import HostResourcePolicy
 from task_service_v3 import TaskServiceV3
-from workspace_manager import GitWorkspaceManager, WorkspaceError
+from workspace_manager import GitWorkspaceManager
 from workspace_store import WorkspaceStore
 
 WORKSPACE_ROOT = Path(os.environ.get("GITHUB_WORKSPACE_ROOT", "/home/ubuntu/github-workspaces"))
-ALLOWED_REPOS = tuple(value.strip() for value in os.environ.get("GITHUB_ALLOWED_REPOS", "").split(",") if value.strip())
+ALLOWED_REPOS = tuple(
+    value.strip()
+    for value in os.environ.get("GITHUB_ALLOWED_REPOS", "").split(",")
+    if value.strip()
+)
 TASK_WORKERS = max(1, min(int(os.environ.get("AGENT_TASK_WORKERS", "2")), 8))
-ADAPTIVE_WORKERS = os.environ.get("AGENT_ADAPTIVE_WORKERS", "1").strip().lower() not in {"0", "false", "no", "off"}
+ADAPTIVE_WORKERS = (
+    os.environ.get("AGENT_ADAPTIVE_WORKERS", "1").strip().lower()
+    not in {"0", "false", "no", "off"}
+)
 
 workspace_manager = GitWorkspaceManager(WORKSPACE_ROOT, ALLOWED_REPOS)
 workspace_store = WorkspaceStore(core.BRIDGE_DIR / "sessions.db")
+workspace_service = WorkspaceService(
+    workspace_manager,
+    workspace_store,
+    core._agent_service,
+    core._task_application_service,
+    core._request_guard,
+)
+_workspace_commands_instance: WorkspaceCommands | None = None
 
 
 class V3TaskService(TaskServiceV3):
@@ -42,206 +59,61 @@ class V3TaskService(TaskServiceV3):
         )
 
 
-def workspace_prompt(repo_slug: str, directory: str, request: str) -> str:
-    return (
-        "ACTIVE_WORKSPACE (trusted bridge context)\n"
-        f"repository: {repo_slug}\n"
-        f"directory: {directory}\n"
-        "policy: work only inside this repository; do not build or install dependencies locally.\n"
-        "END_ACTIVE_WORKSPACE\n\n"
-        f"USER_REQUEST:\n{request}"
-    )
+def _wake_tasks() -> None:
+    if core.task_service is None:
+        raise RuntimeError("خدمة المهام غير مهيأة بعد")
+    core.task_service.wake()
+
+
+def _commands() -> WorkspaceCommands:
+    global _workspace_commands_instance
+    if _workspace_commands_instance is None:
+        _workspace_commands_instance = WorkspaceCommands(
+            workspace_service,
+            reply=core._safe_reply,
+            create_status=core._create_task_status_message,
+            edit_status=core._edit_task_status_message,
+            wake_tasks=_wake_tasks,
+            error_message=core.user_error,
+            audit_write=core.audit.write,
+            is_allowed=core._is_allowed,
+            logger=core.log,
+        )
+    return _workspace_commands_instance
 
 
 async def _active(owner_id: str):
-    active = await workspace_store.get(owner_id)
-    if active is None:
-        return None
-    slug = workspace_manager.require_allowed(active.repo_slug)
-    expected = workspace_manager.repo_path(slug)
-    if expected != Path(active.directory).resolve():
-        raise WorkspaceError("مسار مساحة العمل المحفوظ لم يعد صالحًا")
-    return active
+    """Compatibility wrapper retained for plugins until their T02 migration."""
+    return await workspace_service.active(owner_id)
 
 
 @core.authorized
 async def cmd_use(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.effective_user:
-        return
-    if not context.args:
-        await core._safe_reply(update.message, "استخدم: /use owner/repo")
-        return
-    try:
-        status = await workspace_manager.ensure_repo(context.args[0], sync=True)
-        owner_id = str(update.effective_user.id)
-        await workspace_store.set(owner_id, status.slug, str(status.directory))
-        await core._create_fresh_session(owner_id)
-        state = "dirty" if status.dirty else "clean"
-        await core._safe_reply(
-            update.message,
-            f"Active repository: {status.slug}\nBranch: {status.branch}\nState: {state}",
-        )
-        core.audit.write("workspace_selected", "accepted", actor_id=owner_id, details={"repo": status.slug})
-    except WorkspaceError as exc:
-        await core._safe_reply(update.message, f"تعذر اختيار المشروع: {exc}.")
+    await _commands().use(update, context)
 
 
 @core.authorized
 async def cmd_repo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.effective_user:
-        return
-    try:
-        active = await _active(str(update.effective_user.id))
-        if active is None:
-            await core._safe_reply(update.message, "ما في مشروع نشط. استخدم /use owner/repo.")
-            return
-        status = await workspace_manager.status(active.repo_slug)
-        state = "dirty" if status.dirty else "clean"
-        await core._safe_reply(update.message, f"{status.slug}\nBranch: {status.branch}\nState: {state}\n{status.summary}")
-    except WorkspaceError as exc:
-        await core._safe_reply(update.message, f"تعذر قراءة المشروع: {exc}.")
+    await _commands().repo(update, context)
 
 
 @core.authorized
 async def cmd_repos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.effective_user:
-        return
-    active = await workspace_store.get(str(update.effective_user.id))
-    local = set(workspace_manager.local_repos())
-    configured = workspace_manager.configured_repos()
-    if not configured:
-        await core._safe_reply(update.message, "اضبط GITHUB_ALLOWED_REPOS في .env أولًا.")
-        return
-    lines = ["Allowed repositories:"]
-    for slug in configured:
-        labels = []
-        if slug in local:
-            labels.append("local")
-        if active and active.repo_slug.casefold() == slug.casefold():
-            labels.append("active")
-        lines.append(f"• {slug}" + (f" — {', '.join(labels)}" if labels else ""))
-    await core._safe_reply(update.message, "\n".join(lines))
+    await _commands().repos(update, context)
 
 
 @core.authorized
 async def cmd_sync(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.effective_user:
-        return
-    try:
-        active = await _active(str(update.effective_user.id))
-        if active is None:
-            raise WorkspaceError("اختَر مشروع أولًا باستخدام /use owner/repo")
-        status = await workspace_manager.sync_repo(active.repo_slug)
-        note = "Fetched remote state; local edits were preserved." if status.dirty else "Repository synchronized safely."
-        await core._safe_reply(update.message, f"{note}\n{status.slug} — {status.branch}\n{status.summary}")
-    except WorkspaceError as exc:
-        await core._safe_reply(update.message, f"تعذرت المزامنة: {exc}.")
+    await _commands().sync(update, context)
 
 
 @core.authorized
 async def cmd_dev(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.effective_user or not update.effective_chat:
-        return
-    request = " ".join(context.args).strip()
-    if not request:
-        await core._safe_reply(update.message, "استخدم: /dev المطلوب")
-        return
-    reason = core.check_build(request) or core.check_hardline(request)
-    if reason:
-        await core._safe_reply(update.message, core.build_blocked_message(reason))
-        return
-    try:
-        owner_id = str(update.effective_user.id)
-        active = await _active(owner_id)
-        if active is None:
-            raise WorkspaceError("اختَر مشروع أولًا باستخدام /use owner/repo")
-        prompt = workspace_prompt(active.repo_slug, active.directory, request)
-        status_message_id = await core._create_task_status_message(
-            context.bot,
-            update.effective_chat.id,
-            f"جاري تجهيز الطلب على {active.repo_slug}…",
-        )
-        try:
-            task, _ = await core.task_store.enqueue(
-                owner_id,
-                update.effective_chat.id,
-                prompt,
-                status_message_id=status_message_id,
-            )
-        except Exception as exc:
-            error_text = core.user_error(exc, "تسجيل طلب التطوير")
-            if status_message_id is not None:
-                await core._edit_task_status_message(
-                    context.bot,
-                    update.effective_chat.id,
-                    status_message_id,
-                    error_text,
-                )
-            else:
-                await core._safe_reply(update.message, error_text)
-            raise
-        assert core.task_service is not None
-        core.task_service.wake()
-        core.audit.write(
-            "workspace_task_queued",
-            "accepted",
-            actor_id=owner_id,
-            details={"task_id": task.id, "repo": active.repo_slug, "source": "dev_command"},
-        )
-    except WorkspaceError as exc:
-        await core._safe_reply(update.message, str(exc))
+    await _commands().dev(update, context)
 
 
 async def handle_workspace_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.message.text or not update.effective_user or not update.effective_chat:
-        return
-    if not core._is_allowed(update):
-        return
-    active = await _active(str(update.effective_user.id))
-    if active is None:
-        return
-    text = update.message.text.strip()
-    if not text:
-        return
-    reason = core.check_build(text) or core.check_hardline(text)
-    if reason:
-        await core._safe_reply(update.message, core.build_blocked_message(reason))
-        raise ApplicationHandlerStop
-    prompt = workspace_prompt(active.repo_slug, active.directory, text)
-    owner_id = str(update.effective_user.id)
-    status_message_id = await core._create_task_status_message(
-        context.bot,
-        update.effective_chat.id,
-        f"جاري تجهيز الطلب على {active.repo_slug}…",
-    )
-    try:
-        task, _ = await core.task_store.enqueue(
-            owner_id,
-            update.effective_chat.id,
-            prompt,
-            status_message_id=status_message_id,
-        )
-    except Exception as exc:
-        error_text = core.user_error(exc, "تسجيل الطلب")
-        if status_message_id is not None:
-            await core._edit_task_status_message(
-                context.bot,
-                update.effective_chat.id,
-                status_message_id,
-                error_text,
-            )
-        else:
-            await core._safe_reply(update.message, error_text)
-        raise ApplicationHandlerStop
-    assert core.task_service is not None
-    core.task_service.wake()
-    core.audit.write(
-        "workspace_task_queued",
-        "accepted",
-        actor_id=owner_id,
-        details={"task_id": task.id, "repo": active.repo_slug, "source": "workspace_text"},
-    )
-    raise ApplicationHandlerStop
+    await _commands().text(update, context)
 
 
 async def install(app: Application) -> None:
@@ -267,7 +139,9 @@ async def install(app: Application) -> None:
     ]
     existing = await app.bot.get_my_commands()
     names = {command.command for command in current}
-    await app.bot.set_my_commands(current + [command for command in existing if command.command not in names])
+    await app.bot.set_my_commands(
+        current + [command for command in existing if command.command not in names]
+    )
 
 
 async def close() -> None:
