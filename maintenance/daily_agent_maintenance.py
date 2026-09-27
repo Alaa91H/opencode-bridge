@@ -17,6 +17,7 @@ BRIDGE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRIDGE_DIR))
 
 from audit_log import AuditLogger
+from bridge.config import get_settings
 from free_points import FreePointsTracker
 from model_manager import ModelManager
 from opencode_client import OpenCodeClient, extract_text_response
@@ -28,18 +29,7 @@ STATE_PATH = RUNTIME_DIR / "agent-maintenance-latest.json"
 UTC = timezone.utc
 
 
-def _load_env(path: Path) -> None:
-    if not path.exists():
-        return
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
-
-
-_load_env(BRIDGE_DIR / ".env")
+SETTINGS = get_settings()
 
 
 async def run() -> dict[str, Any]:
@@ -48,16 +38,13 @@ async def run() -> dict[str, Any]:
     await store.init()
     free_points_tracker = FreePointsTracker(
         RUNTIME_DIR / "free-points.db",
-        daily_limit=max(1, int(os.environ.get("OPENCODE_FREE_DAILY_POINTS", "200"))),
-        timezone_name=os.environ.get(
-            "TELEGRAM_DAILY_TASK_COUNTER_TIMEZONE",
-            "Europe/Berlin",
-        ).strip(),
+        daily_limit=SETTINGS.opencode.free_daily_points,
+        timezone_name=SETTINGS.telegram.daily_task_counter_timezone,
     )
     client = OpenCodeClient(
-        host=os.environ.get("OPENCODE_HOST", "127.0.0.1"),
-        port=int(os.environ.get("OPENCODE_PORT", "4096")),
-        password=os.environ.get("OPENCODE_PASSWORD") or os.environ.get("OPENCODE_SERVER_PASSWORD"),
+        host=SETTINGS.opencode.host,
+        port=SETTINGS.opencode.port,
+        password=SETTINGS.effective_opencode_password,
         free_points_tracker=free_points_tracker,
     )
     audit = AuditLogger(RUNTIME_DIR / "audit.jsonl")
@@ -65,11 +52,12 @@ async def run() -> dict[str, Any]:
         client=client,
         store=store,
         audit=audit,
-        fallback_model=os.environ.get("OPENCODE_DEFAULT_MODEL", "opencode/muse-spark-1.3-contributor-free"),
+        fallback_model=SETTINGS.opencode.default_model,
         sync_seconds=86400,
         pin_default_model=False,
+        settings=SETTINGS,
     )
-    manager.scout_web_research = True
+    manager.scout_web_research = SETTINGS.features.scout_web_research
     session_id: str | None = None
     try:
         healthy = False
@@ -89,7 +77,7 @@ async def run() -> dict[str, Any]:
         agent = (
             selection.get("selected_agent")
             if isinstance(selection, dict) and isinstance(selection.get("selected_agent"), str)
-            else manager.current_agent(os.environ.get("AGENT_SCOUT_PREFERRED_AGENT", "development-agent"))
+            else manager.current_agent(SETTINGS.agent.scout_preferred_agent)
         )
 
         created = await client.create_session(title="Daily OpenCode Bridge maintenance audit")
