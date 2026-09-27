@@ -568,35 +568,46 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
         elapsed = time.monotonic() - started_at
         current = await task_store.get(task.id)
         if current is None or current.status == "cancelled":
-            await bot.send_message(chat_id=task.chat_id, text=f"تم إلغاء المهمة #{task.id} قبل إرسال النتيجة.")
-            await reporter.finish("cancelled", "تم إلغاء المهمة قبل تسليم النتيجة.", "warning")
+            await reporter.finalize_text(
+                "تم إلغاء الطلب.",
+                status="cancelled",
+                message="تم إلغاء الطلب قبل تسليم النتيجة.",
+            )
             audit.write("task_cancelled", "cancelled", actor_id=task.owner_id, details={"task_id": task.id})
             return
+
         if not reply_text and not output_files:
-            for chunk in _task_reply_chunks(empty_response_message(), command_points):
-                await bot.send_message(chat_id=task.chat_id, text=chunk)
             await task_store.finish(task.id, success=False, error="empty_response")
-            await reporter.finish("failed", "المهمة ما رجّعت نتيجة واضحة بعد إعادة المحاولة.", "error")
+            await reporter.finalize_text(
+                _task_reply_text(empty_response_message(), command_points),
+                status="failed",
+                message="لم يرجع الوكيل نتيجة واضحة بعد إعادة المحاولة.",
+            )
             audit.write(
                 "task_finished",
                 "empty_response",
                 actor_id=task.owner_id,
-                details={"task_id": task.id, "duration_seconds": round(elapsed, 2), "agent_file_parts": len(extract_file_response(response))},
+                details={
+                    "task_id": task.id,
+                    "duration_seconds": round(elapsed, 2),
+                    "agent_file_parts": len(extract_file_response(response)),
+                },
             )
             return
-        await reporter.record("delivering", "عم نجهّز النتيجة والملفات للإرسال.", force=True)
-        if reply_text:
-            for chunk in _task_reply_chunks(reply_text, command_points):
-                await bot.send_message(chat_id=task.chat_id, text=chunk, disable_web_page_preview=True)
+
+        await reporter.record("delivering", "جاري تجهيز النتيجة النهائية…", force=True)
         delivered_files = await _send_task_output_files(task, bot)
-        if delivered_files and not reply_text:
-            for chunk in _task_reply_chunks(
-                f"تم تجهيز وإرسال {delivered_files} ملف من المهمة #{task.id}.",
-                command_points,
-            ):
-                await bot.send_message(chat_id=task.chat_id, text=chunk)
+        final_body = reply_text or (
+            "تم تجهيز الملفات المطلوبة."
+            if delivered_files
+            else empty_response_message()
+        )
         await task_store.finish(task.id, success=True)
-        await reporter.finish("completed", f"اكتملت المهمة خلال {round(elapsed, 1)} ثانية.")
+        await reporter.finalize_text(
+            _task_reply_text(final_body, command_points),
+            status="completed",
+            message="اكتمل التنفيذ.",
+        )
         audit.write(
             "task_finished",
             "success",
@@ -613,19 +624,34 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
             },
         )
     except AttachmentError as exc:
-        await bot.send_message(chat_id=task.chat_id, text=f"تعذّر التعامل مع مرفق المهمة #{task.id}: {exc}.")
         await task_store.finish(task.id, success=False, error="attachment_error")
-        await reporter.finish("failed", "تعذر تجهيز أحد مرفقات المهمة.", "error")
+        await reporter.finalize_text(
+            f"تعذر التعامل مع أحد الملفات: {exc}.",
+            status="failed",
+            message="تعذر تجهيز أحد الملفات.",
+        )
         audit.write("task_finished", "attachment_error", actor_id=task.owner_id, details={"task_id": task.id})
     except Exception as exc:
         current = await task_store.get(task.id)
         if current is None or current.status != "cancelled":
-            await bot.send_message(chat_id=task.chat_id, text=user_error(exc, f"تنفيذ المهمة #{task.id}"))
             await task_store.finish(task.id, success=False, error=type(exc).__name__)
-            await reporter.finish("failed", "تعذر إكمال المهمة؛ تم حفظ سبب العطل للتشخيص.", "error")
-            audit.write("task_finished", "error", actor_id=task.owner_id, details={"task_id": task.id, "error_type": type(exc).__name__})
+            await reporter.finalize_text(
+                user_error(exc, "تنفيذ الطلب"),
+                status="failed",
+                message="تعذر إكمال الطلب.",
+            )
+            audit.write(
+                "task_finished",
+                "error",
+                actor_id=task.owner_id,
+                details={"task_id": task.id, "error_type": type(exc).__name__},
+            )
         else:
-            await reporter.finish("cancelled", "تم إلغاء المهمة أثناء التنفيذ.", "warning")
+            await reporter.finalize_text(
+                "تم إلغاء الطلب.",
+                status="cancelled",
+                message="تم إلغاء الطلب أثناء التنفيذ.",
+            )
     finally:
         try:
             attachment_store.cleanup_task_work(task.id)
