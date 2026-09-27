@@ -36,6 +36,7 @@ from bridge.domain.schedules import (
     split_pipe_args as schedule_split_pipe_args,
 )
 from bridge.services.agent_service import AgentService
+from bridge.services.config_service import ConfigurationService
 from bridge.services.maintenance_service import MaintenanceReportService
 from bridge.services.media_service import MediaTaskService
 from bridge.services.schedule_service import ScheduleService
@@ -45,6 +46,7 @@ from bridge.telegram.app import build_application, core_commands, register_core_
 from bridge.telegram.attachments import TelegramMediaAdapter
 from bridge.telegram.callbacks.reboot import RebootCallbackAdapter
 from bridge.telegram.commands.agent import AgentCommands
+from bridge.telegram.commands.config import ConfigCommands
 from bridge.telegram.commands.schedules import ScheduleCommands
 from bridge.telegram.commands.system import SystemCommands
 from bridge.telegram.commands.tasks import TaskCommands
@@ -139,6 +141,7 @@ _task_commands_instance: TaskCommands | None = None
 _schedule_commands_instance: ScheduleCommands | None = None
 _agent_commands_instance: AgentCommands | None = None
 _system_commands_instance: SystemCommands | None = None
+_config_commands_instance: ConfigCommands | None = None
 _reboot_callback_instance: RebootCallbackAdapter | None = None
 _access_controller_instance: TelegramAccessController | None = None
 _request_guard = RequestGuard((check_build, check_hardline))
@@ -175,6 +178,7 @@ _task_execution_service = TaskExecutionService(
     logger=log,
 )
 _maintenance_service = MaintenanceReportService(MAINTENANCE_REPORT_PATH)
+_configuration_service = ConfigurationService(SETTINGS)
 UTC = timezone.utc
 
 F = TypeVar("F", bound=Callable[..., Awaitable[None]])
@@ -323,6 +327,16 @@ def _system_command_adapter() -> SystemCommands:
             logger=log,
         )
     return _system_commands_instance
+
+
+def _config_command_adapter() -> ConfigCommands:
+    global _config_commands_instance
+    if _config_commands_instance is None:
+        _config_commands_instance = ConfigCommands(
+            _configuration_service,
+            reply=_safe_reply,
+        )
+    return _config_commands_instance
 
 
 async def _pending_attachment_cleanup_loop() -> None:
@@ -554,6 +568,16 @@ async def cmd_maintenance(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 @authorized
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _system_command_adapter().help(update, context)
+
+@authorized
+async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _config_command_adapter().config(update, context)
+
+
+@authorized
+async def cmd_limits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _config_command_adapter().limits(update, context)
+
 
 @authorized
 async def cmd_research_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
