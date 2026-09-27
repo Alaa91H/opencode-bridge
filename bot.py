@@ -29,6 +29,16 @@ sys.path.insert(0, str(BRIDGE_DIR))
 from attachments import AttachmentError, AttachmentStore, attachment_prompt_note
 from audit_log import AuditLogger
 from block_patterns import check_build, check_hardline
+from bridge.domain.policies import RequestGuard
+from bridge.domain.schedules import (
+    format_interval as schedule_format_interval,
+    parse_interval_seconds as schedule_parse_interval_seconds,
+    parse_utc_datetime as schedule_parse_utc_datetime,
+    split_pipe_args as schedule_split_pipe_args,
+)
+from bridge.services.schedule_service import ScheduleService
+from bridge.telegram.commands.schedules import ScheduleCommands
+from bridge.telegram.rendering.schedules import scheduled_job_line
 from formatter import MAX_MESSAGE_LENGTH
 from free_points import FreePointsTracker, format_free_points_header
 from model_catalog import ranked_zen_general_model_ids
@@ -299,11 +309,8 @@ async def _create_fresh_session(user_id: str) -> str:
 
 
 def _parse_utc_datetime(value: str) -> datetime:
-    """Parse the documented UTC schedule format without guessing the timezone."""
-    try:
-        return datetime.strptime(value.strip(), "%Y-%m-%d %H:%M").replace(tzinfo=UTC)
-    except ValueError as exc:
-        raise ValueError("اكتب الوقت بصيغة UTC: YYYY-MM-DD HH:MM") from exc
+    """Compatibility wrapper for the T02 scheduling domain parser."""
+    return schedule_parse_utc_datetime(value)
 
 
 def _task_status_text(task: QueuedTask) -> str:
@@ -802,357 +809,126 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 def _split_pipe_args(raw: str, expected: int) -> list[str]:
-    parts = [part.strip() for part in raw.split("|", expected - 1)]
-    if len(parts) != expected or any(not part for part in parts):
-        raise ValueError("صيغة الأمر غير مكتملة")
-    return parts
+    """Compatibility wrapper for the T02 scheduling domain parser."""
+    return schedule_split_pipe_args(raw, expected)
 
 
 def _parse_interval_seconds(value: str) -> int:
-    match = re.fullmatch(r"(\d+)([mhd])", value.strip().lower())
-    if not match:
-        raise ValueError("اكتب التكرار مثل 30m أو 2h أو 1d")
-    amount, unit = int(match.group(1)), match.group(2)
-    seconds = amount * {"m": 60, "h": 3600, "d": 86400}[unit]
-    if seconds < 300:
-        raise ValueError("أقصر تكرار مسموح هو 5m")
-    return seconds
+    """Compatibility wrapper for the T02 scheduling domain parser."""
+    return schedule_parse_interval_seconds(value)
 
 
 def _format_interval(seconds: int | None) -> str:
-    if not seconds:
-        return "مرة واحدة"
-    if seconds % 86400 == 0:
-        return f"كل {seconds // 86400}d"
-    if seconds % 3600 == 0:
-        return f"كل {seconds // 3600}h"
-    if seconds % 60 == 0:
-        return f"كل {seconds // 60}m"
-    return f"كل {seconds} ثانية"
+    """Compatibility wrapper retained for plugins/tests during T02."""
+    return schedule_format_interval(seconds)
 
 
 def _scheduled_job_line(job) -> str:
-    state = "مفعّلة" if job.enabled else "موقوفة"
-    timing = _format_interval(job.repeat_seconds)
-    next_run = (
-        job.next_run_at.strftime("%Y-%m-%d %H:%M UTC")
-        if job.next_run_at
-        else "لا يوجد موعد تالٍ"
-    )
-    preview = " ".join(job.prompt.split())[:100]
-    return f"• {job.name} — {state} — {timing} — التالي: {next_run}\n  {preview}"
+    """Compatibility renderer retained while Telegram UI moves under bridge/."""
+    return scheduled_job_line(job)
+
+
+_schedule_service = ScheduleService(
+    task_store,
+    RequestGuard((check_build, check_hardline)),
+)
+_schedule_commands: ScheduleCommands | None = None
+
+
+def _wake_task_service() -> None:
+    if task_service is None:
+        raise RuntimeError("خدمة المهام غير جاهزة")
+    task_service.wake()
+
+
+def _schedule_command_adapter() -> ScheduleCommands:
+    global _schedule_commands
+    if _schedule_commands is None:
+        _schedule_commands = ScheduleCommands(
+            _schedule_service,
+            reply=_safe_reply,
+            create_status=_create_task_status_message,
+            edit_status=_edit_task_status_message,
+            wake_tasks=_wake_task_service,
+            error_message=user_error,
+            audit_write=audit.write,
+            max_message_length=MAX_MESSAGE_LENGTH,
+            logger=log,
+        )
+    return _schedule_commands
 
 
 async def _render_schedules_for_owner(owner_id: str) -> str:
-    jobs = await task_store.list_scheduled_jobs(owner_id)
-    if not jobs:
-        return "لا توجد مهام مجدولة محفوظة."
-    lines = ["المهام المجدولة:"]
-    for job in jobs:
-        candidate = "\n".join([*lines, _scheduled_job_line(job)])
-        if len(candidate) > MAX_MESSAGE_LENGTH - 120:
-            lines.append("… توجد مهام إضافية؛ استخدم /schedules بعد تقليل القائمة أو حذف غير المطلوب.")
-            break
-        lines.append(_scheduled_job_line(job))
-    return "\n".join(lines)
+    """Compatibility helper for callers outside the new Telegram adapter."""
+    jobs = await _schedule_service.list(owner_id)
+    from bridge.telegram.rendering.schedules import render_schedule_list
+
+    return render_schedule_list(jobs, MAX_MESSAGE_LENGTH)
 
 
 @authorized
 async def cmd_schedules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await _safe_reply(
-        update.message,
-        await _render_schedules_for_owner(str(update.effective_user.id)),
-    )
+    await _schedule_command_adapter().schedules(update, context)
 
 
 @authorized
 async def cmd_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        name, when_text, prompt = _split_pipe_args(" ".join(context.args), 3)
-        reason = check_build(prompt) or check_hardline(prompt)
-        if reason:
-            await _safe_reply(update.message, f"تعذر إنشاء الجدولة: {reason}.")
-            return
-        due_at = _parse_utc_datetime(when_text)
-        job = await task_store.create_scheduled_job(
-            str(update.effective_user.id),
-            update.effective_chat.id,
-            name,
-            prompt,
-            due_at,
-            repeat_seconds=None,
-            timezone_name="UTC",
-        )
-        assert task_service is not None
-        task_service.wake()
-        await _safe_reply(
-            update.message,
-            f"تم حفظ «{job.name}» وستعمل في {due_at.strftime('%Y-%m-%d %H:%M UTC')}.",
-        )
-        audit.write(
-            "scheduled_job_created",
-            "accepted",
-            actor_id=job.owner_id,
-            details={"schedule_job_id": job.id, "name": job.name, "repeat_seconds": None},
-        )
-    except ValueError as exc:
-        await _safe_reply(
-            update.message,
-            f"تعذر إنشاء الجدولة: {exc}.\n"
-            "الصيغة: /schedule الاسم | YYYY-MM-DD HH:MM | الأمر",
-        )
-    except Exception as exc:
-        log.exception("فشل إنشاء الجدولة")
-        await _safe_reply(update.message, user_error(exc, "إنشاء الجدولة"))
+    await _schedule_command_adapter().schedule(update, context)
 
 
 @authorized
 async def cmd_repeat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        name, interval_text, prompt = _split_pipe_args(" ".join(context.args), 3)
-        repeat_seconds = _parse_interval_seconds(interval_text)
-        reason = check_build(prompt) or check_hardline(prompt)
-        if reason:
-            await _safe_reply(update.message, f"تعذر إنشاء الجدولة: {reason}.")
-            return
-        due_at = datetime.now(UTC) + timedelta(seconds=repeat_seconds)
-        job = await task_store.create_scheduled_job(
-            str(update.effective_user.id),
-            update.effective_chat.id,
-            name,
-            prompt,
-            due_at,
-            repeat_seconds=repeat_seconds,
-            timezone_name="UTC",
-        )
-        assert task_service is not None
-        task_service.wake()
-        await _safe_reply(update.message, f"تم حفظ «{job.name}» للتكرار {interval_text}.")
-        audit.write(
-            "scheduled_job_created",
-            "accepted",
-            actor_id=job.owner_id,
-            details={"schedule_job_id": job.id, "name": job.name, "repeat_seconds": repeat_seconds},
-        )
-    except ValueError as exc:
-        await _safe_reply(
-            update.message,
-            f"تعذر إنشاء الجدولة: {exc}.\n"
-            "الصيغة: /repeat الاسم | 1d | الأمر",
-        )
-    except Exception as exc:
-        log.exception("فشل إنشاء الجدولة المتكررة")
-        await _safe_reply(update.message, user_error(exc, "إنشاء الجدولة المتكررة"))
+    await _schedule_command_adapter().repeat(update, context)
 
 
 @authorized
 async def cmd_schedshow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    name = " ".join(context.args).strip()
-    if not name:
-        await _safe_reply(update.message, "الصيغة: /schedshow الاسم")
-        return
-    job = await task_store.get_scheduled_job(str(update.effective_user.id), name)
-    if job is None:
-        await _safe_reply(update.message, "لم أجد مهمة مجدولة بهذا الاسم.")
-        return
-    prompt_limit = max(300, MAX_MESSAGE_LENGTH - 700)
-    prompt = job.prompt
-    if len(prompt) > prompt_limit:
-        prompt = prompt[:prompt_limit].rstrip() + "\n… تم اختصار العرض فقط؛ الأمر الكامل محفوظ."
-    next_run = job.next_run_at.strftime("%Y-%m-%d %H:%M UTC") if job.next_run_at else "لا يوجد"
-    await _safe_reply(
-        update.message,
-        f"الاسم: {job.name}\n"
-        f"الحالة: {'مفعّلة' if job.enabled else 'موقوفة'}\n"
-        f"التكرار: {_format_interval(job.repeat_seconds)}\n"
-        f"التشغيل التالي: {next_run}\n"
-        f"طول الأمر: {len(job.prompt)} محرف\n\n"
-        f"{prompt}",
-    )
+    await _schedule_command_adapter().show(update, context)
 
 
 @authorized
 async def cmd_schedrename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        old_name, new_name = _split_pipe_args(" ".join(context.args), 2)
-        job = await task_store.rename_scheduled_job(str(update.effective_user.id), old_name, new_name)
-        await _safe_reply(
-            update.message,
-            f"تم تغيير الاسم إلى «{job.name}»." if job else "لم أجد مهمة مجدولة بهذا الاسم.",
-        )
-    except ValueError as exc:
-        await _safe_reply(update.message, f"تعذر تغيير الاسم: {exc}.\nالصيغة: /schedrename الاسم | الاسم الجديد")
+    await _schedule_command_adapter().rename(update, context)
 
 
 @authorized
 async def cmd_schededit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        name, prompt = _split_pipe_args(" ".join(context.args), 2)
-        reason = check_build(prompt) or check_hardline(prompt)
-        if reason:
-            await _safe_reply(update.message, f"تعذر تعديل الأمر: {reason}.")
-            return
-        job = await task_store.set_scheduled_job_prompt(str(update.effective_user.id), name, prompt)
-        await _safe_reply(
-            update.message,
-            f"تم تحديث أمر «{job.name}» بالكامل." if job else "لم أجد مهمة مجدولة بهذا الاسم.",
-        )
-    except ValueError as exc:
-        await _safe_reply(update.message, f"تعذر تعديل الأمر: {exc}.\nالصيغة: /schededit الاسم | الأمر الجديد")
+    await _schedule_command_adapter().edit(update, context)
 
 
 @authorized
 async def cmd_schedappend(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        name, addition = _split_pipe_args(" ".join(context.args), 2)
-        owner_id = str(update.effective_user.id)
-        current = await task_store.get_scheduled_job(owner_id, name)
-        if current is None:
-            await _safe_reply(update.message, "لم أجد مهمة مجدولة بهذا الاسم.")
-            return
-        combined = current.prompt.rstrip() + "\n" + addition.rstrip()
-        reason = check_build(combined) or check_hardline(combined)
-        if reason:
-            await _safe_reply(update.message, f"تعذر إلحاق النص: {reason}.")
-            return
-        job = await task_store.append_scheduled_job_prompt(owner_id, name, addition)
-        await _safe_reply(update.message, f"تم إلحاق النص بأمر «{job.name}». الطول الآن {len(job.prompt)} محرف.")
-    except ValueError as exc:
-        await _safe_reply(update.message, f"تعذر إلحاق النص: {exc}.\nالصيغة: /schedappend الاسم | النص الإضافي")
+    await _schedule_command_adapter().append(update, context)
 
 
 @authorized
 async def cmd_schedtime(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        name, when_text = _split_pipe_args(" ".join(context.args), 2)
-        owner_id = str(update.effective_user.id)
-        current = await task_store.get_scheduled_job(owner_id, name)
-        if current is None:
-            await _safe_reply(update.message, "لم أجد مهمة مجدولة بهذا الاسم.")
-            return
-        due_at = _parse_utc_datetime(when_text)
-        job = await task_store.update_scheduled_job_timing(
-            owner_id,
-            name,
-            due_at,
-            current.repeat_seconds,
-            timezone_name=current.timezone_name,
-        )
-        assert task_service is not None
-        task_service.wake()
-        await _safe_reply(update.message, f"تم تغيير موعد «{job.name}» إلى {due_at.strftime('%Y-%m-%d %H:%M UTC')}.")
-    except ValueError as exc:
-        await _safe_reply(update.message, f"تعذر تغيير الموعد: {exc}.\nالصيغة: /schedtime الاسم | YYYY-MM-DD HH:MM")
+    await _schedule_command_adapter().change_time(update, context)
 
 
 @authorized
 async def cmd_schedinterval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        name, interval_text = _split_pipe_args(" ".join(context.args), 2)
-        owner_id = str(update.effective_user.id)
-        current = await task_store.get_scheduled_job(owner_id, name)
-        if current is None:
-            await _safe_reply(update.message, "لم أجد مهمة مجدولة بهذا الاسم.")
-            return
-        if interval_text.strip().lower() in {"once", "one", "مرة", "مرة واحدة"}:
-            repeat_seconds = None
-            due_at = current.next_run_at
-            if due_at is None or due_at <= datetime.now(UTC):
-                due_at = datetime.now(UTC) + timedelta(minutes=1)
-            interval_label = "مرة واحدة"
-        else:
-            repeat_seconds = _parse_interval_seconds(interval_text)
-            due_at = datetime.now(UTC) + timedelta(seconds=repeat_seconds)
-            interval_label = interval_text
-        job = await task_store.update_scheduled_job_timing(
-            owner_id,
-            name,
-            due_at,
-            repeat_seconds,
-            timezone_name=current.timezone_name,
-        )
-        assert task_service is not None
-        task_service.wake()
-        await _safe_reply(update.message, f"تم تغيير تكرار «{job.name}» إلى {interval_label}.")
-    except ValueError as exc:
-        await _safe_reply(
-            update.message,
-            f"تعذر تغيير التكرار: {exc}.\nالصيغة: /schedinterval الاسم | 1d أو once",
-        )
+    await _schedule_command_adapter().change_interval(update, context)
 
 
 @authorized
 async def cmd_schedpause(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    name = " ".join(context.args).strip()
-    if not name:
-        await _safe_reply(update.message, "الصيغة: /schedpause الاسم")
-        return
-    job = await task_store.set_scheduled_job_enabled(str(update.effective_user.id), name, False)
-    await _safe_reply(
-        update.message,
-        f"تم إيقاف «{job.name}»." if job else "لم أجد مهمة مجدولة بهذا الاسم.",
-    )
+    await _schedule_command_adapter().pause(update, context)
 
 
 @authorized
 async def cmd_schedresume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    name = " ".join(context.args).strip()
-    if not name:
-        await _safe_reply(update.message, "الصيغة: /schedresume الاسم")
-        return
-    job = await task_store.set_scheduled_job_enabled(str(update.effective_user.id), name, True)
-    if job is None:
-        await _safe_reply(update.message, "لم أجد مهمة مجدولة بهذا الاسم.")
-        return
-    assert task_service is not None
-    task_service.wake()
-    await _safe_reply(update.message, f"تم تشغيل «{job.name}».")
+    await _schedule_command_adapter().resume(update, context)
 
 
 @authorized
 async def cmd_scheddelete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    name = " ".join(context.args).strip()
-    if not name:
-        await _safe_reply(update.message, "الصيغة: /scheddelete الاسم")
-        return
-    deleted = await task_store.delete_scheduled_job(str(update.effective_user.id), name)
-    await _safe_reply(update.message, "تم حذف المهمة المجدولة." if deleted else "لم أجد مهمة مجدولة بهذا الاسم.")
+    await _schedule_command_adapter().delete(update, context)
 
 
 @authorized
 async def cmd_schedrun(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    name = " ".join(context.args).strip()
-    if not name:
-        await _safe_reply(update.message, "الصيغة: /schedrun الاسم")
-        return
-    owner_id = str(update.effective_user.id)
-    job = await task_store.get_scheduled_job(owner_id, name)
-    if job is None:
-        await _safe_reply(update.message, "لم أجد مهمة مجدولة بهذا الاسم.")
-        return
-    status_message_id = await _create_task_status_message(
-        context.bot,
-        update.effective_chat.id,
-        f"جاري تشغيل «{job.name}»…",
-    )
-    task = await task_store.enqueue_scheduled_job_now(
-        owner_id,
-        job.name,
-        status_message_id=status_message_id,
-    )
-    if task is None:
-        if status_message_id is not None:
-            await _edit_task_status_message(context.bot, update.effective_chat.id, status_message_id, "تعذر تشغيل المهمة المجدولة.")
-        return
-    assert task_service is not None
-    task_service.wake()
-    audit.write(
-        "scheduled_job_run_now",
-        "accepted",
-        actor_id=owner_id,
-        details={"schedule_job_id": job.id, "task_id": task.id, "name": job.name},
-    )
-
+    await _schedule_command_adapter().run_now(update, context)
 
 
 @authorized
