@@ -89,6 +89,9 @@ class TaskApplicationService:
     async def active(self, owner_id: str) -> list[Any]:
         return await self.repository.list_active(owner_id)
 
+    async def latest_active(self, owner_id: str) -> Any | None:
+        return await self.repository.latest_active_for_owner(owner_id)
+
     async def abort_running(self, owner_id: str) -> AbortResult:
         cancelled = await self.repository.cancel_running_for_owner(owner_id)
         stopped = await self.agent_service.abort_current(owner_id)
