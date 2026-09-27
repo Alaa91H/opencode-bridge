@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_scout import parse_research_model, primary_agent_ids, research_prompt, select_primary_agent
+from bridge.config import BridgeSettings, get_settings
 from model_catalog import (
     best_zen_general_model_id,
     ranked_zen_general_model_ids,
@@ -45,22 +46,26 @@ class ModelManager:
         sync_seconds: float = 900.0,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         pin_default_model: bool | None = None,
+        settings: BridgeSettings | None = None,
     ) -> None:
         self.client = client
         self.store = store
         self.audit = audit
+        self.settings = settings or get_settings()
         self.fallback_model = fallback_model
         self.configured_model = fallback_model
-        self.configured_variant = os.environ.get("OPENCODE_MODEL_VARIANT", "").strip() or None
-        self.configured_variant_model = os.environ.get("OPENCODE_VARIANT_MODEL", fallback_model).strip() or fallback_model
+        self.configured_variant = self.settings.opencode.model_variant
+        self.configured_variant_model = (
+            self.settings.opencode.variant_model or fallback_model
+        )
         if pin_default_model is None:
-            self.pin_default_model = os.environ.get("OPENCODE_PIN_DEFAULT_MODEL", "0").strip().lower() not in {"0", "false", "no", "off"}
+            self.pin_default_model = self.settings.effective_pin_default_model
         else:
             self.pin_default_model = bool(pin_default_model)
         self.sync_seconds = max(60.0, float(sync_seconds))
-        self.scout_interval_seconds = max(3600.0, float(os.environ.get("AGENT_SCOUT_INTERVAL_SECONDS", "86400")))
-        self.scout_preferred_agent = os.environ.get("AGENT_SCOUT_PREFERRED_AGENT", "development-agent").strip() or "development-agent"
-        self.scout_web_research = os.environ.get("AGENT_SCOUT_WEB_RESEARCH", "1").strip().lower() not in {"0", "false", "no", "off"}
+        self.scout_interval_seconds = self.settings.agent.scout_interval_seconds
+        self.scout_preferred_agent = self.settings.agent.scout_preferred_agent
+        self.scout_web_research = self.settings.features.scout_web_research
         self._sleep = sleep
         self._task: asyncio.Task[None] | None = None
         self._stopped = asyncio.Event()
