@@ -87,7 +87,7 @@ class AttachmentStoreTests(unittest.TestCase):
         with self.assertRaises(AttachmentError):
             limited.validate_input_records(records)
 
-        total_limited = AttachmentStore(self.root / "total", max_bytes=32, max_count=3, max_total_bytes=6)
+        total_limited = AttachmentStore(self.root / "total", max_bytes=4, max_count=3, max_total_bytes=6)
         total_limited.ensure_directories()
         a = total_limited.incoming_directory("1") / "a.bin"
         a.write_bytes(b"1234")
