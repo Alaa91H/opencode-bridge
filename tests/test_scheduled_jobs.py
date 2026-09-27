@@ -139,6 +139,70 @@ class ScheduledJobStoreTests(unittest.IsolatedAsyncioTestCase):
         other = await self.store.create_scheduled_job("other", 15, "backup", "two", due)
         self.assertEqual(other.owner_id, "other")
 
+    async def test_large_prompt_can_be_built_in_chunks_and_survive_restart(self) -> None:
+        due = utc_now() + timedelta(hours=1)
+        first = "A" * 3000
+        await self.store.create_scheduled_job("owner", 16, "huge", first, due)
+        chunks = [str(index) + ":" + ("B" * 3000) for index in range(20)]
+        for chunk in chunks:
+            await self.store.append_scheduled_job_prompt("owner", "huge", chunk)
+
+        job = await self.store.get_scheduled_job("owner", "huge")
+        self.assertGreater(len(job.prompt), 60000)
+        self.assertTrue(job.prompt.startswith(first))
+        self.assertTrue(job.prompt.endswith(chunks[-1]))
+
+        expected = job.prompt
+        await self.store.close()
+        self.store = TaskQueueStore(self.db_path)
+        await self.store.init()
+        restored = await self.store.get_scheduled_job("owner", "huge")
+        self.assertEqual(restored.prompt, expected)
+
+    async def test_timing_can_switch_from_recurring_to_one_time(self) -> None:
+        due = utc_now() + timedelta(hours=1)
+        await self.store.create_scheduled_job(
+            "owner",
+            17,
+            "switchable",
+            "do it",
+            due,
+            repeat_seconds=600,
+        )
+        new_due = utc_now() + timedelta(hours=3)
+        changed = await self.store.update_scheduled_job_timing(
+            "owner",
+            "switchable",
+            new_due,
+            repeat_seconds=None,
+        )
+        self.assertIsNone(changed.repeat_seconds)
+        self.assertAlmostEqual(
+            changed.next_run_at.timestamp(),
+            new_due.timestamp(),
+            delta=1.0,
+        )
+
+    async def test_schedule_records_execution_failure_without_losing_definition(self) -> None:
+        due = utc_now() + timedelta(hours=1)
+        job = await self.store.create_scheduled_job(
+            "owner",
+            18,
+            "durable",
+            "do it",
+            due,
+            repeat_seconds=600,
+        )
+        task = await self.store.enqueue_scheduled_job_now("owner", "durable")
+        await self.store.claim_next()
+        await self.store.finish(task.id, success=False, error="ExampleError")
+
+        refreshed = await self.store.get_scheduled_job("owner", "durable")
+        self.assertIsNotNone(refreshed)
+        self.assertEqual(refreshed.last_error, "ExampleError")
+        self.assertTrue(refreshed.enabled)
+        self.assertEqual(refreshed.id, job.id)
+
 
 if __name__ == "__main__":
     unittest.main()
