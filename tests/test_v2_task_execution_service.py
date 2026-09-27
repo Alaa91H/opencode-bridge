@@ -8,8 +8,11 @@ from bridge.services.task_execution_service import TaskExecutionService
 
 
 class FakeAttachment:
+    filename = "input.txt"
     mime = "text/plain"
     kind = "document"
+    size = 12
+    path = Path("/tmp/input.txt")
 
     def to_message_part(self):
         return {"type": "file", "url": "file:///tmp/input.txt", "mime": self.mime}
