@@ -27,8 +27,12 @@ class BotImportTests(unittest.TestCase):
         expected = {"search", "deepresearch", "extreme", "news", "compare", "factcheck", "verify", "open", "extract"}
         self.assertTrue(expected.issubset(bot.RESEARCH_COMMAND_MODES))
         source = (PROJECT_DIR / "bot.py").read_text(encoding="utf-8")
+        task_adapter = (PROJECT_DIR / "bridge" / "telegram" / "commands" / "tasks.py").read_text(encoding="utf-8")
+        task_service = (PROJECT_DIR / "bridge" / "services" / "task_service.py").read_text(encoding="utf-8")
         self.assertIn("async def cmd_research_mode", source)
-        self.assertIn("execution_mode=mode.value", source)
+        self.assertIn("_task_command_adapter().research(update, context)", source)
+        self.assertIn("execution_mode=mode", task_adapter)
+        self.assertIn("execution_mode=execution_mode.value", task_service)
         self.assertIn("CommandHandler(tuple(RESEARCH_COMMAND_MODES), cmd_research_mode)", source)
         self.assertIn("/deepresearch", bot.HELP_TEXT)
         self.assertIn("/factcheck", bot.HELP_TEXT)
@@ -46,7 +50,8 @@ class BotImportTests(unittest.TestCase):
         self.assertNotIn("بترتيب {position}", source)
         self.assertNotIn("#{task.id}", source)
         self.assertNotIn("_task_reply_chunks", source)
-        self.assertIn("status_message_id=status_message_id", source)
+        task_adapter = (PROJECT_DIR / "bridge" / "telegram" / "commands" / "tasks.py").read_text(encoding="utf-8")
+        self.assertIn("status_message_id=status_message_id", task_adapter)
         self.assertIn("reporter.finalize_text(", source)
 
     def test_reboot_decision_buttons_are_registered(self) -> None:
