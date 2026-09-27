@@ -505,14 +505,14 @@ class BridgeSettings:
                     merged_env, config, "AGENT_TASK_POLL_SECONDS",
                     "agent.task_poll_seconds", 5
                 ),
-                key="AGENT_TASK_POLL_SECONDS", minimum=0.1,
+                key="AGENT_TASK_POLL_SECONDS", minimum=0.5, maximum=60,
             ),
             worker_recovery_seconds=_parse_float(
                 _source_value(
                     merged_env, config, "AGENT_WORKER_RECOVERY_SECONDS",
                     "agent.worker_recovery_seconds", 30
                 ),
-                key="AGENT_WORKER_RECOVERY_SECONDS", minimum=0,
+                key="AGENT_WORKER_RECOVERY_SECONDS", minimum=1, maximum=600,
             ),
         )
 
@@ -751,7 +751,7 @@ class BridgeSettings:
             }:
                 parsed = _parse_int(value, key=path, minimum=1)
             elif path == "agent.task_poll_seconds":
-                parsed = _parse_float(value, key=path, minimum=0.1)
+                parsed = _parse_float(value, key=path, minimum=0.5, maximum=60)
             else:
                 parsed = str(value).strip()
             sections.setdefault(section, {})[field_name] = parsed
