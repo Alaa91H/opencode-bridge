@@ -82,10 +82,13 @@ class V2BaselineContractTests(unittest.TestCase):
 
     def test_base_task_ui_does_not_restore_chunked_numbered_results(self) -> None:
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
+        delivery = (ROOT / "bridge" / "telegram" / "execution.py").read_text(encoding="utf-8")
+        execution = (ROOT / "bridge" / "services" / "task_execution_service.py").read_text(encoding="utf-8")
+        combined = "\n".join((source, delivery, execution))
         self.assertIn("_create_task_status_message", source)
-        self.assertIn("_task_reply_text", source)
-        self.assertNotIn("def _task_reply_chunks", source)
-        self.assertNotIn("ملف ناتج عن المهمة #", source)
+        self.assertIn("def final_text", delivery)
+        self.assertNotIn("def _task_reply_chunks", combined)
+        self.assertNotIn("ملف ناتج عن المهمة #", combined)
 
     def test_named_persistent_schedule_management_is_present(self) -> None:
         source = (ROOT / "task_queue.py").read_text(encoding="utf-8")
