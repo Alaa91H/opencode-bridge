@@ -132,6 +132,14 @@ class WorkspaceCommands:
                     request,
                     status_message_id=status_message_id,
                 )
+            except RequestRejected as exc:
+                await self.edit_status(
+                    context.bot,
+                    chat_id,
+                    status_message_id,
+                    f"لم يُنفذ الطلب: {exc}.",
+                )
+                return
             except Exception as exc:
                 error_text = self.error_message(exc, "تسجيل طلب التطوير")
                 await self.edit_status(
