@@ -6,8 +6,10 @@ from model_catalog import (
     best_zen_general_model_id,
     free_model_ids,
     is_zero_cost_model,
+    model_supports_inputs,
     model_variant_ids,
     ranked_zen_general_model_ids,
+    ranked_zen_model_ids_for_inputs,
     strongest_model_variant,
     zen_free_model_ids,
 )
@@ -73,6 +75,49 @@ class ModelCatalogTests(unittest.TestCase):
         self.assertEqual(ranked_zen_general_model_ids(providers), ["opencode/general-rich", "opencode/text-only"])
         self.assertEqual(best_zen_general_model_id(providers), "opencode/general-rich")
         self.assertEqual(best_zen_general_model_id(providers, {"opencode/general-rich"}), "opencode/text-only")
+
+    def test_input_specific_ranking_requires_explicit_capability(self) -> None:
+        providers = {
+            "all": [
+                {
+                    "id": "opencode",
+                    "models": {
+                        "text-strong": {
+                            "status": "active",
+                            "cost": {"input": 0, "output": 0},
+                            "capabilities": {
+                                "toolcall": True,
+                                "reasoning": True,
+                                "input": {"text": True, "image": False},
+                            },
+                            "limit": {"context": 1_000_000, "output": 128_000},
+                        },
+                        "vision-free": {
+                            "status": "active",
+                            "cost": {"input": 0, "output": 0},
+                            "capabilities": {
+                                "attachment": True,
+                                "toolcall": True,
+                                "reasoning": True,
+                                "input": {"text": True, "image": True},
+                            },
+                            "limit": {"context": 200_000, "output": 64_000},
+                        },
+                        "vision-paid": {
+                            "status": "active",
+                            "cost": {"input": 0.1, "output": 0.2},
+                            "capabilities": {"input": {"text": True, "image": True}},
+                        },
+                    },
+                }
+            ]
+        }
+        self.assertFalse(model_supports_inputs(providers, "opencode/text-strong", {"image"}))
+        self.assertTrue(model_supports_inputs(providers, "opencode/vision-free", {"image"}))
+        self.assertEqual(
+            ranked_zen_model_ids_for_inputs(providers, {"image"}),
+            ["opencode/vision-free"],
+        )
 
     def test_strongest_variant_uses_live_catalog_without_guessing(self) -> None:
         providers = {
