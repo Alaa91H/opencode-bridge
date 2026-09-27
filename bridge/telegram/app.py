@@ -41,6 +41,8 @@ def core_commands() -> list[BotCommand]:
         BotCommand("health", "فحص اتصال الوكيل"),
         BotCommand("agents", "عرض الوكلاء المتاحين"),
         BotCommand("maintenance", "عرض آخر تقرير صيانة"),
+        BotCommand("config", "عرض الإعدادات الفعلية غير السرية"),
+        BotCommand("limits", "عرض الحدود الفعلية الحالية"),
         BotCommand("search", "بحث موثّق سريع"),
         BotCommand("deepresearch", "بحث عميق متعدد المصادر"),
         BotCommand("extreme", "بحث شديد العمق"),
@@ -91,6 +93,8 @@ def register_core_handlers(
     app.add_handler(CommandHandler("health", handlers.cmd_health))
     app.add_handler(CommandHandler("agents", handlers.cmd_agents))
     app.add_handler(CommandHandler("maintenance", handlers.cmd_maintenance))
+    app.add_handler(CommandHandler("config", handlers.cmd_config))
+    app.add_handler(CommandHandler("limits", handlers.cmd_limits))
     app.add_handler(CommandHandler(research_command_names, handlers.cmd_research_mode))
     app.add_handler(CommandHandler("help", handlers.cmd_help))
     app.add_handler(
