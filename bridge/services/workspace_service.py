@@ -75,7 +75,7 @@ class WorkspaceService:
         slug = self.manager.require_allowed(active.repo_slug)
         expected = self.manager.repo_path(slug)
         if expected != Path(active.directory).resolve():
-            raise RuntimeError("مسار مساحة العمل المحفوظ لم يعد صالحًا")
+            raise WorkspaceUnavailable("مسار مساحة العمل المحفوظ لم يعد صالحًا")
         return active
 
     async def select(self, owner_id: str, repo: str) -> Any:
