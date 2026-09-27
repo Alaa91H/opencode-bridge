@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
 from telegram import BotCommand, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
@@ -18,11 +16,7 @@ _commands_instance: ResourceCommands | None = None
 
 
 def _configured_workers() -> int:
-    try:
-        value = int(os.environ.get("AGENT_TASK_WORKERS", "2"))
-    except ValueError:
-        value = 2
-    return max(1, min(value, 8))
+    return core.SETTINGS.agent.task_workers
 
 
 def _controller_status():
