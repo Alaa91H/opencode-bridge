@@ -1,3 +1,40 @@
+## [1.8.0] - 2026-09-27
+
+### Persistent Scheduled Jobs
+
+- Added a dedicated persistent schedule registry in SQLite, separate from individual queued executions.
+- Scheduled jobs are addressed by user-defined names instead of exposing internal queue IDs.
+- Added one-time and recurring named schedules with restart-safe next-run state.
+- Added list, show, rename, command replacement, command append, next-run edit, interval edit, manual run, pause, resume and delete controls.
+- Added `/schedinterval <name> | once` to convert recurring jobs back to one-time behavior.
+- Manual runs preserve the schedule definition and recurring executions remain serialized through the existing owner task queue.
+- Schedule executions retain last-run and last-error state without deleting the persistent definition.
+
+### Large Commands
+
+- Scheduled commands are stored as unrestricted SQLite TEXT rather than bounded Telegram-state payloads.
+- `/schedappend` can be used repeatedly to assemble very large commands across multiple Telegram messages.
+- Added deterministic restart tests with scheduled prompts exceeding 60,000 characters.
+
+### Telegram Task UI
+
+- Removed user-visible task numbering and queue positions from ordinary task interactions.
+- Reused one Telegram status message through queueing, live execution progress and final text delivery.
+- Compact progress and persisted activity views omit internal task identifiers.
+- `/cancel`, `/progress` and `/trace` operate on the current/latest task without requiring a numeric task ID.
+- `/tasks` now shows active work and persistent schedules by readable state/name without exposing internal identifiers.
+
+### Media Task Integration
+
+- Captioned attachment tasks and research commands use the same single-message status lifecycle.
+- Files sent without a caption remain silently staged until the instruction arrives.
+- Existing SHA-256 attachment integrity checks, model-capability routing and managed output restrictions remain intact.
+
+### Verification
+
+- Added lifecycle tests for schedule persistence, case-insensitive names, editing, append, pause/resume, deletion, manual execution, one-time materialization, recurrence advancement and failure tracking.
+- GitHub Actions remains the source of truth for Python syntax, unit tests, configuration validation and release publication.
+
 ## [1.7.1] - 2026-09-27
 
 ### Media Capability Routing
