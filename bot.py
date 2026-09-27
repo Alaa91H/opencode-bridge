@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 import signal
 import sys
@@ -14,7 +13,6 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Awaitable, Callable, TypeVar
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -29,6 +27,7 @@ sys.path.insert(0, str(BRIDGE_DIR))
 from attachments import AttachmentError, AttachmentStore, attachment_prompt_note
 from audit_log import AuditLogger
 from block_patterns import check_build, check_hardline
+from bridge.config import get_settings
 from bridge.domain.policies import RequestGuard
 from bridge.domain.schedules import (
     format_interval as schedule_format_interval,
@@ -76,8 +75,11 @@ from task_service import TaskService
 REBOOT_REQUEST_PATH = request_path(BRIDGE_DIR / "runtime")
 REBOOT_DECISION_PATH = decision_path(BRIDGE_DIR / "runtime")
 
+SETTINGS = get_settings()
+SETTINGS.require_bot_ready()
+
 logging.basicConfig(
-    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+    level=SETTINGS.logging.level,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     stream=sys.stderr,
 )
@@ -85,66 +87,27 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram.ext").setLevel(logging.INFO)
 log = logging.getLogger("opencode_bridge")
 
-
-def _load_env(path: Path) -> None:
-    """Load simple KEY=VALUE entries without overwriting service variables."""
-    if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
-
-
-_load_env(BRIDGE_DIR / ".env")
-
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-# Optional HTTP(S) or SOCKS proxy used exclusively for Telegram API traffic.
-TELEGRAM_PROXY_URL = os.environ.get("TELEGRAM_PROXY_URL", "").strip() or None
-ALLOWED_USERS = {
-    int(value.strip())
-    for value in os.environ.get("TELEGRAM_ALLOWED_USERS", "").split(",")
-    if value.strip()
-}
-ALLOWED_CHAT_IDS = {
-    int(value.strip())
-    for value in os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS", "").split(",")
-    if value.strip()
-}
-OPENCODE_HOST = os.environ.get("OPENCODE_HOST", "127.0.0.1")
-OPENCODE_PORT = int(os.environ.get("OPENCODE_PORT", "4096"))
-OPENCODE_PASSWORD = os.environ.get("OPENCODE_PASSWORD")
-DEFAULT_MODEL = os.environ.get("OPENCODE_DEFAULT_MODEL", "opencode/muse-spark-1.3-contributor-free")
-DEFAULT_MODEL_VARIANT = os.environ.get("OPENCODE_MODEL_VARIANT", "xhigh").strip() or None
-VARIANT_MODEL = os.environ.get("OPENCODE_VARIANT_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
-AUTO_STRONGEST_FREE_MODEL = os.environ.get("AGENT_SCOUT_AUTO_STRONGEST", "1").strip().lower() not in {"0", "false", "no", "off"}
-PIN_DEFAULT_MODEL = (
-    os.environ.get("OPENCODE_PIN_DEFAULT_MODEL", "1").strip().lower() not in {"0", "false", "no", "off"}
-    and not AUTO_STRONGEST_FREE_MODEL
-)
-DEFAULT_AGENT = os.environ.get("OPENCODE_AGENT", "telegram-operator")
-MODEL_CATALOG_SYNC_SECONDS = max(60, int(os.environ.get("OPENCODE_MODEL_SYNC_SECONDS", "900")))
-ATTACHMENT_MAX_BYTES = max(1, int(os.environ.get("TELEGRAM_ATTACHMENT_MAX_BYTES", str(20 * 1024 * 1024))))
-ATTACHMENT_MAX_COUNT = max(1, int(os.environ.get("TELEGRAM_ATTACHMENT_MAX_COUNT", "10")))
-ATTACHMENT_MAX_TOTAL_BYTES = max(
-    ATTACHMENT_MAX_BYTES,
-    int(os.environ.get("TELEGRAM_ATTACHMENT_MAX_TOTAL_BYTES", str(50 * 1024 * 1024))),
-)
-ATTACHMENT_PENDING_SECONDS = max(60, int(os.environ.get("TELEGRAM_ATTACHMENT_PENDING_SECONDS", "600")))
-MEDIA_GROUP_DEBOUNCE_SECONDS = max(
-    0.25,
-    min(float(os.environ.get("TELEGRAM_MEDIA_GROUP_DEBOUNCE_SECONDS", "1.25")), 5.0),
-)
-FREE_DAILY_POINTS = max(1, int(os.environ.get("OPENCODE_FREE_DAILY_POINTS", "200")))
-DAILY_TASK_COUNTER_TIMEZONE_NAME = os.environ.get("TELEGRAM_DAILY_TASK_COUNTER_TIMEZONE", "Etc/GMT-2").strip()
-try:
-    DAILY_TASK_COUNTER_TIMEZONE = ZoneInfo(DAILY_TASK_COUNTER_TIMEZONE_NAME)
-except ZoneInfoNotFoundError as exc:
-    raise RuntimeError(
-        "TELEGRAM_DAILY_TASK_COUNTER_TIMEZONE يجب أن تكون منطقة زمنية IANA صالحة، مثل Etc/GMT-2 أو Europe/Paris"
-    ) from exc
+TELEGRAM_BOT_TOKEN = SETTINGS.telegram.bot_token
+TELEGRAM_PROXY_URL = SETTINGS.telegram.proxy_url
+ALLOWED_USERS = set(SETTINGS.telegram.allowed_users)
+ALLOWED_CHAT_IDS = set(SETTINGS.telegram.allowed_chat_ids)
+OPENCODE_HOST = SETTINGS.opencode.host
+OPENCODE_PORT = SETTINGS.opencode.port
+OPENCODE_PASSWORD = SETTINGS.opencode.password
+DEFAULT_MODEL = SETTINGS.opencode.default_model
+DEFAULT_MODEL_VARIANT = SETTINGS.opencode.model_variant
+VARIANT_MODEL = SETTINGS.opencode.variant_model
+AUTO_STRONGEST_FREE_MODEL = SETTINGS.features.auto_strongest_free_model
+PIN_DEFAULT_MODEL = SETTINGS.effective_pin_default_model
+DEFAULT_AGENT = SETTINGS.opencode.agent
+MODEL_CATALOG_SYNC_SECONDS = SETTINGS.opencode.model_sync_seconds
+ATTACHMENT_MAX_BYTES = SETTINGS.telegram.attachment_max_bytes
+ATTACHMENT_MAX_COUNT = SETTINGS.telegram.attachment_max_count
+ATTACHMENT_MAX_TOTAL_BYTES = SETTINGS.telegram.attachment_max_total_bytes
+ATTACHMENT_PENDING_SECONDS = SETTINGS.telegram.attachment_pending_seconds
+MEDIA_GROUP_DEBOUNCE_SECONDS = SETTINGS.telegram.media_group_debounce_seconds
+FREE_DAILY_POINTS = SETTINGS.opencode.free_daily_points
+DAILY_TASK_COUNTER_TIMEZONE_NAME = SETTINGS.telegram.daily_task_counter_timezone
 
 store = SessionStore(BRIDGE_DIR / "sessions.db")
 task_store = TaskQueueStore(BRIDGE_DIR / "sessions.db")
