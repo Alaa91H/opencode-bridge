@@ -39,6 +39,16 @@ class BotImportTests(unittest.TestCase):
         self.assertNotIn("HELP_TEXT", start_block)
         self.assertIn("startup_message()", start_block)
 
+    def test_task_ui_uses_one_message_without_user_visible_ids(self) -> None:
+        source = (PROJECT_DIR / "bot.py").read_text(encoding="utf-8")
+        self.assertNotIn("رقم_المهمة", bot.HELP_TEXT)
+        self.assertNotIn("مهمة اليوم رقم", source)
+        self.assertNotIn("بترتيب {position}", source)
+        self.assertNotIn("#{task.id}", source)
+        self.assertNotIn("_task_reply_chunks", source)
+        self.assertIn("status_message_id=status_message_id", source)
+        self.assertIn("reporter.finalize_text(", source)
+
     def test_reboot_decision_buttons_are_registered(self) -> None:
         source = (PROJECT_DIR / "bot.py").read_text(encoding="utf-8")
         self.assertIn("async def handle_reboot_callback", source)
