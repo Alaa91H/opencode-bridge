@@ -156,10 +156,38 @@ async def cmd_dev(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if active is None:
             raise WorkspaceError("اختَر مشروع أولًا باستخدام /use owner/repo")
         prompt = workspace_prompt(active.repo_slug, active.directory, request)
-        task, position = await core.task_store.enqueue(owner_id, update.effective_chat.id, prompt)
+        status_message_id = await core._create_task_status_message(
+            context.bot,
+            update.effective_chat.id,
+            f"جاري تجهيز الطلب على {active.repo_slug}…",
+        )
+        try:
+            task, _ = await core.task_store.enqueue(
+                owner_id,
+                update.effective_chat.id,
+                prompt,
+                status_message_id=status_message_id,
+            )
+        except Exception as exc:
+            error_text = core.user_error(exc, "تسجيل طلب التطوير")
+            if status_message_id is not None:
+                await core._edit_task_status_message(
+                    context.bot,
+                    update.effective_chat.id,
+                    status_message_id,
+                    error_text,
+                )
+            else:
+                await core._safe_reply(update.message, error_text)
+            raise
         assert core.task_service is not None
         core.task_service.wake()
-        await core._safe_reply(update.message, f"Queued development task #{task.id} on {active.repo_slug} at position {position}.")
+        core.audit.write(
+            "workspace_task_queued",
+            "accepted",
+            actor_id=owner_id,
+            details={"task_id": task.id, "repo": active.repo_slug, "source": "dev_command"},
+        )
     except WorkspaceError as exc:
         await core._safe_reply(update.message, str(exc))
 
@@ -180,10 +208,39 @@ async def handle_workspace_text(update: Update, context: ContextTypes.DEFAULT_TY
         await core._safe_reply(update.message, core.build_blocked_message(reason))
         raise ApplicationHandlerStop
     prompt = workspace_prompt(active.repo_slug, active.directory, text)
-    task, position = await core.task_store.enqueue(str(update.effective_user.id), update.effective_chat.id, prompt)
+    owner_id = str(update.effective_user.id)
+    status_message_id = await core._create_task_status_message(
+        context.bot,
+        update.effective_chat.id,
+        f"جاري تجهيز الطلب على {active.repo_slug}…",
+    )
+    try:
+        task, _ = await core.task_store.enqueue(
+            owner_id,
+            update.effective_chat.id,
+            prompt,
+            status_message_id=status_message_id,
+        )
+    except Exception as exc:
+        error_text = core.user_error(exc, "تسجيل الطلب")
+        if status_message_id is not None:
+            await core._edit_task_status_message(
+                context.bot,
+                update.effective_chat.id,
+                status_message_id,
+                error_text,
+            )
+        else:
+            await core._safe_reply(update.message, error_text)
+        raise ApplicationHandlerStop
     assert core.task_service is not None
     core.task_service.wake()
-    await core._safe_reply(update.message, f"Queued task #{task.id} on {active.repo_slug} at position {position}.")
+    core.audit.write(
+        "workspace_task_queued",
+        "accepted",
+        actor_id=owner_id,
+        details={"task_id": task.id, "repo": active.repo_slug, "source": "workspace_text"},
+    )
     raise ApplicationHandlerStop
 
 
