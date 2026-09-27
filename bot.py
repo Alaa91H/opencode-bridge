@@ -708,68 +708,87 @@ async def cmd_abort(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if cancelled:
             reporter = live_reporters.get(cancelled.id)
             if reporter:
-                await reporter.finish("cancelled", "تم إرسال طلب إيقاف المهمة.", "warning")
-            await _safe_reply(update.message, f"تمام، ألغيت المهمة الجارية #{cancelled.id}." )
+                await reporter.finalize_text(
+                    "تم إلغاء الطلب.",
+                    status="cancelled",
+                    message="تم إرسال طلب إيقاف التنفيذ.",
+                )
+            elif cancelled.status_message_id is not None:
+                await _edit_task_status_message(
+                    context.bot,
+                    cancelled.chat_id,
+                    cancelled.status_message_id,
+                    "تم إلغاء الطلب.",
+                )
             audit.write("task_cancelled", "cancelled", actor_id=user_id, details={"task_id": cancelled.id, "source": "abort"})
-        elif stopped:
-            await _safe_reply(update.message, "تم إرسال طلب إيقاف الجلسة الحالية.")
-        else:
-            await _safe_reply(update.message, "ما في مهمة جارية هلّق لإيقافها.")
+            return
+        if stopped:
+            return
+        await _safe_reply(update.message, "لا يوجد طلب جارٍ لإيقافه.")
     except Exception as exc:
         log.exception("فشل إيقاف المهمة")
-        await _safe_reply(update.message, user_error(exc, "إيقاف المهمة"))
+        await _safe_reply(update.message, user_error(exc, "إيقاف الطلب"))
 
 
 @authorized
 async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
-    today_count = await task_store.count_created_for_day(user_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
     tasks = await task_store.list_active(user_id)
     if not tasks:
-        await _safe_reply(update.message, f"ما في مهام بانتظار التنفيذ أو مجدولة هلّق. مهام اليوم: {today_count}.")
+        await _safe_reply(update.message, "لا توجد طلبات جارية أو مجدولة.")
         return
-    lines = [f"المهام الحالية — مهام اليوم: {today_count}:"]
+    lines = ["الطلبات الحالية:"]
     for task in tasks:
         timing = ""
         if task.status == "scheduled" and task.due_at:
-            timing = f" — موعدها {task.due_at.strftime('%Y-%m-%d %H:%M UTC')}"
-        elif task.status == "queued":
-            timing = f" — ترتيبها {task.sequence}"
+            timing = f" — {task.due_at.strftime('%Y-%m-%d %H:%M UTC')}"
         elif task.status == "running":
-            timing = " — عم تنفّذ هلّق"
+            timing = " — قيد التنفيذ"
+        elif task.status == "queued":
+            timing = " — بانتظار التنفيذ"
         repeat = " — متكررة" if task.is_recurring else ""
-        preview = task.prompt.replace("\n", " ")[:70]
-        lines.append(f"المعرّف #{task.id} · {_task_status_text(task)}{timing}{repeat}\n{preview}")
-    await _safe_reply(update.message, "\n\n".join(lines))
+        preview = task.prompt.replace("\n", " ")[:90]
+        lines.append(f"• {preview}{timing}{repeat}")
+    await _safe_reply(update.message, "\n".join(lines))
 
 
 @authorized
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not context.args or not context.args[0].isdigit():
-        await _safe_reply(update.message, "استخدمها هيك: /cancel رقم_المهمة")
-        return
-    task_id = int(context.args[0])
     user_id = str(update.effective_user.id)
     try:
-        before_cancel = await task_store.get(task_id)
-        cancelled = await task_store.cancel(task_id, user_id)
-        if not cancelled:
-            await _safe_reply(update.message, "ما لقيت مهمة قابلة للإلغاء بهالرقم.")
+        target = await task_store.latest_active_for_owner(user_id)
+        if target is None:
+            await _safe_reply(update.message, "لا يوجد طلب قابل للإلغاء.")
             return
-        if before_cancel and before_cancel.status == "running":
+        cancelled = await task_store.cancel(target.id, user_id)
+        if cancelled is None:
+            await _safe_reply(update.message, "لا يوجد طلب قابل للإلغاء.")
+            return
+        if target.status == "running":
             session = await store.get_session(user_id)
             if session:
                 await client.abort_session(session.opencode_session_id)
-        elif before_cancel and before_cancel.attachments:
-            attachment_store.delete_input_records(before_cancel.attachments)
-        reporter = live_reporters.get(task_id)
+        elif target.attachments:
+            attachment_store.delete_input_records(target.attachments)
+
+        reporter = live_reporters.get(target.id)
         if reporter:
-            await reporter.finish("cancelled", "تم إرسال طلب إيقاف المهمة.", "warning")
-        await _safe_reply(update.message, f"تمام، ألغيت المهمة #{task_id}.")
-        audit.write("task_cancelled", "cancelled", actor_id=user_id, details={"task_id": task_id, "source": "cancel"})
+            await reporter.finalize_text(
+                "تم إلغاء الطلب.",
+                status="cancelled",
+                message="تم إلغاء الطلب.",
+            )
+        elif target.status_message_id is not None:
+            await _edit_task_status_message(
+                context.bot,
+                target.chat_id,
+                target.status_message_id,
+                "تم إلغاء الطلب.",
+            )
+        audit.write("task_cancelled", "cancelled", actor_id=user_id, details={"task_id": target.id, "source": "cancel"})
     except Exception as exc:
-        log.exception("فشل إلغاء المهمة %s", task_id)
-        await _safe_reply(update.message, user_error(exc, "إلغاء المهمة"))
+        log.exception("فشل إلغاء الطلب")
+        await _safe_reply(update.message, user_error(exc, "إلغاء الطلب"))
 
 
 def _split_schedule_args(raw: str) -> tuple[str, str]:
