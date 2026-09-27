@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-
 import watchdog_runner
+from bridge.config import get_settings
 
-INTERVAL_SECONDS = max(60, int(os.environ.get("WATCHDOG_INTERVAL_SECONDS", "300")))
+INTERVAL_SECONDS = get_settings().watchdog.interval_seconds
 log = logging.getLogger("opencode_bridge.watchdog")
 _task: asyncio.Task[None] | None = None
 _stopped = asyncio.Event()
