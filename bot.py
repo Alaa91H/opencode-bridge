@@ -588,28 +588,9 @@ async def cmd_agents(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def cmd_maintenance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _system_command_adapter().maintenance(update, context)
 
-async def cmd_maintenance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        if not MAINTENANCE_REPORT_PATH.is_file():
-            await _safe_reply(update.message, "لسّا ما في تقرير صيانة يومي. أول تقرير بينحفظ بعد أول تشغيل مجدول.")
-            return
-        report = MAINTENANCE_REPORT_PATH.read_text(encoding="utf-8").strip()
-        if not report:
-            await _safe_reply(update.message, "تقرير الصيانة الحالي فاضي. راجع سجل خدمة الصيانة.")
-            return
-        await _safe_reply(update.message, report[:3500] + ("\n… تم اختصار التقرير." if len(report) > 3500 else ""))
-    except Exception as exc:
-        log.exception("فشل عرض تقرير الصيانة")
-        await _safe_reply(update.message, user_error(exc, "عرض تقرير الصيانة"))
-
-
 @authorized
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _system_command_adapter().help(update, context)
-
-async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await _safe_reply(update.message, HELP_TEXT)
-
 
 @authorized
 async def cmd_research_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
