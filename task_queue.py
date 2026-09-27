@@ -71,6 +71,7 @@ class QueuedTask:
     attachments: tuple[dict[str, Any], ...] = ()
     activity: tuple[dict[str, Any], ...] = ()
     execution_mode: str | None = None
+    status_message_id: int | None = None
 
     @property
     def is_recurring(self) -> bool:
@@ -121,7 +122,8 @@ class TaskQueueStore:
                 last_error TEXT,
                 attachments_json TEXT NOT NULL DEFAULT '[]',
                 activity_json TEXT NOT NULL DEFAULT '[]',
-                execution_mode TEXT
+                execution_mode TEXT,
+                status_message_id INTEGER
             )
             """
         )
@@ -133,6 +135,8 @@ class TaskQueueStore:
             await db.execute("ALTER TABLE agent_tasks ADD COLUMN activity_json TEXT NOT NULL DEFAULT '[]'")
         if "execution_mode" not in columns:
             await db.execute("ALTER TABLE agent_tasks ADD COLUMN execution_mode TEXT")
+        if "status_message_id" not in columns:
+            await db.execute("ALTER TABLE agent_tasks ADD COLUMN status_message_id INTEGER")
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_agent_tasks_owner_status_sequence "
             "ON agent_tasks(owner_id, status, sequence, id)"
@@ -184,6 +188,11 @@ class TaskQueueStore:
             attachments=decode_attachments(attachment_value),
             activity=decode_activity(activity_value),
             execution_mode=str(row["execution_mode"]) if "execution_mode" in row.keys() and row["execution_mode"] else None,
+            status_message_id=(
+                int(row["status_message_id"])
+                if "status_message_id" in row.keys() and row["status_message_id"] is not None
+                else None
+            ),
         )
 
     async def update_activity(self, task_id: int, activity: list[dict[str, Any]]) -> None:
@@ -372,6 +381,7 @@ class TaskQueueStore:
         attachments: list[dict[str, Any]] | None = None,
         created_at: datetime | None = None,
         execution_mode: str | None = None,
+        status_message_id: int | None = None,
     ) -> tuple[QueuedTask, int]:
         now = encode_time(created_at or utc_now())
         db = await self._get_db()
@@ -385,10 +395,20 @@ class TaskQueueStore:
             cursor = await db.execute(
                 """
                 INSERT INTO agent_tasks
-                (owner_id, chat_id, prompt, status, created_at, updated_at, sequence, attachments_json, execution_mode)
-                VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?)
+                (owner_id, chat_id, prompt, status, created_at, updated_at, sequence, attachments_json, execution_mode, status_message_id)
+                VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)
                 """,
-                (owner_id, chat_id, prompt, now, now, sequence, encode_attachments(attachments), execution_mode),
+                (
+                    owner_id,
+                    chat_id,
+                    prompt,
+                    now,
+                    now,
+                    sequence,
+                    encode_attachments(attachments),
+                    execution_mode,
+                    status_message_id,
+                ),
             )
             task_id = int(cursor.lastrowid)
             await db.commit()
@@ -403,6 +423,7 @@ class TaskQueueStore:
         prompt: str,
         due_at: datetime,
         repeat_seconds: int | None = None,
+        status_message_id: int | None = None,
     ) -> QueuedTask:
         if due_at <= utc_now():
             raise ValueError("وقت التنفيذ لازم يكون بالمستقبل")
@@ -412,10 +433,10 @@ class TaskQueueStore:
             cursor = await db.execute(
                 """
                 INSERT INTO agent_tasks
-                (owner_id, chat_id, prompt, status, created_at, updated_at, due_at, repeat_seconds, sequence)
-                VALUES (?, ?, ?, 'scheduled', ?, ?, ?, ?, 0)
+                (owner_id, chat_id, prompt, status, created_at, updated_at, due_at, repeat_seconds, sequence, status_message_id)
+                VALUES (?, ?, ?, 'scheduled', ?, ?, ?, ?, 0, ?)
                 """,
-                (owner_id, chat_id, prompt, now, now, encode_time(due_at), repeat_seconds),
+                (owner_id, chat_id, prompt, now, now, encode_time(due_at), repeat_seconds, status_message_id),
             )
             task_id = int(cursor.lastrowid)
             await db.commit()
@@ -429,6 +450,38 @@ class TaskQueueStore:
             async with db.execute("SELECT * FROM agent_tasks WHERE id = ?", (task_id,)) as cursor:
                 row = await cursor.fetchone()
         return self._from_row(row) if row else None
+
+    async def set_status_message_id(self, task_id: int, message_id: int | None) -> None:
+        db = await self._get_db()
+        async with self._lock:
+            await db.execute(
+                "UPDATE agent_tasks SET status_message_id = ?, updated_at = ? WHERE id = ?",
+                (message_id, encode_time(utc_now()), task_id),
+            )
+            await db.commit()
+
+    async def latest_active_for_owner(self, owner_id: str) -> QueuedTask | None:
+        db = await self._get_db()
+        async with self._lock:
+            async with db.execute(
+                """
+                SELECT * FROM agent_tasks
+                WHERE owner_id = ? AND status IN ('running', 'queued', 'scheduled')
+                ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
+                         CASE WHEN status = 'scheduled' THEN due_at ELSE created_at END,
+                         sequence, id
+                LIMIT 1
+                """,
+                (owner_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return self._from_row(row) if row else None
+
+    async def cancel_latest_for_owner(self, owner_id: str) -> QueuedTask | None:
+        task = await self.latest_active_for_owner(owner_id)
+        if task is None:
+            return None
+        return await self.cancel(task.id, owner_id)
 
     async def count_created_for_day(
         self,
