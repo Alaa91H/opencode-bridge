@@ -33,15 +33,18 @@ class BotImportTests(unittest.TestCase):
         self.assertIn("_task_command_adapter().research(update, context)", source)
         self.assertIn("execution_mode=mode", task_adapter)
         self.assertIn("execution_mode=execution_mode.value", task_service)
-        self.assertIn("CommandHandler(tuple(RESEARCH_COMMAND_MODES), cmd_research_mode)", source)
+        app_source = (PROJECT_DIR / "bridge" / "telegram" / "app.py").read_text(encoding="utf-8")
+        self.assertIn("CommandHandler(research_command_names, handlers.cmd_research_mode)", app_source)
         self.assertIn("/deepresearch", bot.HELP_TEXT)
         self.assertIn("/factcheck", bot.HELP_TEXT)
 
     def test_start_command_does_not_append_help_text(self) -> None:
         source = (PROJECT_DIR / "bot.py").read_text(encoding="utf-8")
         start_block = source[source.index("async def cmd_start"):source.index("async def cmd_new")]
+        agent_adapter = (PROJECT_DIR / "bridge" / "telegram" / "commands" / "agent.py").read_text(encoding="utf-8")
         self.assertNotIn("HELP_TEXT", start_block)
-        self.assertIn("startup_message()", start_block)
+        self.assertIn("_agent_command_adapter().start(update, context)", start_block)
+        self.assertIn("self.startup_text()", agent_adapter)
 
     def test_task_ui_uses_one_message_without_user_visible_ids(self) -> None:
         source = (PROJECT_DIR / "bot.py").read_text(encoding="utf-8")
@@ -56,9 +59,11 @@ class BotImportTests(unittest.TestCase):
 
     def test_reboot_decision_buttons_are_registered(self) -> None:
         source = (PROJECT_DIR / "bot.py").read_text(encoding="utf-8")
+        app_source = (PROJECT_DIR / "bridge" / "telegram" / "app.py").read_text(encoding="utf-8")
+        callback_source = (PROJECT_DIR / "bridge" / "telegram" / "callbacks" / "reboot.py").read_text(encoding="utf-8")
         self.assertIn("async def handle_reboot_callback", source)
-        self.assertIn('pattern=r"^reboot:(now|cancel)$"', source)
-        self.assertIn("REBOOT_DECISION_PATH", source)
+        self.assertIn('pattern=r"^reboot:(now|cancel)$"', app_source)
+        self.assertIn("decision_path", callback_source)
 
 
 if __name__ == "__main__":
