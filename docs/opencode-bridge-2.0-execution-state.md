@@ -240,3 +240,31 @@
 6. إضافة validation tests للأخطاء والتعارضات.
 7. عدم بدء T04 قبل إغلاق T03 بالكامل ونجاح CI.
 
+
+
+## تقدم T03 — قيد التنفيذ
+
+- [x] BridgeSettings typed والتحقق عند التشغيل.
+- [x] env + config file + defaults + per-user policy + per-task override + feature flags.
+- [x] توحيد قراءات إعدادات Python التشغيلية عبر get_settings مع توافق الإعدادات القديمة.
+- [x] /config لعرض الإعدادات غير السرية.
+- [x] /limits لعرض الحدود الفعلية.
+- [x] validation وprecedence tests في tests/test_v3_settings.py.
+- [x] توثيق BRIDGE_CONFIG_FILE في .env.example.
+- [ ] نجاح CI النهائي وتسجيل رابط التشغيل.
+
+### أدلة T03
+- bridge/config/settings.py
+- bridge/services/config_service.py
+- bridge/telegram/commands/config.py
+- bridge/telegram/rendering/config.py
+- tests/test_v3_settings.py
+- commit الاختبارات: f0818c4ad6af2ccc7328ad0edaf94d1521767969
+- commit bot المركزي: e87fd72ae04db809daed4fa95874be49dff68f64
+- commit تسجيل الأوامر: 1a433d2b2d597e260a9189e7e60ec7556fc48bbb
+- commit help: e50b7edcdfa0ee136ef998ff71249228ff038813
+- commit توثيق BRIDGE_CONFIG_FILE: 04bb94fa9ccf50340b438e15a9d81d16e340b700
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T03 Acceptance: التحقق من نجاح كامل CI على Python 3.12 و3.13 و3.14 على commit إغلاق T03، ثم تسجيل SHA ورابط GitHub Actions والنتيجة هنا. لا يبدأ T04 قبل ذلك.
