@@ -104,6 +104,16 @@ PIN_DEFAULT_MODEL = (
 DEFAULT_AGENT = os.environ.get("OPENCODE_AGENT", "telegram-operator")
 MODEL_CATALOG_SYNC_SECONDS = max(60, int(os.environ.get("OPENCODE_MODEL_SYNC_SECONDS", "900")))
 ATTACHMENT_MAX_BYTES = max(1, int(os.environ.get("TELEGRAM_ATTACHMENT_MAX_BYTES", str(20 * 1024 * 1024))))
+ATTACHMENT_MAX_COUNT = max(1, int(os.environ.get("TELEGRAM_ATTACHMENT_MAX_COUNT", "10")))
+ATTACHMENT_MAX_TOTAL_BYTES = max(
+    ATTACHMENT_MAX_BYTES,
+    int(os.environ.get("TELEGRAM_ATTACHMENT_MAX_TOTAL_BYTES", str(50 * 1024 * 1024))),
+)
+ATTACHMENT_PENDING_SECONDS = max(60, int(os.environ.get("TELEGRAM_ATTACHMENT_PENDING_SECONDS", "600")))
+MEDIA_GROUP_DEBOUNCE_SECONDS = max(
+    0.25,
+    min(float(os.environ.get("TELEGRAM_MEDIA_GROUP_DEBOUNCE_SECONDS", "1.25")), 5.0),
+)
 FREE_DAILY_POINTS = max(1, int(os.environ.get("OPENCODE_FREE_DAILY_POINTS", "200")))
 DAILY_TASK_COUNTER_TIMEZONE_NAME = os.environ.get("TELEGRAM_DAILY_TASK_COUNTER_TIMEZONE", "Etc/GMT-2").strip()
 try:
@@ -127,11 +137,19 @@ client = OpenCodeClient(
     free_points_tracker=free_points_tracker,
 )
 audit = AuditLogger(BRIDGE_DIR / "runtime" / "audit.jsonl")
-attachment_store = AttachmentStore(ATTACHMENT_ROOT, max_bytes=ATTACHMENT_MAX_BYTES)
+attachment_store = AttachmentStore(
+    ATTACHMENT_ROOT,
+    max_bytes=ATTACHMENT_MAX_BYTES,
+    max_count=ATTACHMENT_MAX_COUNT,
+    max_total_bytes=ATTACHMENT_MAX_TOTAL_BYTES,
+)
 progress_store = ProgressStore()
 live_reporters: dict[int, LiveProgressReporter] = {}
 task_service: TaskService | None = None
 model_manager: ModelManager | None = None
+pending_cleanup_task: asyncio.Task[None] | None = None
+media_group_batches: dict[tuple[int, str], dict[str, object]] = {}
+media_group_flush_tasks: dict[tuple[int, str], asyncio.Task[None]] = {}
 UTC = timezone.utc
 
 F = TypeVar("F", bound=Callable[..., Awaitable[None]])
@@ -321,38 +339,76 @@ async def _send_prompt_with_model_fallback(
     parts: list[dict],
     selected_model: str | None,
 ) -> tuple[dict, str | None, int]:
-    """Send once, then retry once with the next catalog model if selection vanished."""
-    selected_variant = _variant_for_model(selected_model)
+    """Send with variant, attachment-transport, and model fallbacks.
+
+    Some providers accept images directly but reject video, archive, or other
+    file parts. Every attachment is also exposed through a validated local path
+    in the prompt, so a transport-level file rejection can safely retry without
+    file parts while preserving server-side agent access to the same files.
+    """
+
+    async def send_for_model(model_id: str | None) -> dict:
+        selected_variant = _variant_for_model(model_id)
+        variant = selected_variant
+        try:
+            return await client.send_prompt(
+                session_id,
+                prompt,
+                model=model_id,
+                agent=DEFAULT_AGENT,
+                parts=parts,
+                variant=variant,
+            )
+        except httpx.HTTPStatusError as exc:
+            if variant and exc.response.status_code in {400, 404, 422}:
+                audit.write(
+                    "model_variant_fallback",
+                    "retry_default",
+                    actor_id=task.owner_id,
+                    details={"model": model_id, "variant": variant},
+                )
+                variant = None
+                try:
+                    return await client.send_prompt(
+                        session_id,
+                        prompt,
+                        model=model_id,
+                        agent=DEFAULT_AGENT,
+                        parts=parts,
+                        variant=None,
+                    )
+                except httpx.HTTPStatusError as retry_exc:
+                    exc = retry_exc
+
+            if parts and exc.response.status_code in {400, 413, 415, 422}:
+                audit.write(
+                    "attachment_transport_fallback",
+                    "local_path",
+                    actor_id=task.owner_id,
+                    details={
+                        "task_id": task.id,
+                        "model": model_id,
+                        "status_code": exc.response.status_code,
+                        "attachment_count": len(parts),
+                    },
+                )
+                try:
+                    return await client.send_prompt(
+                        session_id,
+                        prompt,
+                        model=model_id,
+                        agent=DEFAULT_AGENT,
+                        parts=[],
+                        variant=variant,
+                    )
+                except httpx.HTTPStatusError as retry_exc:
+                    exc = retry_exc
+            raise exc
+
     try:
-        response = await client.send_prompt(
-            session_id,
-            prompt,
-            model=selected_model,
-            agent=DEFAULT_AGENT,
-            parts=parts,
-            variant=selected_variant,
-        )
+        response = await send_for_model(selected_model)
         return response, selected_model, _response_usage_points(response)
     except httpx.HTTPStatusError as exc:
-        if selected_variant and exc.response.status_code in {400, 404, 422}:
-            audit.write(
-                "model_variant_fallback",
-                "retry_default",
-                actor_id=task.owner_id,
-                details={"model": selected_model, "variant": selected_variant},
-            )
-            try:
-                response = await client.send_prompt(
-                    session_id,
-                    prompt,
-                    model=selected_model,
-                    agent=DEFAULT_AGENT,
-                    parts=parts,
-                    variant=None,
-                )
-                return response, selected_model, _response_usage_points(response)
-            except httpx.HTTPStatusError as retry_exc:
-                exc = retry_exc
         if model_manager is None or selected_model is None or exc.response.status_code not in {400, 404, 422}:
             raise
         fallback_model = await model_manager.ensure_session_model(
@@ -369,14 +425,7 @@ async def _send_prompt_with_model_fallback(
             actor_id=task.owner_id,
             details={"from_model": selected_model, "to_model": fallback_model, "reason": "inference_model_unavailable"},
         )
-        response = await client.send_prompt(
-            session_id,
-            prompt,
-            model=fallback_model,
-            agent=DEFAULT_AGENT,
-            parts=parts,
-            variant=_variant_for_model(fallback_model),
-        )
+        response = await send_for_model(fallback_model)
         return response, fallback_model, _response_usage_points(response)
 
 
@@ -952,42 +1001,218 @@ async def cmd_research_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await _safe_reply(update.message, user_error(exc, "تسجيل مهمة البحث"))
 
 
+async def _queue_attachment_task(
+    owner_id: str,
+    chat_id: int,
+    prompt: str,
+    attachments: list,
+    bot,
+) -> None:
+    records = [attachment.to_record() for attachment in attachments]
+    pending_records, expired = await task_store.pop_pending_attachments(owner_id, chat_id)
+    if expired:
+        attachment_store.delete_input_records(pending_records)
+        pending_records = ()
+    combined_records = [*pending_records, *records]
+    attachment_store.validate_input_records(combined_records)
+
+    reason = check_build(prompt) or check_hardline(prompt)
+    if reason:
+        attachment_store.delete_input_records(combined_records)
+        await bot.send_message(chat_id=chat_id, text=build_blocked_message(reason))
+        return
+
+    task, position = await task_store.enqueue(
+        owner_id,
+        chat_id,
+        prompt,
+        attachments=combined_records,
+    )
+    today_count = await task_store.count_created_for_day(owner_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
+    assert task_service is not None
+    task_service.wake()
+    position_text = "وهي الجاية بالتنفيذ" if position == 1 else f"بترتيب {position}"
+    await bot.send_message(
+        chat_id=chat_id,
+        text=(
+            f"تم ربط الأمر مع {len(combined_records)} مرفق وتسجيل مهمة اليوم رقم "
+            f"{today_count} {position_text}."
+        ),
+    )
+    audit.write(
+        "attachment_task_queued",
+        "accepted",
+        actor_id=owner_id,
+        details={
+            "task_id": task.id,
+            "position": position,
+            "attachment_count": len(combined_records),
+            "total_bytes": sum(int(item.get("size", 0) or 0) for item in combined_records),
+        },
+    )
+
+
+async def _stage_attachment_batch(
+    owner_id: str,
+    chat_id: int,
+    attachments: list,
+    bot,
+) -> None:
+    records = [attachment.to_record() for attachment in attachments]
+    attachment_store.validate_input_records(records)
+    try:
+        batch, expired_records = await task_store.stage_pending_attachments(
+            owner_id,
+            chat_id,
+            records,
+            ttl_seconds=ATTACHMENT_PENDING_SECONDS,
+            max_count=ATTACHMENT_MAX_COUNT,
+            max_total_bytes=ATTACHMENT_MAX_TOTAL_BYTES,
+        )
+    except ValueError:
+        attachment_store.delete_input_records(records)
+        raise
+    if expired_records:
+        attachment_store.delete_input_records(expired_records)
+    minutes = max(1, ATTACHMENT_PENDING_SECONDS // 60)
+    await bot.send_message(
+        chat_id=chat_id,
+        text=(
+            f"تم استلام {len(batch.attachments)} مرفق وحفظه بأمان. "
+            f"أرسل الآن الأمر المطلوب خلال {minutes} دقائق وسأربطه بكل الملفات في مهمة واحدة. "
+            "يمكنك إرسال ملفات إضافية قبل الأمر، أو /discard لإلغاء المرفقات المعلّقة."
+        ),
+    )
+    audit.write(
+        "attachment_staged",
+        "accepted",
+        actor_id=owner_id,
+        details={
+            "attachment_count": len(batch.attachments),
+            "expires_at": batch.expires_at.isoformat(),
+        },
+    )
+
+
+async def _ingest_attachment_batch(
+    owner_id: str,
+    chat_id: int,
+    attachments: list,
+    prompt: str,
+    bot,
+) -> None:
+    prompt = prompt.strip()
+    if prompt:
+        await _queue_attachment_task(owner_id, chat_id, prompt, attachments, bot)
+    else:
+        await _stage_attachment_batch(owner_id, chat_id, attachments, bot)
+
+
+async def _flush_media_group_after_delay(key: tuple[int, str], bot) -> None:
+    current_task = asyncio.current_task()
+    try:
+        await asyncio.sleep(MEDIA_GROUP_DEBOUNCE_SECONDS)
+        batch = media_group_batches.pop(key, None)
+        if not batch:
+            return
+        attachments = list(batch.get("attachments") or [])
+        await _ingest_attachment_batch(
+            str(batch["owner_id"]),
+            int(batch["chat_id"]),
+            attachments,
+            str(batch.get("prompt") or ""),
+            bot,
+        )
+    except asyncio.CancelledError:
+        return
+    except (AttachmentError, ValueError) as exc:
+        batch = media_group_batches.pop(key, None)
+        if batch:
+            attachment_store.delete_input_records(
+                [item.to_record() for item in list(batch.get("attachments") or [])]
+            )
+        await bot.send_message(chat_id=key[0], text=f"ما قدرت أجهّز مجموعة المرفقات: {exc}.")
+    except Exception as exc:
+        log.exception("فشل تجهيز مجموعة مرفقات تيليغرام")
+        await bot.send_message(chat_id=key[0], text=user_error(exc, "تجهيز مجموعة المرفقات"))
+    finally:
+        if media_group_flush_tasks.get(key) is current_task:
+            media_group_flush_tasks.pop(key, None)
+
+
+async def _pending_attachment_cleanup_loop() -> None:
+    while True:
+        try:
+            await asyncio.sleep(min(60, max(15, ATTACHMENT_PENDING_SECONDS // 4)))
+            expired_records = await task_store.purge_expired_pending_attachments()
+            if expired_records:
+                deleted = attachment_store.delete_input_records(expired_records)
+                audit.write(
+                    "pending_attachments_expired",
+                    "cleaned",
+                    details={"records": len(expired_records), "files_deleted": deleted},
+                )
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:
+            log.warning("تعذر تنظيف المرفقات المعلّقة المنتهية: %s", type(exc).__name__)
+
+
+@authorized
+async def cmd_discard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_user or not update.effective_chat:
+        return
+    owner_id = str(update.effective_user.id)
+    records, _ = await task_store.pop_pending_attachments(owner_id, update.effective_chat.id)
+    if not records:
+        await _safe_reply(update.message, "ما في مرفقات معلّقة لإلغائها.")
+        return
+    deleted = attachment_store.delete_input_records(records)
+    await _safe_reply(update.message, f"تم إلغاء المرفقات المعلّقة وحذف {deleted} ملف من مساحة الاستلام.")
+
+
 @authorized
 async def handle_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.effective_chat or not update.effective_user:
         return
+    attachment = None
     try:
-        attachment = await attachment_store.download_from_message(update.message, context.bot, str(update.effective_user.id))
-        prompt = (update.message.caption or "").strip() or f"افحص المرفق «{attachment.filename}» ونفّذ المطلوب المناسب له."
-        reason = check_build(prompt) or check_hardline(prompt)
-        if reason:
-            Path(attachment.path).unlink(missing_ok=True)
-            await _safe_reply(update.message, build_blocked_message(reason))
+        owner_id = str(update.effective_user.id)
+        chat_id = update.effective_chat.id
+        attachment = await attachment_store.download_from_message(update.message, context.bot, owner_id)
+        prompt = (update.message.caption or "").strip()
+        media_group_id = getattr(update.message, "media_group_id", None)
+
+        if media_group_id:
+            key = (chat_id, str(media_group_id))
+            batch = media_group_batches.setdefault(
+                key,
+                {"owner_id": owner_id, "chat_id": chat_id, "attachments": [], "prompt": ""},
+            )
+            if str(batch["owner_id"]) != owner_id:
+                raise AttachmentError("مجموعة الوسائط لا تطابق صاحب المهمة")
+            cast_attachments = batch["attachments"]
+            if not isinstance(cast_attachments, list):
+                raise AttachmentError("حالة مجموعة الوسائط غير صالحة")
+            cast_attachments.append(attachment)
+            if prompt and not batch.get("prompt"):
+                batch["prompt"] = prompt
+            previous = media_group_flush_tasks.get(key)
+            if previous:
+                previous.cancel()
+            media_group_flush_tasks[key] = asyncio.create_task(
+                _flush_media_group_after_delay(key, context.bot)
+            )
             return
-        user_id = str(update.effective_user.id)
-        task, position = await task_store.enqueue(
-            user_id,
-            update.effective_chat.id,
-            prompt,
-            attachments=[attachment.to_record()],
-        )
-        today_count = await task_store.count_created_for_day(user_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
-        assert task_service is not None
-        task_service.wake()
-        position_text = "وهي الجاية بالتنفيذ" if position == 1 else f"بترتيب {position}"
-        await _safe_reply(
-            update.message,
-            f"تم استلام «{attachment.filename}» وحفظه بأمان. سجلت مهمة اليوم رقم {today_count} {position_text}.",
-        )
-        audit.write(
-            "attachment_received",
-            "accepted",
-            actor_id=task.owner_id,
-            details={"task_id": task.id, "kind": attachment.kind, "mime": attachment.mime, "size": attachment.size},
-        )
-    except AttachmentError as exc:
+
+        await _ingest_attachment_batch(owner_id, chat_id, [attachment], prompt, context.bot)
+    except (AttachmentError, ValueError) as exc:
+        if attachment is not None:
+            attachment_store.delete_input_records([attachment.to_record()])
         await _safe_reply(update.message, f"ما قدرت أستلم المرفق: {exc}.")
     except Exception as exc:
+        if attachment is not None:
+            attachment_store.delete_input_records([attachment.to_record()])
         log.exception("فشل استلام مرفق تيليغرام")
         await _safe_reply(update.message, user_error(exc, "استلام المرفق"))
 
@@ -1026,6 +1251,45 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     user_id = str(update.effective_user.id)
+    pending_records, pending_expired = await task_store.pop_pending_attachments(
+        user_id,
+        update.effective_chat.id,
+    )
+    if pending_records:
+        if pending_expired:
+            attachment_store.delete_input_records(pending_records)
+            await _safe_reply(
+                update.message,
+                "انتهت مهلة المرفقات المعلّقة قبل وصول الأمر. أعد إرسال الملفات مع الأمر أو أرسلها ثم اكتب الأمر مباشرة.",
+            )
+            return
+        try:
+            pending_attachments = [
+                attachment_store.validate_input_records([record])[0]
+                for record in pending_records
+            ]
+            await _queue_attachment_task(
+                user_id,
+                update.effective_chat.id,
+                text,
+                pending_attachments,
+                context.bot,
+            )
+        except Exception:
+            try:
+                await task_store.stage_pending_attachments(
+                    user_id,
+                    update.effective_chat.id,
+                    list(pending_records),
+                    ttl_seconds=ATTACHMENT_PENDING_SECONDS,
+                    max_count=ATTACHMENT_MAX_COUNT,
+                    max_total_bytes=ATTACHMENT_MAX_TOTAL_BYTES,
+                )
+            except Exception:
+                log.exception("تعذر استعادة المرفقات المعلّقة بعد فشل ربط الأمر")
+            raise
+        return
+
     task, position = await task_store.enqueue(user_id, update.effective_chat.id, text)
     today_count = await task_store.count_created_for_day(user_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
     assert task_service is not None
@@ -1040,7 +1304,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def post_init(app: Application) -> None:
-    global task_service, model_manager
+    global task_service, model_manager, pending_cleanup_task
     attachment_store.ensure_directories()
     if task_service is None:
         await task_store.init()
@@ -1049,6 +1313,8 @@ async def post_init(app: Application) -> None:
         if interrupted:
             audit.write("task_recovery", "interrupted", details={"count": interrupted})
             log.warning("تم تعليم %s مهمة كفاشلة بعد انقطاع سابق.", interrupted)
+    if pending_cleanup_task is None or pending_cleanup_task.done():
+        pending_cleanup_task = asyncio.create_task(_pending_attachment_cleanup_loop())
     if model_manager is None:
         model_manager = ModelManager(
             client=client,
@@ -1078,6 +1344,7 @@ async def post_init(app: Application) -> None:
         BotCommand("progress", "عرض تقدم المهمة الحي"),
         BotCommand("trace", "عرض سجل نشاط مهمة"),
         BotCommand("cancel", "إلغاء مهمة برقمها"),
+        BotCommand("discard", "حذف المرفقات المعلّقة"),
         BotCommand("schedule", "جدولة مهمة لوقت UTC"),
         BotCommand("repeat", "جدولة مهمة متكررة"),
         BotCommand("model", "عرض النموذج التلقائي وترتيبه"),
@@ -1109,7 +1376,26 @@ async def post_init(app: Application) -> None:
 
 
 async def post_shutdown(app: Application) -> None:
-    global task_service, model_manager
+    global task_service, model_manager, pending_cleanup_task
+    if pending_cleanup_task is not None:
+        pending_cleanup_task.cancel()
+        try:
+            await pending_cleanup_task
+        except asyncio.CancelledError:
+            pass
+        pending_cleanup_task = None
+    for task in list(media_group_flush_tasks.values()):
+        task.cancel()
+    media_group_flush_tasks.clear()
+    orphaned_records = [
+        attachment.to_record()
+        for batch in media_group_batches.values()
+        for attachment in list(batch.get("attachments") or [])
+        if hasattr(attachment, "to_record")
+    ]
+    media_group_batches.clear()
+    if orphaned_records:
+        attachment_store.delete_input_records(orphaned_records)
     if model_manager is not None:
         await model_manager.stop()
         model_manager = None
@@ -1157,6 +1443,7 @@ async def main() -> None:
     app.add_handler(CommandHandler("progress", cmd_progress))
     app.add_handler(CommandHandler("trace", cmd_trace))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
+    app.add_handler(CommandHandler("discard", cmd_discard))
     app.add_handler(CommandHandler("schedule", cmd_schedule))
     app.add_handler(CommandHandler("repeat", cmd_repeat))
     app.add_handler(CommandHandler("share", cmd_share))
