@@ -27,6 +27,7 @@ It is intentionally designed so the production server acts as an **agent executi
 - Persistent OpenCode conversations and task state.
 - Two-line free-points usage header above every final agent response, with persistent daily local accounting.
 - Durable task queue backed by local storage.
+- Persistent named scheduled jobs with create/edit/append/rename/reschedule/run/pause/resume/delete controls and restart-safe storage.
 - Multi-repository Git/GitHub development workflows.
 - Instruction-bound Telegram attachment tasks for images, video, audio and arbitrary documents, with persistent staging, album grouping, bounded storage and secure output delivery.
 - Single-message Telegram task lifecycle: one status message is created after the instruction, edited live during execution, then replaced in place by the final answer.
@@ -63,6 +64,26 @@ Telegram attachments are first-class queued tasks:
 The bridge never installs a parser or codec on demand. If an appropriate read-only server tool is unavailable, the agent must report that limitation rather than execute unknown content or fabricate an analysis. See the current [OpenCode attachment documentation](https://opencode.ai/v2/docs/attachments) for model-visible formats.
 
 The defaults are 20 MiB per incoming file, 10 attachments per task, 50 MiB aggregate size, and a 10-minute pending-instruction window. They are configurable with `TELEGRAM_ATTACHMENT_MAX_BYTES`, `TELEGRAM_ATTACHMENT_MAX_COUNT`, `TELEGRAM_ATTACHMENT_MAX_TOTAL_BYTES`, and `TELEGRAM_ATTACHMENT_PENDING_SECONDS`.
+
+## Persistent Scheduled Jobs
+
+Scheduled work is stored separately from individual executions, so definitions remain durable across bridge restarts and can be edited without losing their identity or history.
+
+Telegram commands use the schedule name as the user-facing identifier; internal numeric task IDs remain hidden:
+
+- `/schedule name | YYYY-MM-DD HH:MM | command` creates a one-time schedule.
+- `/repeat name | 1d | command` creates a recurring schedule.
+- `/schedules` or `/tasks` lists saved schedules with state and next execution time.
+- `/schedrename`, `/schededit`, `/schedtime` and `/schedinterval` modify the name, command, next run or recurrence.
+- `/schedappend name | text` appends additional command chunks, allowing prompts far larger than one Telegram message to be assembled safely in SQLite.
+- `/schedrun` runs a saved schedule immediately without deleting or consuming its persistent definition.
+- `/schedpause` and `/schedresume` disable or re-enable future executions.
+- `/scheddelete` permanently removes the saved schedule.
+- `/schedinterval name | once` converts a recurring schedule back to one-time behavior.
+
+Recurring executions never overlap for the same owner because they enter the existing serialized task queue. If a recurring schedule becomes due while its previous execution is still active, the bridge skips overlap and advances to the next interval.
+
+Schedule timestamps are currently entered and displayed in UTC.
 
 ## Safety & Execution Guardrails
 
