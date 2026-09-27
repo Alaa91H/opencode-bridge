@@ -172,7 +172,13 @@ class MediaTaskService:
 
         combined = [*pending, *records]
         self.attachment_store.validate_input_records(combined)
-        self.guard.ensure_allowed(prompt)
+        try:
+            self.guard.ensure_allowed(prompt)
+        except Exception:
+            # A policy-rejected instruction must not leave a fresh or staged
+            # attachment batch silently executable by a later unrelated text.
+            self.attachment_store.delete_input_records(combined)
+            raise
 
         try:
             task, position = await self.repository.enqueue(
@@ -206,7 +212,13 @@ class MediaTaskService:
         status_message_id: int | None = None,
     ) -> QueuedMediaTask:
         self.attachment_store.validate_input_records(list(records))
-        self.guard.ensure_allowed(prompt)
+        try:
+            self.guard.ensure_allowed(prompt)
+        except Exception:
+            # These records were explicitly waiting for the next instruction;
+            # keep them pending when that instruction is rejected before queueing.
+            await self.restore_pending(owner_id, chat_id, records)
+            raise
         try:
             task, position = await self.repository.enqueue(
                 owner_id,
