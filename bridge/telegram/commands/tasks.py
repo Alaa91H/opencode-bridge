@@ -155,7 +155,7 @@ class TaskCommands:
             if progress and progress.owner_id == user_id:
                 await self.reply(update.message, render_progress(progress, detail=True))
                 return
-            task = await self.task_service.repository.latest_active_for_owner(user_id)
+            task = await self.task_service.latest_active(user_id)
             if task is None:
                 await self.reply(update.message, "لا يوجد طلب حالي لعرض تقدمه.")
                 return
@@ -174,7 +174,7 @@ class TaskCommands:
             if progress and progress.owner_id == user_id:
                 await self.reply(update.message, render_progress(progress, detail=True))
                 return
-            task = await self.task_service.repository.latest_active_for_owner(user_id)
+            task = await self.task_service.latest_active(user_id)
             if task is None:
                 await self.reply(update.message, "لا يوجد سجل طلب حالي.")
                 return
