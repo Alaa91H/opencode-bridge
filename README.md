@@ -60,6 +60,9 @@ Telegram attachments are first-class queued tasks:
 - Original incoming files are deleted after a non-recurring task reaches its terminal execution path; daily maintenance remains a fallback for interrupted-process cleanup.
 
 The bridge never installs a parser or codec on demand. If an appropriate read-only server tool is unavailable, the agent must report that limitation rather than execute unknown content or fabricate an analysis. See the current [OpenCode attachment documentation](https://opencode.ai/v2/docs/attachments) for model-visible formats.
+
+The defaults are 20 MiB per incoming file, 10 attachments per task, 50 MiB aggregate size, and a 10-minute pending-instruction window. They are configurable with `TELEGRAM_ATTACHMENT_MAX_BYTES`, `TELEGRAM_ATTACHMENT_MAX_COUNT`, `TELEGRAM_ATTACHMENT_MAX_TOTAL_BYTES`, and `TELEGRAM_ATTACHMENT_PENDING_SECONDS`.
+
 ## Safety & Execution Guardrails
 
 The checked-in OpenCode policy blocks high-risk or inappropriate server-side operations, including:
@@ -73,22 +76,6 @@ The checked-in OpenCode policy blocks high-risk or inappropriate server-side ope
 - access to common secret-bearing files such as `.env`, private keys and PEM files.
 
 OpenCode is configured to bind to **localhost** and authentication secrets are expected to remain in a local `.env` file rather than the repository.
-
-## Attachment Task Workflow
-
-Telegram attachments are first-class queued tasks rather than an isolated upload feature:
-
-- A photo, video, audio item or document sent with a caption is queued immediately with that caption as the user's execution instruction.
-- Attachments sent without a caption are persisted in SQLite for a bounded window and are automatically bound to the user's next text instruction. The pending batch survives bridge restarts.
-- Telegram media groups are debounced and collected into one task, so an album is processed as one coherent request instead of many unrelated jobs.
-- Additional files can be staged before the instruction, and `/discard` securely removes a pending batch before execution.
-- Each received file is stored only below the managed attachment root, recorded with a SHA-256 digest, checked again before execution, and constrained by per-file, per-task-count and aggregate-size limits.
-- Attachment contents are explicitly treated as untrusted data. Embedded instructions do not override the user's Telegram instruction, and incoming binaries/scripts/macros are never executed by the bridge.
-- Text and directly model-visible image formats are sent to OpenCode as file message parts. PDF, audio, video and other binary formats are instead routed through validated local paths and preinstalled server tools such as `ffprobe`/`ffmpeg`, `pdftotext`/`pdftoppm`, `file` and `strings` when available.
-- Derived inspection artifacts use an isolated per-task scratch directory that is removed when the task finishes.
-- Agent-created deliverables are returned only from the managed per-task output directory; arbitrary server files are never exposed as task output.
-
-The defaults are 20 MiB per incoming file, 10 attachments per task, 50 MiB aggregate size, and a 10-minute pending-instruction window. They are configurable with `TELEGRAM_ATTACHMENT_MAX_BYTES`, `TELEGRAM_ATTACHMENT_MAX_COUNT`, `TELEGRAM_ATTACHMENT_MAX_TOTAL_BYTES`, and `TELEGRAM_ATTACHMENT_PENDING_SECONDS`. No new package is installed during processing: if a required parser is unavailable, the agent must report the limitation instead of guessing or installing dependencies.
 
 ## Adaptive Resource Control
 
