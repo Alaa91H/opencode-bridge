@@ -734,21 +734,31 @@ async def cmd_abort(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     tasks = await task_store.list_active(user_id)
-    if not tasks:
-        await _safe_reply(update.message, "لا توجد طلبات جارية أو مجدولة.")
+    jobs = await task_store.list_scheduled_jobs(user_id)
+
+    lines: list[str] = []
+    visible_tasks = [task for task in tasks if task.status in {"running", "queued"}]
+    if visible_tasks:
+        lines.append("الطلبات الحالية:")
+        for task in visible_tasks[:10]:
+            state = "قيد التنفيذ" if task.status == "running" else "بانتظار التنفيذ"
+            preview = " ".join(task.prompt.split())[:100]
+            lines.append(f"• {state} — {preview}")
+
+    if jobs:
+        if lines:
+            lines.append("")
+        lines.append("المهام المجدولة:")
+        for job in jobs:
+            candidate = "\n".join([*lines, _scheduled_job_line(job)])
+            if len(candidate) > MAX_MESSAGE_LENGTH - 120:
+                lines.append("… توجد مهام مجدولة إضافية.")
+                break
+            lines.append(_scheduled_job_line(job))
+
+    if not lines:
+        await _safe_reply(update.message, "لا توجد طلبات حالية أو مهام مجدولة.")
         return
-    lines = ["الطلبات الحالية:"]
-    for task in tasks:
-        timing = ""
-        if task.status == "scheduled" and task.due_at:
-            timing = f" — {task.due_at.strftime('%Y-%m-%d %H:%M UTC')}"
-        elif task.status == "running":
-            timing = " — قيد التنفيذ"
-        elif task.status == "queued":
-            timing = " — بانتظار التنفيذ"
-        repeat = " — متكررة" if task.is_recurring else ""
-        preview = task.prompt.replace("\n", " ")[:90]
-        lines.append(f"• {preview}{timing}{repeat}")
     await _safe_reply(update.message, "\n".join(lines))
 
 
@@ -1754,8 +1764,19 @@ async def post_init(app: Application) -> None:
         BotCommand("trace", "عرض سجل الطلب الحالي"),
         BotCommand("cancel", "إلغاء الطلب الحالي"),
         BotCommand("discard", "حذف المرفقات المعلّقة"),
-        BotCommand("schedule", "جدولة مهمة لوقت UTC"),
-        BotCommand("repeat", "جدولة مهمة متكررة"),
+        BotCommand("schedule", "إنشاء مهمة مجدولة باسم"),
+        BotCommand("repeat", "إنشاء مهمة متكررة باسم"),
+        BotCommand("schedules", "عرض المهام المجدولة"),
+        BotCommand("schedshow", "عرض تفاصيل مهمة مجدولة"),
+        BotCommand("schedrename", "تغيير اسم مهمة مجدولة"),
+        BotCommand("schededit", "استبدال أمر مهمة مجدولة"),
+        BotCommand("schedappend", "إلحاق نص بأمر مجدول"),
+        BotCommand("schedtime", "تغيير وقت التشغيل التالي"),
+        BotCommand("schedinterval", "تغيير فترة التكرار"),
+        BotCommand("schedrun", "تشغيل مهمة مجدولة الآن"),
+        BotCommand("schedpause", "إيقاف مهمة مجدولة"),
+        BotCommand("schedresume", "تشغيل مهمة مجدولة"),
+        BotCommand("scheddelete", "حذف مهمة مجدولة"),
         BotCommand("model", "عرض النموذج التلقائي وترتيبه"),
         BotCommand("status", "عرض حالة الجلسة"),
         BotCommand("health", "فحص اتصال الوكيل"),
@@ -1855,6 +1876,17 @@ async def main() -> None:
     app.add_handler(CommandHandler("discard", cmd_discard))
     app.add_handler(CommandHandler("schedule", cmd_schedule))
     app.add_handler(CommandHandler("repeat", cmd_repeat))
+    app.add_handler(CommandHandler("schedules", cmd_schedules))
+    app.add_handler(CommandHandler("schedshow", cmd_schedshow))
+    app.add_handler(CommandHandler("schedrename", cmd_schedrename))
+    app.add_handler(CommandHandler("schededit", cmd_schededit))
+    app.add_handler(CommandHandler("schedappend", cmd_schedappend))
+    app.add_handler(CommandHandler("schedtime", cmd_schedtime))
+    app.add_handler(CommandHandler("schedinterval", cmd_schedinterval))
+    app.add_handler(CommandHandler("schedrun", cmd_schedrun))
+    app.add_handler(CommandHandler("schedpause", cmd_schedpause))
+    app.add_handler(CommandHandler("schedresume", cmd_schedresume))
+    app.add_handler(CommandHandler("scheddelete", cmd_scheddelete))
     app.add_handler(CommandHandler("share", cmd_share))
     app.add_handler(CommandHandler("unshare", cmd_unshare))
     app.add_handler(CommandHandler("model", cmd_model))
