@@ -29,7 +29,7 @@ sys.path.insert(0, str(BRIDGE_DIR))
 from attachments import AttachmentError, AttachmentStore, attachment_prompt_note
 from audit_log import AuditLogger
 from block_patterns import check_build, check_hardline
-from formatter import MAX_MESSAGE_LENGTH, chunk_message, format_and_chunk
+from formatter import MAX_MESSAGE_LENGTH
 from free_points import FreePointsTracker, format_free_points_header
 from model_catalog import ranked_zen_general_model_ids
 from model_manager import ModelManager
@@ -242,6 +242,35 @@ async def _safe_reply(message, text: str) -> None:
                 await asyncio.sleep(2**attempt)
 
 
+async def _create_task_status_message(bot, chat_id: int, text: str = "جاري تجهيز الطلب…") -> int | None:
+    """Create the single user-facing message that will be edited until completion."""
+    try:
+        message = await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            disable_web_page_preview=True,
+        )
+        return int(message.message_id)
+    except Exception as exc:
+        log.warning("تعذر إنشاء رسالة حالة الطلب: %s", type(exc).__name__)
+        return None
+
+
+async def _edit_task_status_message(bot, chat_id: int, message_id: int | None, text: str) -> None:
+    if message_id is None:
+        return
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=text,
+            reply_markup=None,
+            disable_web_page_preview=True,
+        )
+    except Exception as exc:
+        log.debug("تعذر تحديث رسالة حالة الطلب: %s", type(exc).__name__)
+
+
 def authorized(handler: F) -> F:
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update):
@@ -298,7 +327,7 @@ async def _send_task_output_files(task: QueuedTask, bot) -> int:
                 chat_id=task.chat_id,
                 document=handle,
                 filename=path.name,
-                caption=f"ملف ناتج عن المهمة #{task.id}" if sent == 0 else None,
+                caption="ملف ناتج عن الطلب" if sent == 0 else None,
             )
         sent += 1
     return sent
@@ -314,11 +343,15 @@ def _response_usage_points(response: dict | None) -> int:
         return 0
 
 
-def _task_reply_chunks(text: str, command_points: int) -> list[str]:
-    """Prefix every final Telegram result chunk with exactly two usage lines."""
+def _task_reply_text(text: str, command_points: int) -> str:
+    """Build one final Telegram message and stay within Telegram's hard text limit."""
     header = format_free_points_header(free_points_tracker.snapshot(), command_points)
     body_limit = max(512, MAX_MESSAGE_LENGTH - len(header) - 2)
-    return [f"{header}\n\n{chunk}" for chunk in chunk_message(text, max_len=body_limit)]
+    body = text.strip() or empty_response_message()
+    if len(body) > body_limit:
+        suffix = "\n\n… تم اختصار الرد بسبب حد طول رسالة Telegram."
+        body = body[: max(1, body_limit - len(suffix))].rstrip() + suffix
+    return f"{header}\n\n{body}"
 
 
 def _variant_for_model(model_id: str | None) -> str | None:
