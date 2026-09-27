@@ -42,6 +42,7 @@ from bridge.services.schedule_service import ScheduleService
 from bridge.services.task_service import TaskApplicationService
 from bridge.telegram.attachments import TelegramMediaAdapter
 from bridge.telegram.callbacks.reboot import RebootCallbackAdapter
+from bridge.telegram.commands.agent import AgentCommands
 from bridge.telegram.commands.schedules import ScheduleCommands
 from bridge.telegram.commands.tasks import TaskCommands
 from bridge.telegram.rendering.schedules import scheduled_job_line
