@@ -1044,6 +1044,15 @@ class TaskQueueStore:
                     """,
                     ("completed" if success else "failed", now, now, error, task_id),
                 )
+            if task.schedule_job_id is not None:
+                await db.execute(
+                    """
+                    UPDATE scheduled_jobs
+                    SET last_run_at = ?, last_error = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, None if success else error, now, task.schedule_job_id),
+                )
             await db.commit()
         return await self.get(task_id)
 
