@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from audit_log import AuditLogger
+from bridge.config import get_settings
 from opencode_client import OpenCodeClient
 from resource_monitor import HostResourcePolicy, ResourceSnapshot
 from watchdog_policy import (
@@ -35,21 +36,10 @@ DEPLOYED_REF_PATH = RUNTIME_DIR / "deployed-ref"
 UTC = timezone.utc
 
 
-def _load_env(path: Path) -> None:
-    if not path.exists():
-        return
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
-
-
-_load_env(BRIDGE_DIR / ".env")
-STALE_TASK_SECONDS = max(300, int(os.environ.get("WATCHDOG_STALE_TASK_SECONDS", "7200")))
-RESTART_COOLDOWN_SECONDS = max(60, int(os.environ.get("WATCHDOG_RESTART_COOLDOWN_SECONDS", "300")))
-MAX_RESTARTS_PER_HOUR = max(1, min(int(os.environ.get("WATCHDOG_MAX_RESTARTS_PER_HOUR", "3")), 10))
+SETTINGS = get_settings()
+STALE_TASK_SECONDS = SETTINGS.watchdog.stale_task_seconds
+RESTART_COOLDOWN_SECONDS = SETTINGS.watchdog.restart_cooldown_seconds
+MAX_RESTARTS_PER_HOUR = SETTINGS.watchdog.max_restarts_per_hour
 
 
 def _run(*args: str, timeout: float = 8.0) -> subprocess.CompletedProcess[str]:
@@ -81,9 +71,9 @@ def _restart_service(service: str) -> bool:
 
 async def _opencode_health_async() -> bool:
     client = OpenCodeClient(
-        host=os.environ.get("OPENCODE_HOST", "127.0.0.1"),
-        port=int(os.environ.get("OPENCODE_PORT", "4096")),
-        password=os.environ.get("OPENCODE_PASSWORD") or os.environ.get("OPENCODE_SERVER_PASSWORD"),
+        host=SETTINGS.opencode.host,
+        port=SETTINGS.opencode.port,
+        password=SETTINGS.effective_opencode_password,
         timeout=10.0,
     )
     try:
