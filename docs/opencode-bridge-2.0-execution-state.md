@@ -4,11 +4,12 @@
 
 ## المرحلة الحالية
 
-- المرحلة المغلقة: **T00 — تثبيت Baseline للإصدار 2.0**
+- المرحلة المغلقة الأخيرة: **T01 — تحديث Runtime والاعتماديات**
 - حالة T00: **مكتملة**
-- المرحلة التالية: **T01 — تحديث Runtime والاعتماديات**
-- حالة T01: **لم تبدأ بعد عند إنشاء هذا السجل**
-- قاعدة الانتقال: لا يجوز بدء T02 قبل إغلاق T01 بالكامل بنفس الصرامة.
+- حالة T01: **مكتملة**
+- المرحلة التالية: **T02 — تفكيك bot.py وإعادة بناء Architecture**
+- حالة T02: **لم تبدأ بعد عند إنشاء هذا السجل**
+- قاعدة الانتقال: لا يجوز بدء T03 قبل إغلاق T02 بالكامل بنفس الصرامة.
 
 ## تقدم T00
 
@@ -86,3 +87,69 @@
 5. Dependabot أو Renovate.
 6. upgrade tests وإزالة deprecation warnings الحرجة.
 7. عدم بدء T02 حتى نجاح كامل Acceptance T01.
+
+
+## تقدم T01
+
+- [x] CI matrix: Python 3.12/3.13/3.14.
+- [x] ترقية `python-telegram-bot` إلى stable 22.8.
+- [x] إبقاء `httpx` على stable 0.28.1 وعدم اعتماد 1.0 prerelease.
+- [x] ترقية `aiosqlite` إلى stable 0.22.1.
+- [x] إضافة `requirements.in` و`constraints.txt`.
+- [x] إضافة full stable runtime lock في `requirements.lock`.
+- [x] إضافة Dependabot لـpip/npm/GitHub Actions.
+- [x] إضافة upgrade/runtime dependency tests.
+- [x] تشغيل `pip check` على كل Python matrix.
+- [x] جعل `DeprecationWarning` خطأ في unit tests.
+- [x] توثيق قرارات runtime/dependencies.
+- [x] نجاح كامل CI على commit التوثيق النهائي.
+
+## أدلة T01
+
+### Runtime / dependencies
+- `python-telegram-bot==22.8`
+- `httpx==0.28.1`
+- `aiosqlite==0.22.1`
+- `requirements.in`: compatibility intent.
+- `requirements.txt`: direct exact runtime pins.
+- `constraints.txt`: stable-line guardrails.
+- `requirements.lock`: full pinned runtime closure لـPython 3.12–3.14.
+
+### CI / policy
+- Python matrix: 3.12, 3.13, 3.14.
+- `PYTHONWARNINGS=error::DeprecationWarning`.
+- `python -m pip check`.
+- `.github/dependabot.yml` يغطي pip/npm/github-actions.
+- `tests/test_dependency_policy.py` يثبت pins/lock/matrix/Dependabot والنسخ المثبتة فعليًا.
+
+### Documentation
+- `docs/t01-runtime-dependencies-ar.md`
+
+### Commit / CI
+- commit التوثيق النهائي لـT01: `8d98b7e3bb8db8f28da4e7585a536eeb7a24c521`
+- GitHub Actions: https://github.com/Alaa91H/opencode-bridge/actions/runs/36354198319
+- النتيجة: **success** على Python 3.12/3.13/3.14.
+- كل job نجح في: locked install, pip check, syntax, unit tests, baseline inventory, micro-benchmark, shell validation, OpenCode configs, version validation.
+
+### ملاحظة supply-chain
+- T01 يقفل الإصدارات ويمنع prerelease.
+- hash locking/SBOM/attestation ليست ناقصة من T01؛ هي ضمن **T38** المخصصة لسلسلة التوريد، ولذلك لم يتم تقديمها خارج ترتيب الخطة.
+
+## سجل التنفيذ — T01
+
+### 2026-09-27
+1. تم التحقق من الإصدارات المستقرة من المصادر الرسمية.
+2. تمت ترقية PTB 21.6 → 22.8 وaiosqlite 0.20.0 → 0.22.1.
+3. تم إبقاء HTTPX 0.28.1 لأن خط 1.0 الحالي prerelease.
+4. تمت إضافة stable compatibility ranges.
+5. تمت إضافة full runtime version lock.
+6. تمت إضافة Python 3.12/3.13/3.14 matrix.
+7. تمت إضافة warnings-as-errors وpip check.
+8. تمت إضافة Dependabot.
+9. تمت إضافة اختبارات dependency policy والنسخ المثبتة فعليًا.
+10. نجح CI النهائي على المصفوفة الثلاثية.
+11. **T01 مغلقة.**
+
+## الخطوة التالية المسموحة فقط
+
+بدء **T02 — تفكيك bot.py وإعادة بناء Architecture** بقراءة ملف الخطة كاملًا أولًا ثم ملف الحالة هذا. يجب الحفاظ على production compatibility أثناء النقل، ولا يجوز حذف المسارات القديمة قبل تغطية behavior بعقود واختبارات. لا يبدأ T03 قبل إغلاق T02 بالكامل.
