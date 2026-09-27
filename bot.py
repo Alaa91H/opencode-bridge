@@ -167,6 +167,8 @@ model_manager: ModelManager | None = None
 pending_cleanup_task: asyncio.Task[None] | None = None
 _media_adapter_instance: TelegramMediaAdapter | None = None
 _task_commands_instance: TaskCommands | None = None
+_schedule_commands_instance: ScheduleCommands | None = None
+_agent_commands_instance: AgentCommands | None = None
 _reboot_callback_instance: RebootCallbackAdapter | None = None
 _request_guard = RequestGuard((check_build, check_hardline))
 _agent_service = AgentService(
@@ -193,6 +195,7 @@ _media_service = MediaTaskService(
     max_count=ATTACHMENT_MAX_COUNT,
     max_total_bytes=ATTACHMENT_MAX_TOTAL_BYTES,
 )
+_schedule_service = ScheduleService(task_store, _request_guard)
 UTC = timezone.utc
 
 F = TypeVar("F", bound=Callable[..., Awaitable[None]])
