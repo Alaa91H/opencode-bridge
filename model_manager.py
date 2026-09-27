@@ -13,7 +13,12 @@ from pathlib import Path
 from typing import Any
 
 from agent_scout import parse_research_model, primary_agent_ids, research_prompt, select_primary_agent
-from model_catalog import best_zen_general_model_id, ranked_zen_general_model_ids, strongest_model_variant
+from model_catalog import (
+    best_zen_general_model_id,
+    ranked_zen_general_model_ids,
+    ranked_zen_model_ids_for_inputs,
+    strongest_model_variant,
+)
 from opencode_client import extract_text_response
 
 log = logging.getLogger("opencode_bridge.model_manager")
@@ -135,6 +140,23 @@ class ModelManager:
         if preferred and preferred in ranked and preferred not in excluded:
             return preferred
         return best_zen_general_model_id(providers, excluded_ids=excluded)
+
+    async def best_available_for_inputs(
+        self,
+        required_inputs: set[str],
+        excluded_ids: set[str] | None = None,
+    ) -> str | None:
+        """Choose a task-local free Zen model for explicit media capabilities."""
+        providers = await self.client.list_providers()
+        self._providers_cache = providers
+        excluded = excluded_ids or set()
+        ranked = ranked_zen_model_ids_for_inputs(providers, required_inputs)
+        if self.pin_default_model and self.configured_model in ranked and self.configured_model not in excluded:
+            return self.configured_model
+        preferred = self._preferred_model
+        if preferred and preferred in ranked and preferred not in excluded:
+            return preferred
+        return next((model_id for model_id in ranked if model_id not in excluded), None)
 
     async def ensure_session_model(
         self,
