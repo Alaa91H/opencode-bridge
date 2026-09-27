@@ -6,6 +6,11 @@
 - Visual media routing can override a text-only pinned/general model for the current task without changing the configured default for later tasks.
 - Added live-catalog helpers that require explicit input capabilities and preserve the existing zero-cost Zen allow-list.
 
+### Telegram Status UI
+
+- Preserved the current unified one-message progress flow from `main`, including reuse of the same Telegram message for live status and the final result.
+- Compact live and persisted progress views intentionally omit internal task identifiers.
+
 ### Documentation & Verification
 
 - Clarified current OpenCode attachment behavior: text and supported raster images can be model-visible directly, while PDF/audio/video and other binaries require validated server-side inspection/conversion.
