@@ -92,6 +92,30 @@ class PendingAttachmentStoreTests(unittest.IsolatedAsyncioTestCase):
                 max_total_bytes=1024,
             )
 
+    async def test_failed_merge_keeps_existing_pending_batch(self) -> None:
+        await self.store.stage_pending_attachments(
+            "owner",
+            15,
+            [record("/managed/original.bin", size=4)],
+            ttl_seconds=600,
+            max_count=2,
+            max_total_bytes=10,
+        )
+        with self.assertRaises(ValueError):
+            await self.store.stage_pending_attachments(
+                "owner",
+                15,
+                [record("/managed/too-large.bin", size=8)],
+                ttl_seconds=600,
+                max_count=2,
+                max_total_bytes=10,
+            )
+
+        attachments, is_expired = await self.store.pop_pending_attachments("owner", 15)
+        self.assertFalse(is_expired)
+        self.assertEqual(len(attachments), 1)
+        self.assertEqual(attachments[0]["filename"], "original.bin")
+
     async def test_expired_batches_are_purged_and_records_returned_for_file_cleanup(self) -> None:
         await self.store.stage_pending_attachments(
             "owner",
