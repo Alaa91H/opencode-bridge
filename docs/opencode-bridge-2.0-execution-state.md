@@ -4,12 +4,12 @@
 
 ## المرحلة الحالية
 
-- المرحلة المغلقة الأخيرة: **T01 — تحديث Runtime والاعتماديات**
+- المرحلة المغلقة الأخيرة: **T02 — تفكيك bot.py وإعادة بناء Architecture**
 - حالة T00: **مكتملة**
 - حالة T01: **مكتملة**
-- المرحلة التالية: **T02 — تفكيك bot.py وإعادة بناء Architecture**
-- حالة T02: **لم تبدأ بعد عند إنشاء هذا السجل**
-- قاعدة الانتقال: لا يجوز بدء T03 قبل إغلاق T02 بالكامل بنفس الصرامة.
+- حالة T02: **مكتملة**
+- المرحلة التالية المسموحة فقط: **T03 — نظام Configuration مركزي**
+- قاعدة الانتقال: لا يجوز بدء T04 قبل إغلاق T03 بالكامل بنفس الصرامة.
 
 ## تقدم T00
 
@@ -153,3 +153,90 @@
 ## الخطوة التالية المسموحة فقط
 
 بدء **T02 — تفكيك bot.py وإعادة بناء Architecture** بقراءة ملف الخطة كاملًا أولًا ثم ملف الحالة هذا. يجب الحفاظ على production compatibility أثناء النقل، ولا يجوز حذف المسارات القديمة قبل تغطية behavior بعقود واختبارات. لا يبدأ T03 قبل إغلاق T02 بالكامل.
+
+## تقدم T02
+
+- [x] Telegram handlers لا تحتوي business logic؛ كل compatibility handlers أصبحت delegates رفيعة ومفروضة باختبار AST.
+- [x] SQL لا يظهر في Telegram command adapters.
+- [x] OpenCode layer لا تعتمد على Telegram.
+- [x] scheduler مستقل عن bot عبر `ScheduleService`.
+- [x] attachment pipeline مستقلة وقابلة للاختبار عبر `MediaTaskService`.
+- [x] compatibility layer مؤقتة تمنع كسر الإنتاج أثناء النقل.
+- [x] تغطية اختبارات قبل حذف أي مسار legacy.
+- [x] إنشاء كامل حدود الهيكل المستهدف: telegram/domain/services/infrastructure/workers/config.
+- [x] نقل دورة تنفيذ queue من `bot.py` إلى `TaskExecutionService`.
+- [x] نقل OpenCode variant/file/model fallback إلى `AgentService`.
+- [x] نقل workspace/V3 وCI/resource/maintenance business rules خلف services/adapters مستقلة.
+- [x] توثيق Architecture T02.
+- [x] نجاح كامل CI على Python 3.12/3.13/3.14.
+
+## أدلة T02
+
+### Architecture
+- `docs/t02-architecture-ar.md`
+- `bridge/telegram/app.py`
+- `bridge/telegram/middleware.py`
+- `bridge/telegram/execution.py`
+- `bridge/telegram/commands/*`
+- `bridge/services/task_execution_service.py`
+- `bridge/services/task_service.py`
+- `bridge/services/schedule_service.py`
+- `bridge/services/media_service.py`
+- `bridge/services/agent_service.py`
+- `bridge/services/workspace_service.py`
+- `bridge/services/ci_service.py`
+- `bridge/services/resource_service.py`
+- `bridge/services/maintenance_service.py`
+- `bridge/services/notification_service.py`
+
+### Compatibility
+- `bot.py` بقي production compatibility surface مع thin handlers وthin task-execution wrapper.
+- `run_v3.py` production entrypoint لم يتغير.
+- `v3_plugin.py`, `ci_plugin.py`, `resource_commands.py` بقيت install/compatibility layers فقط.
+- حذف legacy/V3 duplication الكامل لم يتم تقديمه خارج ترتيبه؛ يبقى ضمن T46.
+
+### Tests
+- `tests/test_v2_architecture_boundaries.py`
+- `tests/test_v2_task_architecture.py`
+- `tests/test_v2_media_architecture.py`
+- `tests/test_v2_task_execution_service.py`
+- `tests/test_v2_workspace_service.py`
+- `tests/test_v2_agent_service.py`
+- `tests/test_bot_import.py`
+- `tests/test_v2_baseline_contract.py`
+
+### CI
+- commit آخر تنفيذ/اختبارات T02 قبل تحديث سجل الحالة: `d770c8028e130b34815d5a6bbc5517d01d332140`
+- GitHub Actions: https://github.com/Alaa91H/opencode-bridge/actions/runs/36358325811
+- النتيجة: **success**
+- نجح CI على Python 3.12 و3.13 و3.14، بما في ذلك locked dependency install، `pip check`، syntax، unit tests، baseline inventory/benchmark، shell validation، OpenCode config validation، version validation.
+
+## سجل التنفيذ — T02
+
+### 2026-09-27 / 2026-09-28
+1. تم إنشاء `bridge/telegram`, `bridge/domain`, `bridge/services` ثم استكمال boundaries الخاصة بـinfrastructure/workers/config.
+2. تم نقل schedule rules من Telegram handlers إلى `ScheduleService`.
+3. تم نقل task enqueue/cancel/progress routing إلى `TaskApplicationService`.
+4. تم نقل pending attachments/media-group orchestration خلف `MediaTaskService` و`TelegramMediaAdapter`.
+5. تم نقل Agent/session/model logic إلى `AgentService`.
+6. تم نقل workspace business rules من `v3_plugin.py` إلى `WorkspaceService`.
+7. تم تحويل CI/resource/system plugins إلى thin Telegram adapters.
+8. تم استخراج Telegram access middleware وapplication registration.
+9. تم نقل دورة تنفيذ المهمة كاملة إلى `TaskExecutionService` مع `TelegramExecutionDelivery`.
+10. تم نقل variant/file/model fallback إلى `AgentService` مع اختبارات مباشرة.
+11. تم فرض اختبارات تمنع SQL أو Telegram imports عبر الحدود غير المسموحة وتمنع handlers غير الرفيعة.
+12. تم الحفاظ على compatibility وعدم حذف production paths القديمة.
+13. نجح كامل CI على commit `d770c8028e130b34815d5a6bbc5517d01d332140`.
+14. **T02 مغلقة.**
+
+## الخطوة التالية المسموحة فقط
+
+بدء **T03 — نظام Configuration مركزي** فقط:
+1. إنشاء `BridgeSettings` typed ومتحقق منه عند التشغيل.
+2. دعم env + config file + defaults + per-user policy + per-task override + feature flags.
+3. إزالة قراءات `os.environ` المتفرقة ضمن نطاق T03.
+4. إضافة `/config` لعرض الإعدادات غير السرية.
+5. إضافة `/limits` لعرض الحدود الفعلية.
+6. إضافة validation tests للأخطاء والتعارضات.
+7. عدم بدء T04 قبل إغلاق T03 بالكامل ونجاح CI.
+
