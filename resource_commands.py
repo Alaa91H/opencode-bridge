@@ -1,4 +1,4 @@
-"""Telegram diagnostics for host pressure and adaptive worker sizing."""
+"""Resource diagnostics compatibility plugin for the Telegram runtime."""
 
 from __future__ import annotations
 
@@ -8,11 +8,13 @@ from telegram import BotCommand, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 import bot as core
-from adaptive_workers import WorkerLimitStatus
-from resource_monitor import HostResourcePolicy, format_decision
-from shadow_policy_audit import ShadowReadiness, format_readiness
+from bridge.services.resource_service import ResourceStatusService
+from bridge.telegram.commands.resources import ResourceCommands
+from bridge.telegram.rendering.resources import format_controller as _format_controller
+from resource_monitor import HostResourcePolicy
 
 _policy = HostResourcePolicy(cache_seconds=3.0)
+_commands_instance: ResourceCommands | None = None
 
 
 def _configured_workers() -> int:
@@ -23,7 +25,7 @@ def _configured_workers() -> int:
     return max(1, min(value, 8))
 
 
-def _controller_status() -> WorkerLimitStatus | None:
+def _controller_status():
     service = getattr(core, "task_service", None)
     limiter = getattr(service, "worker_limit", None)
     status = getattr(limiter, "status", None)
@@ -35,7 +37,7 @@ def _controller_status() -> WorkerLimitStatus | None:
         return None
 
 
-def _shadow_readiness() -> ShadowReadiness | None:
+def _shadow_readiness():
     service = getattr(core, "task_service", None)
     policy = getattr(service, "resource_policy", None)
     readiness = getattr(policy, "readiness", None)
@@ -47,41 +49,30 @@ def _shadow_readiness() -> ShadowReadiness | None:
         return None
 
 
-def _format_controller(status: WorkerLimitStatus) -> str:
-    recovery = (
-        "ready"
-        if status.recovery_remaining_seconds <= 0
-        else f"{status.recovery_remaining_seconds:.1f}s remaining"
-    )
-    return (
-        "\n\nAdaptive controller\n"
-        f"Stable workers: {status.stable_workers}/{status.configured_workers}\n"
-        f"Raw target: {status.raw_target_workers}\n"
-        f"Controller pressure: {status.pressure}\n"
-        f"Controller health: {status.health_score}/100\n"
-        f"Recovery: {recovery}\n"
-        f"Last policy reason: {status.reason}"
-    )
+service = ResourceStatusService(
+    _policy,
+    configured_workers=_configured_workers,
+    controller_status=_controller_status,
+    shadow_readiness=_shadow_readiness,
+)
+
+
+def _commands() -> ResourceCommands:
+    global _commands_instance
+    if _commands_instance is None:
+        _commands_instance = ResourceCommands(service, reply=core._safe_reply)
+    return _commands_instance
 
 
 @core.authorized
 async def cmd_resources(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
-        return
-    configured = _configured_workers()
-    decision = _policy.decide(configured)
-    text = "Host resources\n\n" + format_decision(decision)
-    status = _controller_status()
-    if status is not None:
-        text += _format_controller(status)
-    readiness = _shadow_readiness()
-    if readiness is not None:
-        text += "\n\n" + format_readiness(readiness)
-    await core._safe_reply(update.message, text)
+    await _commands().resources(update, context)
 
 
 async def install(app: Application) -> None:
     app.add_handler(CommandHandler("resources", cmd_resources), group=-2)
     existing = await app.bot.get_my_commands()
     if not any(command.command == "resources" for command in existing):
-        await app.bot.set_my_commands([BotCommand("resources", "Show host resource pressure")] + list(existing))
+        await app.bot.set_my_commands(
+            [BotCommand("resources", "Show host resource pressure")] + list(existing)
+        )
