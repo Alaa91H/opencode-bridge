@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import Awaitable, Callable, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from telegram import BotCommand, Update
-from telegram.constants import ChatAction, ChatType
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram import Update
+from telegram.constants import ChatAction
+from telegram.ext import Application, ContextTypes
 from telegram.request import HTTPXRequest
 
 BRIDGE_DIR = Path(__file__).parent
@@ -40,11 +40,13 @@ from bridge.services.agent_service import AgentService
 from bridge.services.media_service import MediaTaskService
 from bridge.services.schedule_service import ScheduleService
 from bridge.services.task_service import TaskApplicationService
+from bridge.telegram.app import build_application, core_commands, register_core_handlers
 from bridge.telegram.attachments import TelegramMediaAdapter
 from bridge.telegram.callbacks.reboot import RebootCallbackAdapter
 from bridge.telegram.commands.agent import AgentCommands
 from bridge.telegram.commands.schedules import ScheduleCommands
 from bridge.telegram.commands.tasks import TaskCommands
+from bridge.telegram.middleware import TelegramAccessController
 from bridge.telegram.rendering.schedules import scheduled_job_line
 from formatter import MAX_MESSAGE_LENGTH
 from free_points import FreePointsTracker, format_free_points_header
@@ -170,6 +172,7 @@ _task_commands_instance: TaskCommands | None = None
 _schedule_commands_instance: ScheduleCommands | None = None
 _agent_commands_instance: AgentCommands | None = None
 _reboot_callback_instance: RebootCallbackAdapter | None = None
+_access_controller_instance: TelegramAccessController | None = None
 _request_guard = RequestGuard((check_build, check_hardline))
 _agent_service = AgentService(
     client,
@@ -224,16 +227,23 @@ RESEARCH_COMMAND_LABELS: dict[ResearchMode, str] = {
 }
 
 
+def _access_controller() -> TelegramAccessController:
+    global _access_controller_instance
+    if _access_controller_instance is None:
+        _access_controller_instance = TelegramAccessController(
+            ALLOWED_USERS,
+            ALLOWED_CHAT_IDS,
+            reply=_safe_reply,
+            unauthorized_text=unauthorized_message,
+            audit_write=audit.write,
+            logger=log,
+        )
+    return _access_controller_instance
+
+
 def _is_allowed(update: Update) -> bool:
-    user = update.effective_user
-    chat = update.effective_chat
-    if user is None or user.is_bot or user.id not in ALLOWED_USERS:
-        return False
-    if chat is None:
-        return False
-    # Private chats are safe by default. Groups require an explicit chat-ID
-    # allowlist to prevent an administrator from accidentally exposing control.
-    return chat.type == ChatType.PRIVATE or chat.id in ALLOWED_CHAT_IDS
+    """Compatibility wrapper for Telegram middleware."""
+    return _access_controller().is_allowed(update)
 
 
 def _reboot_callback_adapter() -> RebootCallbackAdapter:
@@ -390,19 +400,8 @@ async def _edit_task_status_message(bot, chat_id: int, message_id: int | None, t
 
 
 def authorized(handler: F) -> F:
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not _is_allowed(update):
-            if update.message:
-                user_id = update.effective_user.id if update.effective_user else "مجهول"
-                log.warning("محاولة وصول غير مصرح بها من المستخدم %s", user_id)
-                audit.write("access_attempt", "denied", actor_id=user_id, details={"handler": handler.__name__})
-                await _safe_reply(update.message, unauthorized_message())
-            return
-        log.info("المستخدم %s طلب %s", update.effective_user.id, handler.__name__)
-        audit.write("handler_invoked", "accepted", actor_id=update.effective_user.id, details={"handler": handler.__name__})
-        await handler(update, context)
-
-    return wrapper  # type: ignore[return-value]
+    """Compatibility decorator backed by the Telegram middleware layer."""
+    return _access_controller().wrap(handler)
 
 
 async def _create_fresh_session(user_id: str) -> str:
