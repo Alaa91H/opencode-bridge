@@ -1091,14 +1091,21 @@ async def _stage_attachment_batch(
     if expired_records:
         attachment_store.delete_input_records(expired_records)
     minutes = max(1, ATTACHMENT_PENDING_SECONDS // 60)
-    await bot.send_message(
-        chat_id=chat_id,
-        text=(
-            f"تم استلام {len(batch.attachments)} مرفق وحفظه بأمان. "
-            f"أرسل الآن الأمر المطلوب خلال {minutes} دقائق وسأربطه بكل الملفات في مهمة واحدة. "
-            "يمكنك إرسال ملفات إضافية قبل الأمر، أو /discard لإلغاء المرفقات المعلّقة."
-        ),
-    )
+    try:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=(
+                f"تم استلام {len(batch.attachments)} مرفق وحفظه بأمان. "
+                f"أرسل الآن الأمر المطلوب خلال {minutes} دقائق وسأربطه بكل الملفات في مهمة واحدة. "
+                "يمكنك إرسال ملفات إضافية قبل الأمر، أو /discard لإلغاء المرفقات المعلّقة."
+            ),
+        )
+    except Exception as exc:
+        log.warning(
+            "تم حفظ %s مرفق معلّق لكن تعذر إرسال تأكيد تيليغرام: %s",
+            len(batch.attachments),
+            type(exc).__name__,
+        )
     audit.write(
         "attachment_staged",
         "accepted",
