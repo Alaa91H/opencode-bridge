@@ -74,13 +74,21 @@ class TaskApplicationService:
         *,
         status_message_id: int | None = None,
         execution_mode: ResearchMode | None = None,
+        stored_prompt: str | None = None,
     ) -> QueuedRequest:
+        """Validate the user instruction while allowing trusted bridge context in storage.
+
+        `stored_prompt` is reserved for bridge-generated context such as a verified
+        workspace header. Policy checks and prompt classification always use the
+        original user instruction so trusted metadata cannot accidentally change
+        request-policy semantics.
+        """
         self.guard.ensure_allowed(prompt)
         enhanced = enhance_prompt(prompt, requested_mode=execution_mode)
         task, position = await self.repository.enqueue(
             owner_id,
             chat_id,
-            prompt,
+            stored_prompt if stored_prompt is not None else prompt,
             execution_mode=execution_mode.value if execution_mode is not None else None,
             status_message_id=status_message_id,
         )
