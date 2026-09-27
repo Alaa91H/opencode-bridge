@@ -35,17 +35,30 @@ class LiveProgressReporter:
 
     async def start(self) -> None:
         await self._persist()
+        text = render_progress(self.progress)
         try:
-            message = await self.bot.send_message(
-                chat_id=self.task.chat_id,
-                text=render_progress(self.progress),
-                disable_web_page_preview=True,
-            )
-            self.progress_store.set_message_id(self.task.id, int(message.message_id))
-            self._last_message = render_progress(self.progress)
+            if self.task.status_message_id is not None:
+                self.progress_store.set_message_id(self.task.id, int(self.task.status_message_id))
+                await self.bot.edit_message_text(
+                    chat_id=self.task.chat_id,
+                    message_id=int(self.task.status_message_id),
+                    text=text,
+                    reply_markup=None,
+                    disable_web_page_preview=True,
+                )
+            else:
+                message = await self.bot.send_message(
+                    chat_id=self.task.chat_id,
+                    text=text,
+                    disable_web_page_preview=True,
+                )
+                message_id = int(message.message_id)
+                self.progress_store.set_message_id(self.task.id, message_id)
+                await self.queue.set_status_message_id(self.task.id, message_id)
+            self._last_message = text
             self._last_rendered = time.monotonic()
         except Exception as exc:
-            log.warning("تعذر إنشاء رسالة تقدم للمهمة %s: %s", self.task.id, exc)
+            log.warning("تعذر تجهيز رسالة التقدم للمهمة %s: %s", self.task.id, exc)
 
     async def record(self, phase: str, message: str, kind: str = "info", force: bool = False) -> None:
         previous = self.progress.entries[-1] if self.progress.entries else None
@@ -95,6 +108,37 @@ class LiveProgressReporter:
         self.progress_store.finish(self.task.id, status, message, kind)
         await self._persist()
         await self.refresh(force=True, detail=False, final=True)
+
+    async def finalize_text(self, text: str, status: str = "completed", message: str = "اكتمل التنفيذ.") -> None:
+        """Replace the live status message with the final user-facing answer."""
+        self.progress_store.finish(self.task.id, status, message, "success" if status == "completed" else "error")
+        await self._persist()
+        message_id = self.progress.message_id or self.task.status_message_id
+        if message_id is None:
+            try:
+                sent = await self.bot.send_message(
+                    chat_id=self.task.chat_id,
+                    text=text,
+                    disable_web_page_preview=True,
+                )
+                message_id = int(sent.message_id)
+                self.progress_store.set_message_id(self.task.id, message_id)
+                await self.queue.set_status_message_id(self.task.id, message_id)
+            except Exception as exc:
+                log.warning("تعذر إرسال النتيجة النهائية للمهمة %s: %s", self.task.id, exc)
+            return
+        try:
+            await self.bot.edit_message_text(
+                chat_id=self.task.chat_id,
+                message_id=int(message_id),
+                text=text,
+                reply_markup=None,
+                disable_web_page_preview=True,
+            )
+            self._last_message = text
+            self._last_rendered = time.monotonic()
+        except Exception as exc:
+            log.warning("تعذر تحديث رسالة النتيجة النهائية للمهمة %s: %s", self.task.id, exc)
 
     async def _persist(self) -> None:
         await self.queue.update_activity(self.task.id, serialize_progress(self.progress))
