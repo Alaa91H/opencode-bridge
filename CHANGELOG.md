@@ -1,3 +1,18 @@
+## [1.7.1] - 2026-09-27
+
+### Media Capability Routing
+
+- Added task-local selection of active zero-cost OpenCode Zen models that explicitly advertise image input for visual attachment work.
+- Visual media routing can override a text-only pinned/general model for the current task without changing the configured default for later tasks.
+- Added live-catalog helpers that require explicit input capabilities and preserve the existing zero-cost Zen allow-list.
+
+### Documentation & Verification
+
+- Clarified current OpenCode attachment behavior: text and supported raster images can be model-visible directly, while PDF/audio/video and other binaries require validated server-side inspection/conversion.
+- Added deterministic tests for image-capability filtering and task-local media model selection.
+- Corrected release-note source files so v1.7.0 describes only code actually contained in its published tag.
+- GitHub Actions remains the source of truth for syntax, tests, OpenCode configuration and semantic-version validation.
+
 ## [1.7.0] - 2026-09-27
 
 ### Highlights
