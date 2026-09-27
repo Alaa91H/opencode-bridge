@@ -176,7 +176,7 @@ def render_progress(progress: TaskProgress, detail: bool = False) -> str:
     title = labels.get(progress.phase, "جاري التنفيذ")
     latest = progress.entries[-1].message if progress.entries else ""
     if not detail:
-        return title if not latest else f"{title}\n{latest}"
+        return latest or title
 
     safe_entries = progress.entries[-MAX_RENDERED_EVENTS:]
     if not safe_entries:
