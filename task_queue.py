@@ -72,6 +72,28 @@ class QueuedTask:
     activity: tuple[dict[str, Any], ...] = ()
     execution_mode: str | None = None
     status_message_id: int | None = None
+    schedule_job_id: int | None = None
+
+    @property
+    def is_recurring(self) -> bool:
+        return bool(self.repeat_seconds)
+
+
+@dataclass(frozen=True)
+class ScheduledJob:
+    id: int
+    owner_id: str
+    chat_id: int
+    name: str
+    prompt: str
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+    next_run_at: datetime | None
+    repeat_seconds: int | None
+    timezone_name: str
+    last_run_at: datetime | None = None
+    last_error: str | None = None
 
     @property
     def is_recurring(self) -> bool:
@@ -123,7 +145,8 @@ class TaskQueueStore:
                 attachments_json TEXT NOT NULL DEFAULT '[]',
                 activity_json TEXT NOT NULL DEFAULT '[]',
                 execution_mode TEXT,
-                status_message_id INTEGER
+                status_message_id INTEGER,
+                schedule_job_id INTEGER
             )
             """
         )
@@ -137,6 +160,8 @@ class TaskQueueStore:
             await db.execute("ALTER TABLE agent_tasks ADD COLUMN execution_mode TEXT")
         if "status_message_id" not in columns:
             await db.execute("ALTER TABLE agent_tasks ADD COLUMN status_message_id INTEGER")
+        if "schedule_job_id" not in columns:
+            await db.execute("ALTER TABLE agent_tasks ADD COLUMN schedule_job_id INTEGER")
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_agent_tasks_owner_status_sequence "
             "ON agent_tasks(owner_id, status, sequence, id)"
@@ -148,6 +173,34 @@ class TaskQueueStore:
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_agent_tasks_owner_created "
             "ON agent_tasks(owner_id, created_at)"
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scheduled_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_id TEXT NOT NULL,
+                chat_id INTEGER NOT NULL,
+                name TEXT NOT NULL COLLATE NOCASE,
+                prompt TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                next_run_at TEXT,
+                repeat_seconds INTEGER,
+                timezone_name TEXT NOT NULL DEFAULT 'UTC',
+                last_run_at TEXT,
+                last_error TEXT,
+                UNIQUE(owner_id, name)
+            )
+            """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_owner_name "
+            "ON scheduled_jobs(owner_id, name COLLATE NOCASE)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_due "
+            "ON scheduled_jobs(enabled, next_run_at)"
         )
         await db.execute(
             """
@@ -193,6 +246,11 @@ class TaskQueueStore:
                 if "status_message_id" in row.keys() and row["status_message_id"] is not None
                 else None
             ),
+            schedule_job_id=(
+                int(row["schedule_job_id"])
+                if "schedule_job_id" in row.keys() and row["schedule_job_id"] is not None
+                else None
+            ),
         )
 
     async def update_activity(self, task_id: int, activity: list[dict[str, Any]]) -> None:
@@ -205,6 +263,279 @@ class TaskQueueStore:
                 (encode_activity(activity[-40:]), now, task_id),
             )
             await db.commit()
+
+    @staticmethod
+    def _scheduled_from_row(row: aiosqlite.Row) -> ScheduledJob:
+        return ScheduledJob(
+            id=int(row["id"]),
+            owner_id=str(row["owner_id"]),
+            chat_id=int(row["chat_id"]),
+            name=str(row["name"]),
+            prompt=str(row["prompt"]),
+            enabled=bool(row["enabled"]),
+            created_at=decode_time(row["created_at"]) or utc_now(),
+            updated_at=decode_time(row["updated_at"]) or utc_now(),
+            next_run_at=decode_time(row["next_run_at"]),
+            repeat_seconds=int(row["repeat_seconds"]) if row["repeat_seconds"] is not None else None,
+            timezone_name=str(row["timezone_name"] or "UTC"),
+            last_run_at=decode_time(row["last_run_at"]),
+            last_error=str(row["last_error"]) if row["last_error"] else None,
+        )
+
+    async def create_scheduled_job(
+        self,
+        owner_id: str,
+        chat_id: int,
+        name: str,
+        prompt: str,
+        next_run_at: datetime,
+        repeat_seconds: int | None = None,
+        timezone_name: str = "UTC",
+    ) -> ScheduledJob:
+        clean_name = name.strip()
+        clean_prompt = prompt.strip()
+        if not clean_name:
+            raise ValueError("اسم الجدولة فارغ")
+        if len(clean_name) > 80:
+            raise ValueError("اسم الجدولة أطول من 80 محرفًا")
+        if not clean_prompt:
+            raise ValueError("أمر الجدولة فارغ")
+        if next_run_at <= utc_now():
+            raise ValueError("وقت التشغيل يجب أن يكون في المستقبل")
+        if repeat_seconds is not None and int(repeat_seconds) < 300:
+            raise ValueError("أقصر تكرار مسموح هو 5 دقائق")
+        now = encode_time(utc_now())
+        db = await self._get_db()
+        async with self._lock:
+            try:
+                cursor = await db.execute(
+                    """
+                    INSERT INTO scheduled_jobs
+                    (owner_id, chat_id, name, prompt, enabled, created_at, updated_at,
+                     next_run_at, repeat_seconds, timezone_name)
+                    VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        owner_id,
+                        chat_id,
+                        clean_name,
+                        clean_prompt,
+                        now,
+                        now,
+                        encode_time(next_run_at),
+                        int(repeat_seconds) if repeat_seconds is not None else None,
+                        timezone_name or "UTC",
+                    ),
+                )
+                await db.commit()
+            except aiosqlite.IntegrityError as exc:
+                raise ValueError("يوجد بالفعل جدول بهذا الاسم") from exc
+        job = await self.get_scheduled_job_by_id(int(cursor.lastrowid), owner_id)
+        assert job is not None
+        return job
+
+    async def get_scheduled_job_by_id(self, job_id: int, owner_id: str | None = None) -> ScheduledJob | None:
+        db = await self._get_db()
+        async with self._lock:
+            if owner_id is None:
+                query, params = "SELECT * FROM scheduled_jobs WHERE id = ?", (job_id,)
+            else:
+                query, params = "SELECT * FROM scheduled_jobs WHERE id = ? AND owner_id = ?", (job_id, owner_id)
+            async with db.execute(query, params) as cursor:
+                row = await cursor.fetchone()
+        return self._scheduled_from_row(row) if row else None
+
+    async def get_scheduled_job(self, owner_id: str, name: str) -> ScheduledJob | None:
+        db = await self._get_db()
+        async with self._lock:
+            async with db.execute(
+                "SELECT * FROM scheduled_jobs WHERE owner_id = ? AND name = ? COLLATE NOCASE",
+                (owner_id, name.strip()),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return self._scheduled_from_row(row) if row else None
+
+    async def list_scheduled_jobs(self, owner_id: str, limit: int = 100) -> list[ScheduledJob]:
+        db = await self._get_db()
+        async with self._lock:
+            async with db.execute(
+                """
+                SELECT * FROM scheduled_jobs
+                WHERE owner_id = ?
+                ORDER BY enabled DESC,
+                         CASE WHEN next_run_at IS NULL THEN 1 ELSE 0 END,
+                         next_run_at,
+                         name COLLATE NOCASE
+                LIMIT ?
+                """,
+                (owner_id, max(1, min(int(limit), 500))),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [self._scheduled_from_row(row) for row in rows]
+
+    async def rename_scheduled_job(self, owner_id: str, name: str, new_name: str) -> ScheduledJob | None:
+        clean_name = new_name.strip()
+        if not clean_name or len(clean_name) > 80:
+            raise ValueError("الاسم الجديد يجب أن يكون بين 1 و80 محرفًا")
+        db = await self._get_db()
+        async with self._lock:
+            try:
+                cursor = await db.execute(
+                    """
+                    UPDATE scheduled_jobs SET name = ?, updated_at = ?
+                    WHERE owner_id = ? AND name = ? COLLATE NOCASE
+                    """,
+                    (clean_name, encode_time(utc_now()), owner_id, name.strip()),
+                )
+                await db.commit()
+            except aiosqlite.IntegrityError as exc:
+                raise ValueError("يوجد بالفعل جدول بهذا الاسم") from exc
+        return await self.get_scheduled_job(owner_id, clean_name) if cursor.rowcount else None
+
+    async def set_scheduled_job_prompt(self, owner_id: str, name: str, prompt: str) -> ScheduledJob | None:
+        clean_prompt = prompt.strip()
+        if not clean_prompt:
+            raise ValueError("أمر الجدولة فارغ")
+        db = await self._get_db()
+        async with self._lock:
+            cursor = await db.execute(
+                """
+                UPDATE scheduled_jobs SET prompt = ?, updated_at = ?
+                WHERE owner_id = ? AND name = ? COLLATE NOCASE
+                """,
+                (clean_prompt, encode_time(utc_now()), owner_id, name.strip()),
+            )
+            await db.commit()
+        return await self.get_scheduled_job(owner_id, name) if cursor.rowcount else None
+
+    async def append_scheduled_job_prompt(self, owner_id: str, name: str, text: str) -> ScheduledJob | None:
+        addition = text.rstrip()
+        if not addition:
+            raise ValueError("النص المراد إلحاقه فارغ")
+        db = await self._get_db()
+        async with self._lock:
+            cursor = await db.execute(
+                """
+                UPDATE scheduled_jobs
+                SET prompt = CASE WHEN prompt = '' THEN ? ELSE prompt || char(10) || ? END,
+                    updated_at = ?
+                WHERE owner_id = ? AND name = ? COLLATE NOCASE
+                """,
+                (addition, addition, encode_time(utc_now()), owner_id, name.strip()),
+            )
+            await db.commit()
+        return await self.get_scheduled_job(owner_id, name) if cursor.rowcount else None
+
+    async def update_scheduled_job_timing(
+        self,
+        owner_id: str,
+        name: str,
+        next_run_at: datetime,
+        repeat_seconds: int | None,
+        timezone_name: str = "UTC",
+    ) -> ScheduledJob | None:
+        if next_run_at <= utc_now():
+            raise ValueError("وقت التشغيل يجب أن يكون في المستقبل")
+        if repeat_seconds is not None and int(repeat_seconds) < 300:
+            raise ValueError("أقصر تكرار مسموح هو 5 دقائق")
+        db = await self._get_db()
+        async with self._lock:
+            cursor = await db.execute(
+                """
+                UPDATE scheduled_jobs
+                SET next_run_at = ?, repeat_seconds = ?, timezone_name = ?,
+                    updated_at = ?, last_error = NULL
+                WHERE owner_id = ? AND name = ? COLLATE NOCASE
+                """,
+                (
+                    encode_time(next_run_at),
+                    int(repeat_seconds) if repeat_seconds is not None else None,
+                    timezone_name or "UTC",
+                    encode_time(utc_now()),
+                    owner_id,
+                    name.strip(),
+                ),
+            )
+            await db.commit()
+        return await self.get_scheduled_job(owner_id, name) if cursor.rowcount else None
+
+    async def set_scheduled_job_enabled(self, owner_id: str, name: str, enabled: bool) -> ScheduledJob | None:
+        job = await self.get_scheduled_job(owner_id, name)
+        if job is None:
+            return None
+        next_run_at = job.next_run_at
+        if enabled and (next_run_at is None or next_run_at <= utc_now()):
+            if job.repeat_seconds:
+                next_run_at = utc_now() + timedelta(seconds=job.repeat_seconds)
+            else:
+                next_run_at = utc_now() + timedelta(seconds=1)
+        db = await self._get_db()
+        async with self._lock:
+            cursor = await db.execute(
+                """
+                UPDATE scheduled_jobs
+                SET enabled = ?, next_run_at = ?, updated_at = ?, last_error = NULL
+                WHERE id = ? AND owner_id = ?
+                """,
+                (
+                    1 if enabled else 0,
+                    encode_time(next_run_at) if next_run_at else None,
+                    encode_time(utc_now()),
+                    job.id,
+                    owner_id,
+                ),
+            )
+            await db.commit()
+        return await self.get_scheduled_job_by_id(job.id, owner_id) if cursor.rowcount else None
+
+    async def delete_scheduled_job(self, owner_id: str, name: str) -> bool:
+        db = await self._get_db()
+        async with self._lock:
+            cursor = await db.execute(
+                "DELETE FROM scheduled_jobs WHERE owner_id = ? AND name = ? COLLATE NOCASE",
+                (owner_id, name.strip()),
+            )
+            await db.commit()
+        return bool(cursor.rowcount)
+
+    async def enqueue_scheduled_job_now(
+        self,
+        owner_id: str,
+        name: str,
+        status_message_id: int | None = None,
+    ) -> QueuedTask | None:
+        job = await self.get_scheduled_job(owner_id, name)
+        if job is None:
+            return None
+        now = encode_time(utc_now())
+        db = await self._get_db()
+        async with self._lock:
+            async with db.execute(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence FROM agent_tasks "
+                "WHERE owner_id = ? AND status IN ('queued', 'running')",
+                (owner_id,),
+            ) as cursor:
+                sequence = int((await cursor.fetchone())["next_sequence"])
+            cursor = await db.execute(
+                """
+                INSERT INTO agent_tasks
+                (owner_id, chat_id, prompt, status, created_at, updated_at, sequence,
+                 attachments_json, execution_mode, status_message_id, schedule_job_id)
+                VALUES (?, ?, ?, 'queued', ?, ?, ?, '[]', NULL, ?, ?)
+                """,
+                (
+                    job.owner_id,
+                    job.chat_id,
+                    job.prompt,
+                    now,
+                    now,
+                    sequence,
+                    status_message_id,
+                    job.id,
+                ),
+            )
+            await db.commit()
+        return await self.get(int(cursor.lastrowid))
 
     @staticmethod
     def _pending_from_row(row: aiosqlite.Row) -> PendingAttachmentBatch:
@@ -557,18 +888,97 @@ class TaskQueueStore:
         return await self.cancel(int(row["id"]), owner_id) if row else None
 
     async def promote_due(self) -> int:
-        now = encode_time(utc_now())
+        """Promote legacy scheduled tasks and materialize due persistent schedules."""
+        now_dt = utc_now()
+        now = encode_time(now_dt)
         db = await self._get_db()
+        promoted = 0
         async with self._lock:
-            cursor = await db.execute(
-                """
-                UPDATE agent_tasks SET status = 'queued', updated_at = ?, sequence = 0
-                WHERE status = 'scheduled' AND due_at <= ?
-                """,
-                (now, now),
-            )
-            await db.commit()
-        return cursor.rowcount
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                legacy = await db.execute(
+                    """
+                    UPDATE agent_tasks SET status = 'queued', updated_at = ?, sequence = 0
+                    WHERE status = 'scheduled' AND due_at <= ?
+                    """,
+                    (now, now),
+                )
+                promoted += int(legacy.rowcount)
+
+                async with db.execute(
+                    """
+                    SELECT * FROM scheduled_jobs
+                    WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
+                    ORDER BY next_run_at, id
+                    """,
+                    (now,),
+                ) as cursor:
+                    due_rows = await cursor.fetchall()
+
+                for row in due_rows:
+                    job = self._scheduled_from_row(row)
+                    async with db.execute(
+                        """
+                        SELECT 1 FROM agent_tasks
+                        WHERE schedule_job_id = ? AND status IN ('queued', 'running')
+                        LIMIT 1
+                        """,
+                        (job.id,),
+                    ) as cursor:
+                        already_active = await cursor.fetchone()
+                    if already_active is None:
+                        async with db.execute(
+                            "SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence FROM agent_tasks "
+                            "WHERE owner_id = ? AND status IN ('queued', 'running')",
+                            (job.owner_id,),
+                        ) as cursor:
+                            sequence = int((await cursor.fetchone())["next_sequence"])
+                        await db.execute(
+                            """
+                            INSERT INTO agent_tasks
+                            (owner_id, chat_id, prompt, status, created_at, updated_at, sequence,
+                             attachments_json, execution_mode, schedule_job_id)
+                            VALUES (?, ?, ?, 'queued', ?, ?, ?, '[]', NULL, ?)
+                            """,
+                            (
+                                job.owner_id,
+                                job.chat_id,
+                                job.prompt,
+                                now,
+                                now,
+                                sequence,
+                                job.id,
+                            ),
+                        )
+                        promoted += 1
+
+                    if job.repeat_seconds:
+                        next_due = job.next_run_at or now_dt
+                        while next_due <= now_dt:
+                            next_due += timedelta(seconds=job.repeat_seconds)
+                        await db.execute(
+                            """
+                            UPDATE scheduled_jobs
+                            SET next_run_at = ?, updated_at = ?, last_run_at = ?, last_error = NULL
+                            WHERE id = ?
+                            """,
+                            (encode_time(next_due), now, now, job.id),
+                        )
+                    else:
+                        await db.execute(
+                            """
+                            UPDATE scheduled_jobs
+                            SET enabled = 0, next_run_at = NULL, updated_at = ?, last_run_at = ?, last_error = NULL
+                            WHERE id = ?
+                            """,
+                            (now, now, job.id),
+                        )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        return promoted
+
 
     async def claim_next(self) -> QueuedTask | None:
         """Claim one queued task if its owner has no other running task."""
