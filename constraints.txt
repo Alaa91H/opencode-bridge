@@ -1,0 +1,5 @@
+# Stable-line guardrails used together with requirements.txt.
+# Exact production pins remain in requirements.txt.
+python-telegram-bot>=22.8,<23
+httpx>=0.28.1,<1
+aiosqlite>=0.22.1,<0.23
