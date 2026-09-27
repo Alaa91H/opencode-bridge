@@ -6,9 +6,6 @@ as the production compatibility/install surface for run_v3 during T02.
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 from telegram import BotCommand, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -20,17 +17,10 @@ from task_service_v3 import TaskServiceV3
 from workspace_manager import GitWorkspaceManager
 from workspace_store import WorkspaceStore
 
-WORKSPACE_ROOT = Path(os.environ.get("GITHUB_WORKSPACE_ROOT", "/home/ubuntu/github-workspaces"))
-ALLOWED_REPOS = tuple(
-    value.strip()
-    for value in os.environ.get("GITHUB_ALLOWED_REPOS", "").split(",")
-    if value.strip()
-)
-TASK_WORKERS = max(1, min(int(os.environ.get("AGENT_TASK_WORKERS", "2")), 8))
-ADAPTIVE_WORKERS = (
-    os.environ.get("AGENT_ADAPTIVE_WORKERS", "1").strip().lower()
-    not in {"0", "false", "no", "off"}
-)
+WORKSPACE_ROOT = core.SETTINGS.workspace.root
+ALLOWED_REPOS = core.SETTINGS.workspace.allowed_repos
+TASK_WORKERS = core.SETTINGS.agent.task_workers
+ADAPTIVE_WORKERS = core.SETTINGS.features.adaptive_workers
 
 workspace_manager = GitWorkspaceManager(WORKSPACE_ROOT, ALLOWED_REPOS)
 workspace_store = WorkspaceStore(core.BRIDGE_DIR / "sessions.db")
@@ -121,7 +111,7 @@ async def install(app: Application) -> None:
     workspace_manager.ensure_root()
     await workspace_store.init()
     core.TaskService = V3TaskService
-    core.DEFAULT_AGENT = os.environ.get("OPENCODE_AGENT", "development-agent")
+    core.DEFAULT_AGENT = core.SETTINGS.agent.v3_agent
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_workspace_text), group=-1)
     app.add_handler(CommandHandler("use", cmd_use), group=-1)
