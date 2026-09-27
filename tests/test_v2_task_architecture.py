@@ -56,5 +56,51 @@ class TaskArchitectureTests(unittest.TestCase):
         self.assertEqual(found, set(expected))
 
 
+    def test_legacy_agent_handlers_are_thin_delegates(self) -> None:
+        source = (ROOT / "bot.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        expected = {
+            "cmd_start": "start",
+            "cmd_new": "new",
+            "cmd_share": "share",
+            "cmd_unshare": "unshare",
+            "cmd_model": "model",
+            "cmd_status": "status",
+            "cmd_health": "health",
+            "cmd_agents": "agents",
+        }
+        found = set()
+        for node in tree.body:
+            if isinstance(node, ast.AsyncFunctionDef) and node.name in expected:
+                found.add(node.name)
+                self.assertEqual(len(node.body), 1, node.name)
+                statement = node.body[0]
+                self.assertIsInstance(statement, ast.Expr, node.name)
+                self.assertIsInstance(statement.value, ast.Await, node.name)
+                call = statement.value.value
+                self.assertIsInstance(call, ast.Call, node.name)
+                self.assertIsInstance(call.func, ast.Attribute, node.name)
+                self.assertEqual(call.func.attr, expected[node.name], node.name)
+        self.assertEqual(found, set(expected))
+
+    def test_all_legacy_adapter_factories_referenced_by_handlers_exist(self) -> None:
+        source = (ROOT / "bot.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        defined = {
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        for factory in (
+            "_agent_command_adapter",
+            "_task_command_adapter",
+            "_schedule_command_adapter",
+            "_media_adapter",
+            "_reboot_callback_adapter",
+            "_pending_attachment_cleanup_loop",
+        ):
+            self.assertIn(factory, defined)
+
+
 if __name__ == "__main__":
     unittest.main()
