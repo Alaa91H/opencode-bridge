@@ -971,49 +971,7 @@ async def post_init(app: Application) -> None:
     except Exception as exc:
         log.warning("وكيل OpenCode غير متاح عند بدء التشغيل: %s", exc)
 
-    commands = [
-        BotCommand("start", "بدء جلسة جديدة"),
-        BotCommand("new", "إنشاء جلسة جديدة"),
-        BotCommand("reset", "إعادة ضبط الجلسة"),
-        BotCommand("abort", "إيقاف الطلب الجاري"),
-        BotCommand("stop", "إيقاف الطلب الجاري"),
-        BotCommand("tasks", "عرض الطلبات الحالية"),
-        BotCommand("progress", "عرض تقدم الطلب الحالي"),
-        BotCommand("trace", "عرض سجل الطلب الحالي"),
-        BotCommand("cancel", "إلغاء الطلب الحالي"),
-        BotCommand("discard", "حذف المرفقات المعلّقة"),
-        BotCommand("schedule", "إنشاء مهمة مجدولة باسم"),
-        BotCommand("repeat", "إنشاء مهمة متكررة باسم"),
-        BotCommand("schedules", "عرض المهام المجدولة"),
-        BotCommand("schedshow", "عرض تفاصيل مهمة مجدولة"),
-        BotCommand("schedrename", "تغيير اسم مهمة مجدولة"),
-        BotCommand("schededit", "استبدال أمر مهمة مجدولة"),
-        BotCommand("schedappend", "إلحاق نص بأمر مجدول"),
-        BotCommand("schedtime", "تغيير وقت التشغيل التالي"),
-        BotCommand("schedinterval", "تغيير فترة التكرار"),
-        BotCommand("schedrun", "تشغيل مهمة مجدولة الآن"),
-        BotCommand("schedpause", "إيقاف مهمة مجدولة"),
-        BotCommand("schedresume", "تشغيل مهمة مجدولة"),
-        BotCommand("scheddelete", "حذف مهمة مجدولة"),
-        BotCommand("model", "عرض النموذج التلقائي وترتيبه"),
-        BotCommand("status", "عرض حالة الجلسة"),
-        BotCommand("health", "فحص اتصال الوكيل"),
-        BotCommand("agents", "عرض الوكلاء المتاحين"),
-        BotCommand("maintenance", "عرض آخر تقرير صيانة"),
-        BotCommand("search", "بحث موثّق سريع"),
-        BotCommand("deepresearch", "بحث عميق متعدد المصادر"),
-        BotCommand("extreme", "بحث شديد العمق"),
-        BotCommand("news", "بحث إخباري حديث"),
-        BotCommand("compare", "مقارنة موثّقة"),
-        BotCommand("factcheck", "تدقيق ادعاء"),
-        BotCommand("verify", "تحقق من معلومة"),
-        BotCommand("open", "فحص رابط أو مصدر"),
-        BotCommand("extract", "استخراج بيانات"),
-        BotCommand("share", "إنشاء رابط مشاركة"),
-        BotCommand("unshare", "إلغاء رابط المشاركة"),
-        BotCommand("help", "المساعدة"),
-    ]
-    await app.bot.set_my_commands(commands)
+    await app.bot.set_my_commands(core_commands())
     log.info(
         "تم تسجيل أوامر البوت. النموذج: %s، الاستدلال: %s، الوكيل: %s، وكيل تيليغرام: %s",
         DEFAULT_MODEL,
@@ -1063,50 +1021,18 @@ async def main() -> None:
         http_version="1.1",
         proxy=TELEGRAM_PROXY_URL,
     )
-    app = (
-        Application.builder()
-        .token(TELEGRAM_BOT_TOKEN)
-        .request(request)
-        .get_updates_request(updates_request)
-        .post_init(post_init)
-        .post_shutdown(post_shutdown)
-        .build()
+    app = build_application(
+        token=TELEGRAM_BOT_TOKEN,
+        request=request,
+        updates_request=updates_request,
+        post_init=post_init,
+        post_shutdown=post_shutdown,
     )
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("new", cmd_new))
-    app.add_handler(CommandHandler("reset", cmd_new))
-    app.add_handler(CommandHandler("abort", cmd_abort))
-    app.add_handler(CommandHandler("stop", cmd_abort))
-    app.add_handler(CommandHandler("tasks", cmd_tasks))
-    app.add_handler(CommandHandler("progress", cmd_progress))
-    app.add_handler(CommandHandler("trace", cmd_trace))
-    app.add_handler(CommandHandler("cancel", cmd_cancel))
-    app.add_handler(CommandHandler("discard", cmd_discard))
-    app.add_handler(CommandHandler("schedule", cmd_schedule))
-    app.add_handler(CommandHandler("repeat", cmd_repeat))
-    app.add_handler(CommandHandler("schedules", cmd_schedules))
-    app.add_handler(CommandHandler("schedshow", cmd_schedshow))
-    app.add_handler(CommandHandler("schedrename", cmd_schedrename))
-    app.add_handler(CommandHandler("schededit", cmd_schededit))
-    app.add_handler(CommandHandler("schedappend", cmd_schedappend))
-    app.add_handler(CommandHandler("schedtime", cmd_schedtime))
-    app.add_handler(CommandHandler("schedinterval", cmd_schedinterval))
-    app.add_handler(CommandHandler("schedrun", cmd_schedrun))
-    app.add_handler(CommandHandler("schedpause", cmd_schedpause))
-    app.add_handler(CommandHandler("schedresume", cmd_schedresume))
-    app.add_handler(CommandHandler("scheddelete", cmd_scheddelete))
-    app.add_handler(CommandHandler("share", cmd_share))
-    app.add_handler(CommandHandler("unshare", cmd_unshare))
-    app.add_handler(CommandHandler("model", cmd_model))
-    app.add_handler(CommandHandler("status", cmd_status))
-    app.add_handler(CommandHandler("health", cmd_health))
-    app.add_handler(CommandHandler("agents", cmd_agents))
-    app.add_handler(CommandHandler("maintenance", cmd_maintenance))
-    app.add_handler(CommandHandler(tuple(RESEARCH_COMMAND_MODES), cmd_research_mode))
-    app.add_handler(CommandHandler("help", cmd_help))
-    app.add_handler(CallbackQueryHandler(handle_reboot_callback, pattern=r"^reboot:(now|cancel)$"))
-    app.add_handler(MessageHandler(filters.ATTACHMENT, handle_attachment))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    register_core_handlers(
+        app,
+        sys.modules[__name__],
+        tuple(RESEARCH_COMMAND_MODES),
+    )
 
     await store.init()
     stop_event = asyncio.Event()
