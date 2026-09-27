@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import unittest
+from importlib.metadata import version
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +31,40 @@ class DependencyPolicyTests(unittest.TestCase):
             },
         )
 
+    def test_installed_direct_runtime_versions_match_exact_pins(self) -> None:
+        expected = {
+            "python-telegram-bot": "22.8",
+            "httpx": "0.28.1",
+            "aiosqlite": "0.22.1",
+        }
+        for package, expected_version in expected.items():
+            self.assertEqual(version(package), expected_version)
+
+    def test_full_runtime_lock_is_exact_and_prerelease_free(self) -> None:
+        lock = (ROOT / "requirements.lock").read_text(encoding="utf-8")
+        expected = {
+            "python-telegram-bot": "22.8",
+            "httpx": "0.28.1",
+            "aiosqlite": "0.22.1",
+            "anyio": "4.15.1",
+            "certifi": "2026.7.22",
+            "httpcore": "1.0.9",
+            "idna": "3.20",
+            "h11": "0.16.0",
+            "typing_extensions": "4.16.0",
+        }
+        found: dict[str, str] = {}
+        for line in lock.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            requirement = line.split(";", 1)[0].strip()
+            self.assertIn("==", requirement)
+            name, locked_version = requirement.split("==", 1)
+            found[name] = locked_version
+            self.assertNotRegex(locked_version.lower(), r"(?:a|b|rc|dev|alpha|beta)")
+        self.assertEqual(found, expected)
+
     def test_input_and_constraint_files_keep_stable_release_lines(self) -> None:
         requirements_in = (ROOT / "requirements.in").read_text(encoding="utf-8")
         constraints = (ROOT / "constraints.txt").read_text(encoding="utf-8")
@@ -57,7 +92,8 @@ class DependencyPolicyTests(unittest.TestCase):
         self.assertIn('python-version: ["3.12", "3.13", "3.14"]', workflow)
         self.assertIn("python-version: ${{ matrix.python-version }}", workflow)
         self.assertIn("PYTHONWARNINGS: error::DeprecationWarning", workflow)
-        self.assertIn("-r requirements.txt -c constraints.txt", workflow)
+        self.assertIn("-r requirements.lock -c constraints.txt", workflow)
+        self.assertIn("python -m pip check", workflow)
 
     def test_dependabot_monitors_all_current_dependency_ecosystems(self) -> None:
         config = (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
