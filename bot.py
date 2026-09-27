@@ -41,6 +41,7 @@ from bridge.services.media_service import MediaTaskService
 from bridge.services.schedule_service import ScheduleService
 from bridge.services.task_service import TaskApplicationService
 from bridge.telegram.attachments import TelegramMediaAdapter
+from bridge.telegram.callbacks.reboot import RebootCallbackAdapter
 from bridge.telegram.commands.schedules import ScheduleCommands
 from bridge.telegram.commands.tasks import TaskCommands
 from bridge.telegram.rendering.schedules import scheduled_job_line
@@ -165,6 +166,7 @@ model_manager: ModelManager | None = None
 pending_cleanup_task: asyncio.Task[None] | None = None
 _media_adapter_instance: TelegramMediaAdapter | None = None
 _task_commands_instance: TaskCommands | None = None
+_reboot_callback_instance: RebootCallbackAdapter | None = None
 _request_guard = RequestGuard((check_build, check_hardline))
 _agent_service = AgentService(
     client,
@@ -228,6 +230,20 @@ def _is_allowed(update: Update) -> bool:
     # Private chats are safe by default. Groups require an explicit chat-ID
     # allowlist to prevent an administrator from accidentally exposing control.
     return chat.type == ChatType.PRIVATE or chat.id in ALLOWED_CHAT_IDS
+
+
+def _reboot_callback_adapter() -> RebootCallbackAdapter:
+    global _reboot_callback_instance
+    if _reboot_callback_instance is None:
+        _reboot_callback_instance = RebootCallbackAdapter(
+            is_allowed=_is_allowed,
+            request_path=REBOOT_REQUEST_PATH,
+            decision_path=REBOOT_DECISION_PATH,
+            read_state=read_state,
+            write_state=write_state,
+            audit_write=audit.write,
+        )
+    return _reboot_callback_instance
 
 
 def _extract_session_id(session: dict) -> str:
@@ -845,6 +861,10 @@ async def cmd_progress(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 @authorized
 async def cmd_trace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _task_command_adapter().trace(update, context)
+
+async def handle_reboot_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _reboot_callback_adapter().handle(update, context)
+
 
 @authorized
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
