@@ -36,10 +36,13 @@ from bridge.domain.schedules import (
     parse_utc_datetime as schedule_parse_utc_datetime,
     split_pipe_args as schedule_split_pipe_args,
 )
+from bridge.services.agent_service import AgentService
 from bridge.services.media_service import MediaTaskService
 from bridge.services.schedule_service import ScheduleService
+from bridge.services.task_service import TaskApplicationService
 from bridge.telegram.attachments import TelegramMediaAdapter
 from bridge.telegram.commands.schedules import ScheduleCommands
+from bridge.telegram.commands.tasks import TaskCommands
 from bridge.telegram.rendering.schedules import scheduled_job_line
 from formatter import MAX_MESSAGE_LENGTH
 from free_points import FreePointsTracker, format_free_points_header
@@ -161,7 +164,24 @@ task_service: TaskService | None = None
 model_manager: ModelManager | None = None
 pending_cleanup_task: asyncio.Task[None] | None = None
 _media_adapter_instance: TelegramMediaAdapter | None = None
+_task_commands_instance: TaskCommands | None = None
 _request_guard = RequestGuard((check_build, check_hardline))
+_agent_service = AgentService(
+    client,
+    store,
+    default_model=DEFAULT_MODEL,
+    default_agent=DEFAULT_AGENT,
+    default_variant=DEFAULT_MODEL_VARIANT,
+    variant_model=VARIANT_MODEL,
+    model_manager_provider=lambda: model_manager,
+    logger=log,
+)
+_task_application_service = TaskApplicationService(
+    task_store,
+    _agent_service,
+    attachment_store,
+    _request_guard,
+)
 _media_service = MediaTaskService(
     task_store,
     attachment_store,
@@ -211,35 +231,13 @@ def _is_allowed(update: Update) -> bool:
 
 
 def _extract_session_id(session: dict) -> str:
-    session_id = session.get("id") or session.get("sessionId") or session.get("session", {}).get("id")
-    if not isinstance(session_id, str) or not session_id:
-        raise RuntimeError("استجاب الوكيل دون معرّف جلسة صالح")
-    return session_id
+    """Compatibility wrapper for AgentService."""
+    return AgentService.extract_session_id(session)
 
 
 async def _ensure_session(telegram_user_id: str) -> str:
-    current = await store.get_session(telegram_user_id)
-    if current:
-        if model_manager is not None:
-            try:
-                await model_manager.ensure_session_model(
-                    telegram_user_id,
-                    current.opencode_session_id,
-                    current.model,
-                )
-            except Exception as exc:
-                log.info("تعذر تحديث نموذج الجلسة قبل التنفيذ: %s", type(exc).__name__)
-        return current.opencode_session_id
-    created = await client.create_session(title=f"جلسة تيليغرام {telegram_user_id}")
-    session_id = _extract_session_id(created)
-    await client.update_session(session_id, model=DEFAULT_MODEL)
-    await store.create_session(telegram_user_id, session_id, DEFAULT_MODEL)
-    if model_manager is not None:
-        try:
-            await model_manager.ensure_session_model(telegram_user_id, session_id, DEFAULT_MODEL)
-        except Exception as exc:
-            log.info("تعذر اختيار النموذج التلقائي للجلسة الجديدة: %s", type(exc).__name__)
-    return session_id
+    """Compatibility wrapper for AgentService."""
+    return await _agent_service.ensure_session(telegram_user_id)
 
 
 async def _typing_loop(chat_id: int | None, bot, stop_event: asyncio.Event) -> None:
@@ -308,14 +306,8 @@ def authorized(handler: F) -> F:
 
 
 async def _create_fresh_session(user_id: str) -> str:
-    existing = await store.get_session(user_id)
-    if existing:
-        try:
-            await client.abort_session(existing.opencode_session_id)
-        except Exception as exc:
-            log.info("تعذر إيقاف الجلسة السابقة قبل الاستبدال: %s", exc)
-        await store.delete_session(user_id)
-    return await _ensure_session(user_id)
+    """Compatibility wrapper for AgentService."""
+    return await _agent_service.fresh_session(user_id)
 
 
 def _parse_utc_datetime(value: str) -> datetime:
@@ -372,14 +364,8 @@ def _task_reply_text(text: str, command_points: int) -> str:
 
 
 def _variant_for_model(model_id: str | None) -> str | None:
-    """Return the strongest validated reasoning variant for the selected model."""
-    if model_manager is not None:
-        dynamic = model_manager.variant_for_model(model_id)
-        if dynamic:
-            return dynamic
-    if not DEFAULT_MODEL_VARIANT or not model_id:
-        return None
-    return DEFAULT_MODEL_VARIANT if model_id == VARIANT_MODEL else None
+    """Compatibility wrapper for AgentService model-variant selection."""
+    return _agent_service.variant_for_model(model_id)
 
 
 async def _send_prompt_with_model_fallback(
@@ -717,182 +703,15 @@ async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @authorized
 async def cmd_abort(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = str(update.effective_user.id)
-    try:
-        cancelled = await task_store.cancel_running_for_owner(user_id)
-        session = await store.get_session(user_id)
-        stopped = bool(session and await client.abort_session(session.opencode_session_id))
-        if cancelled:
-            reporter = live_reporters.get(cancelled.id)
-            if reporter:
-                await reporter.finalize_text(
-                    "تم إلغاء الطلب.",
-                    status="cancelled",
-                    message="تم إرسال طلب إيقاف التنفيذ.",
-                )
-            elif cancelled.status_message_id is not None:
-                await _edit_task_status_message(
-                    context.bot,
-                    cancelled.chat_id,
-                    cancelled.status_message_id,
-                    "تم إلغاء الطلب.",
-                )
-            audit.write("task_cancelled", "cancelled", actor_id=user_id, details={"task_id": cancelled.id, "source": "abort"})
-            return
-        if stopped:
-            return
-        await _safe_reply(update.message, "لا يوجد طلب جارٍ لإيقافه.")
-    except Exception as exc:
-        log.exception("فشل إيقاف المهمة")
-        await _safe_reply(update.message, user_error(exc, "إيقاف الطلب"))
-
+    await _task_command_adapter().abort(update, context)
 
 @authorized
 async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = str(update.effective_user.id)
-    tasks = await task_store.list_active(user_id)
-    jobs = await task_store.list_scheduled_jobs(user_id)
-
-    lines: list[str] = []
-    visible_tasks = [task for task in tasks if task.status in {"running", "queued"}]
-    if visible_tasks:
-        lines.append("الطلبات الحالية:")
-        for task in visible_tasks[:10]:
-            state = "قيد التنفيذ" if task.status == "running" else "بانتظار التنفيذ"
-            preview = " ".join(task.prompt.split())[:100]
-            lines.append(f"• {state} — {preview}")
-
-    if jobs:
-        if lines:
-            lines.append("")
-        lines.append("المهام المجدولة:")
-        for job in jobs:
-            candidate = "\n".join([*lines, _scheduled_job_line(job)])
-            if len(candidate) > MAX_MESSAGE_LENGTH - 120:
-                lines.append("… توجد مهام مجدولة إضافية.")
-                break
-            lines.append(_scheduled_job_line(job))
-
-    if not lines:
-        await _safe_reply(update.message, "لا توجد طلبات حالية أو مهام مجدولة.")
-        return
-    await _safe_reply(update.message, "\n".join(lines))
-
+    await _task_command_adapter().tasks(update, context)
 
 @authorized
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = str(update.effective_user.id)
-    try:
-        target = await task_store.latest_active_for_owner(user_id)
-        if target is None:
-            await _safe_reply(update.message, "لا يوجد طلب قابل للإلغاء.")
-            return
-        cancelled = await task_store.cancel(target.id, user_id)
-        if cancelled is None:
-            await _safe_reply(update.message, "لا يوجد طلب قابل للإلغاء.")
-            return
-        if target.status == "running":
-            session = await store.get_session(user_id)
-            if session:
-                await client.abort_session(session.opencode_session_id)
-        elif target.attachments:
-            attachment_store.delete_input_records(target.attachments)
-
-        reporter = live_reporters.get(target.id)
-        if reporter:
-            await reporter.finalize_text(
-                "تم إلغاء الطلب.",
-                status="cancelled",
-                message="تم إلغاء الطلب.",
-            )
-        elif target.status_message_id is not None:
-            await _edit_task_status_message(
-                context.bot,
-                target.chat_id,
-                target.status_message_id,
-                "تم إلغاء الطلب.",
-            )
-        audit.write("task_cancelled", "cancelled", actor_id=user_id, details={"task_id": target.id, "source": "cancel"})
-    except Exception as exc:
-        log.exception("فشل إلغاء الطلب")
-        await _safe_reply(update.message, user_error(exc, "إلغاء الطلب"))
-
-
-def _split_pipe_args(raw: str, expected: int) -> list[str]:
-    """Compatibility wrapper for the T02 scheduling domain parser."""
-    return schedule_split_pipe_args(raw, expected)
-
-
-def _parse_interval_seconds(value: str) -> int:
-    """Compatibility wrapper for the T02 scheduling domain parser."""
-    return schedule_parse_interval_seconds(value)
-
-
-def _format_interval(seconds: int | None) -> str:
-    """Compatibility wrapper retained for plugins/tests during T02."""
-    return schedule_format_interval(seconds)
-
-
-def _scheduled_job_line(job) -> str:
-    """Compatibility renderer retained while Telegram UI moves under bridge/."""
-    return scheduled_job_line(job)
-
-
-_schedule_service = ScheduleService(
-    task_store,
-    _request_guard,
-)
-_schedule_commands: ScheduleCommands | None = None
-
-
-def _wake_task_service() -> None:
-    if task_service is None:
-        raise RuntimeError("خدمة المهام غير جاهزة")
-    task_service.wake()
-
-
-def _schedule_command_adapter() -> ScheduleCommands:
-    global _schedule_commands
-    if _schedule_commands is None:
-        _schedule_commands = ScheduleCommands(
-            _schedule_service,
-            reply=_safe_reply,
-            create_status=_create_task_status_message,
-            edit_status=_edit_task_status_message,
-            wake_tasks=_wake_task_service,
-            error_message=user_error,
-            audit_write=audit.write,
-            max_message_length=MAX_MESSAGE_LENGTH,
-            logger=log,
-        )
-    return _schedule_commands
-
-
-def _media_adapter() -> TelegramMediaAdapter:
-    global _media_adapter_instance
-    if _media_adapter_instance is None:
-        _media_adapter_instance = TelegramMediaAdapter(
-            attachment_store,
-            _media_service,
-            reply=_safe_reply,
-            create_status=_create_task_status_message,
-            edit_status=_edit_task_status_message,
-            wake_tasks=_wake_task_service,
-            error_message=user_error,
-            audit_write=audit.write,
-            debounce_seconds=MEDIA_GROUP_DEBOUNCE_SECONDS,
-            logger=log,
-        )
-    return _media_adapter_instance
-
-
-async def _render_schedules_for_owner(owner_id: str) -> str:
-    """Compatibility helper for callers outside the new Telegram adapter."""
-    jobs = await _schedule_service.list(owner_id)
-    from bridge.telegram.rendering.schedules import render_schedule_list
-
-    return render_schedule_list(jobs, MAX_MESSAGE_LENGTH)
-
+    await _task_command_adapter().cancel(update, context)
 
 @authorized
 async def cmd_schedules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1021,60 +840,11 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @authorized
 async def cmd_progress(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = str(update.effective_user.id)
-    try:
-        progress = progress_store.latest_for_owner(user_id)
-        if progress and progress.owner_id == user_id:
-            await _safe_reply(update.message, render_progress(progress, detail=True))
-            return
-        task = await task_store.latest_active_for_owner(user_id)
-        if task is None:
-            await _safe_reply(update.message, "لا يوجد طلب حالي لعرض تقدمه.")
-            return
-        await _safe_reply(update.message, render_persisted_activity(task.id, task.status, task.activity, detail=True))
-    except Exception as exc:
-        log.exception("فشل عرض تقدم الطلب")
-        await _safe_reply(update.message, user_error(exc, "عرض تقدم الطلب"))
-
+    await _task_command_adapter().progress(update, context)
 
 @authorized
 async def cmd_trace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = str(update.effective_user.id)
-    try:
-        progress = progress_store.latest_for_owner(user_id)
-        if progress and progress.owner_id == user_id:
-            await _safe_reply(update.message, render_progress(progress, detail=True))
-            return
-        task = await task_store.latest_active_for_owner(user_id)
-        if task is None:
-            await _safe_reply(update.message, "لا يوجد سجل طلب حالي.")
-            return
-        await _safe_reply(update.message, render_persisted_activity(task.id, task.status, task.activity, detail=True))
-    except Exception as exc:
-        log.exception("فشل عرض سجل الطلب")
-        await _safe_reply(update.message, user_error(exc, "عرض سجل الطلب"))
-
-
-async def handle_reboot_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    if query is None or query.data not in {"reboot:now", "reboot:cancel"}:
-        return
-    if not _is_allowed(update):
-        await query.answer("غير مصرح لك باستخدام هذا الزر.", show_alert=True)
-        return
-    request = read_state(REBOOT_REQUEST_PATH)
-    if request is None or request.get("status") != "awaiting":
-        await query.answer("لا يوجد طلب إعادة تشغيل معلّق.", show_alert=True)
-        return
-    action = "reboot_now" if query.data == "reboot:now" else "cancel"
-    write_state(
-        REBOOT_DECISION_PATH,
-        {"action": action, "request_id": str(request.get("request_id") or ""), "source": "telegram_button"},
-    )
-    outcome = "تم تسجيل طلب إعادة التشغيل." if action == "reboot_now" else "تم إلغاء طلب إعادة التشغيل."
-    await query.answer(outcome, show_alert=True)
-    audit.write("reboot_decision", action, actor_id=update.effective_user.id, details={"source": "telegram_button"})
-
+    await _task_command_adapter().trace(update, context)
 
 @authorized
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1161,94 +931,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @authorized
 async def cmd_research_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.effective_chat or not update.effective_user:
-        return
-    raw_command = update.message.text.split(maxsplit=1)[0].lstrip("/").split("@", 1)[0].lower()
-    mode = RESEARCH_COMMAND_MODES.get(raw_command)
-    if mode is None:
-        await _safe_reply(update.message, "وضع البحث المطلوب غير معروف.")
-        return
-    prompt = " ".join(context.args).strip()
-    if not prompt:
-        await _safe_reply(update.message, f"استخدمها هيك: /{raw_command} الطلب")
-        return
-    build_reason = check_build(prompt)
-    hardline_reason = check_hardline(prompt)
-    if build_reason:
-        await _safe_reply(update.message, build_blocked_message(build_reason))
-        return
-    if hardline_reason:
-        await _safe_reply(update.message, f"لم يُنفذ الطلب لأنه محظور لحماية الخادم: {hardline_reason}.")
-        return
-
-    user_id = str(update.effective_user.id)
-    status_message_id = await _create_task_status_message(context.bot, update.effective_chat.id, "جاري تجهيز البحث…")
-    try:
-        enhanced = enhance_prompt(prompt, requested_mode=mode)
-        task, position = await task_store.enqueue(
-            user_id,
-            update.effective_chat.id,
-            prompt,
-            execution_mode=mode.value,
-            status_message_id=status_message_id,
-        )
-        assert task_service is not None
-        task_service.wake()
-        audit.write(
-            "research_command_queued",
-            "accepted",
-            actor_id=user_id,
-            details={
-                "task_id": task.id,
-                "mode": mode,
-                "intent": enhanced.intent,
-                "research_depth": enhanced.research_depth,
-                "position": position,
-            },
-        )
-    except Exception as exc:
-        log.exception("فشل تسجيل أمر البحث %s", raw_command)
-        error_text = user_error(exc, "تسجيل مهمة البحث")
-        if status_message_id is not None:
-            await _edit_task_status_message(context.bot, update.effective_chat.id, status_message_id, error_text)
-        else:
-            await _safe_reply(update.message, error_text)
-
-
-async def _queue_attachment_task(
-    owner_id: str,
-    chat_id: int,
-    prompt: str,
-    attachments: list,
-    bot,
-) -> None:
-    """Compatibility wrapper for the T02 media application service."""
-    await _media_adapter().queue_batch(owner_id, chat_id, prompt, attachments, bot)
-
-
-async def _stage_attachment_batch(
-    owner_id: str,
-    chat_id: int,
-    attachments: list,
-    bot,
-) -> None:
-    """Compatibility wrapper for pending attachment staging."""
-    await _media_adapter().stage_batch(owner_id, chat_id, attachments)
-
-
-async def _ingest_attachment_batch(
-    owner_id: str,
-    chat_id: int,
-    attachments: list,
-    prompt: str,
-    bot,
-) -> None:
-    await _media_adapter().ingest_batch(owner_id, chat_id, attachments, prompt, bot)
-
-
-async def _pending_attachment_cleanup_loop() -> None:
-    await _media_adapter().cleanup_loop()
-
+    await _task_command_adapter().research(update, context)
 
 @authorized
 async def cmd_discard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1262,74 +945,7 @@ async def handle_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 @authorized
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.message.text or not update.effective_chat:
-        return
-    text = update.message.text.strip()
-    if not text:
-        return
-
-    enhanced_prompt = enhance_prompt(text)
-    audit.write(
-        "request_received",
-        "accepted",
-        actor_id=update.effective_user.id,
-        details={
-            "text_length": len(text),
-            "is_arabic": enhanced_prompt.is_arabic,
-            "is_research": enhanced_prompt.is_research,
-            "intent": enhanced_prompt.intent,
-            "research_depth": enhanced_prompt.research_depth,
-            "requested_mode": enhanced_prompt.requested_mode,
-        },
-    )
-    build_reason = check_build(text)
-    if build_reason:
-        audit.write("request_blocked", "blocked", actor_id=update.effective_user.id, details={"policy": "build", "reason": build_reason})
-        await _safe_reply(update.message, build_blocked_message(build_reason))
-        return
-    hardline_reason = check_hardline(text)
-    if hardline_reason:
-        audit.write("request_blocked", "blocked", actor_id=update.effective_user.id, details={"policy": "hardline", "reason": hardline_reason})
-        await _safe_reply(update.message, f"لم يُنفذ الطلب لأنه محظور لحماية الخادم: {hardline_reason}.")
-        return
-
-    user_id = str(update.effective_user.id)
-    if await _media_adapter().consume_pending_instruction(update, context, text):
-        return
-
-    status_message_id = await _create_task_status_message(
-        context.bot,
-        update.effective_chat.id,
-        "جاري تجهيز الطلب…",
-    )
-    try:
-        task, position = await task_store.enqueue(
-            user_id,
-            update.effective_chat.id,
-            text,
-            status_message_id=status_message_id,
-        )
-        assert task_service is not None
-        task_service.wake()
-        audit.write(
-            "task_queued",
-            "accepted",
-            actor_id=task.owner_id,
-            details={"task_id": task.id, "position": position},
-        )
-    except Exception as exc:
-        log.exception("فشل تسجيل الطلب")
-        error_text = user_error(exc, "تسجيل الطلب")
-        if status_message_id is not None:
-            await _edit_task_status_message(
-                context.bot,
-                update.effective_chat.id,
-                status_message_id,
-                error_text,
-            )
-        else:
-            await _safe_reply(update.message, error_text)
-
+    await _task_command_adapter().text(update, context)
 
 async def post_init(app: Application) -> None:
     global task_service, model_manager, pending_cleanup_task
