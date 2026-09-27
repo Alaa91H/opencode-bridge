@@ -177,6 +177,7 @@ _ALLOWED_SECTION_KEYS: dict[str, set[str]] = {
     "agent": {
         "scout_interval_seconds",
         "scout_preferred_agent",
+        "v3_agent",
         "task_workers",
         "task_poll_seconds",
         "worker_recovery_seconds",
@@ -256,6 +257,7 @@ class OpenCodeSettings:
 class AgentSettings:
     scout_interval_seconds: float = 86400.0
     scout_preferred_agent: str = "development-agent"
+    v3_agent: str = "development-agent"
     task_workers: int = 2
     task_poll_seconds: float = 5.0
     worker_recovery_seconds: float = 30.0
@@ -483,6 +485,13 @@ class BridgeSettings:
             scout_preferred_agent=str(_source_value(
                 merged_env, config, "AGENT_SCOUT_PREFERRED_AGENT",
                 "agent.scout_preferred_agent", "development-agent"
+            )).strip() or "development-agent",
+            v3_agent=str(_source_value(
+                merged_env,
+                config,
+                "OPENCODE_AGENT",
+                "agent.v3_agent",
+                _nested(config, "opencode.agent", "development-agent"),
             )).strip() or "development-agent",
             task_workers=_parse_int(
                 _source_value(
