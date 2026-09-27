@@ -40,12 +40,14 @@ from bridge.services.agent_service import AgentService
 from bridge.services.media_service import MediaTaskService
 from bridge.services.schedule_service import ScheduleService
 from bridge.services.task_service import TaskApplicationService
+from bridge.services.task_execution_service import TaskExecutionService
 from bridge.telegram.app import build_application, core_commands, register_core_handlers
 from bridge.telegram.attachments import TelegramMediaAdapter
 from bridge.telegram.callbacks.reboot import RebootCallbackAdapter
 from bridge.telegram.commands.agent import AgentCommands
 from bridge.telegram.commands.schedules import ScheduleCommands
 from bridge.telegram.commands.tasks import TaskCommands
+from bridge.telegram.execution import TelegramExecutionDelivery
 from bridge.telegram.middleware import TelegramAccessController
 from bridge.telegram.rendering.schedules import scheduled_job_line
 from formatter import MAX_MESSAGE_LENGTH
@@ -199,6 +201,13 @@ _media_service = MediaTaskService(
     max_total_bytes=ATTACHMENT_MAX_TOTAL_BYTES,
 )
 _schedule_service = ScheduleService(task_store, _request_guard)
+_task_execution_service = TaskExecutionService(
+    task_store,
+    _agent_service,
+    attachment_store,
+    audit_write=audit.write,
+    logger=log,
+)
 UTC = timezone.utc
 
 F = TypeVar("F", bound=Callable[..., Awaitable[None]])
