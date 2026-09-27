@@ -56,6 +56,16 @@ class TaskApplicationService:
         self.attachment_store = attachment_store
         self.guard = guard
 
+    def inspect_prompt(
+        self,
+        prompt: str,
+        execution_mode: ResearchMode | None = None,
+    ) -> Any:
+        return enhance_prompt(prompt, requested_mode=execution_mode)
+
+    def ensure_allowed(self, prompt: str) -> None:
+        self.guard.ensure_allowed(prompt)
+
     async def enqueue_prompt(
         self,
         owner_id: str,
