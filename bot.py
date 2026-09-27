@@ -359,7 +359,7 @@ async def _ensure_session(telegram_user_id: str) -> str:
     return await _agent_service.ensure_session(telegram_user_id)
 
 
-async async def _safe_reply(message, text: str) -> None:
+async def _safe_reply(message, text: str) -> None:
     for attempt in range(3):
         try:
             await message.reply_text(text, disable_web_page_preview=True)
@@ -426,12 +426,12 @@ def _task_status_text(task: QueuedTask) -> str:
     return labels.get(task.status, task.status)
 
 
-async def _variant_for_model(model_id: str | None) -> str | None:
+def _variant_for_model(model_id: str | None) -> str | None:
     """Compatibility wrapper for AgentService model-variant selection."""
     return _agent_service.variant_for_model(model_id)
 
 
-async async def _execute_agent_task(task: QueuedTask, bot) -> None:
+async def _execute_agent_task(task: QueuedTask, bot) -> None:
     """Compatibility wrapper around the T02 execution service."""
     delivery = TelegramExecutionDelivery(
         bot,
