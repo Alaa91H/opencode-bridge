@@ -37,6 +37,7 @@ from bridge.domain.schedules import (
     split_pipe_args as schedule_split_pipe_args,
 )
 from bridge.services.agent_service import AgentService
+from bridge.services.maintenance_service import MaintenanceReportService
 from bridge.services.media_service import MediaTaskService
 from bridge.services.schedule_service import ScheduleService
 from bridge.services.task_service import TaskApplicationService
@@ -46,6 +47,7 @@ from bridge.telegram.attachments import TelegramMediaAdapter
 from bridge.telegram.callbacks.reboot import RebootCallbackAdapter
 from bridge.telegram.commands.agent import AgentCommands
 from bridge.telegram.commands.schedules import ScheduleCommands
+from bridge.telegram.commands.system import SystemCommands
 from bridge.telegram.commands.tasks import TaskCommands
 from bridge.telegram.execution import TelegramExecutionDelivery
 from bridge.telegram.middleware import TelegramAccessController
@@ -173,6 +175,7 @@ _media_adapter_instance: TelegramMediaAdapter | None = None
 _task_commands_instance: TaskCommands | None = None
 _schedule_commands_instance: ScheduleCommands | None = None
 _agent_commands_instance: AgentCommands | None = None
+_system_commands_instance: SystemCommands | None = None
 _reboot_callback_instance: RebootCallbackAdapter | None = None
 _access_controller_instance: TelegramAccessController | None = None
 _request_guard = RequestGuard((check_build, check_hardline))
@@ -208,6 +211,7 @@ _task_execution_service = TaskExecutionService(
     audit_write=audit.write,
     logger=log,
 )
+_maintenance_service = MaintenanceReportService(MAINTENANCE_REPORT_PATH)
 UTC = timezone.utc
 
 F = TypeVar("F", bound=Callable[..., Awaitable[None]])
@@ -343,6 +347,19 @@ def _agent_command_adapter() -> AgentCommands:
             logger=log,
         )
     return _agent_commands_instance
+
+
+def _system_command_adapter() -> SystemCommands:
+    global _system_commands_instance
+    if _system_commands_instance is None:
+        _system_commands_instance = SystemCommands(
+            _maintenance_service,
+            reply=_safe_reply,
+            help_text=HELP_TEXT,
+            error_message=user_error,
+            logger=log,
+        )
+    return _system_commands_instance
 
 
 async def _pending_attachment_cleanup_loop() -> None:
@@ -569,6 +586,9 @@ async def cmd_agents(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 @authorized
 async def cmd_maintenance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _system_command_adapter().maintenance(update, context)
+
+async def cmd_maintenance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         if not MAINTENANCE_REPORT_PATH.is_file():
             await _safe_reply(update.message, "لسّا ما في تقرير صيانة يومي. أول تقرير بينحفظ بعد أول تشغيل مجدول.")
@@ -584,6 +604,9 @@ async def cmd_maintenance(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 @authorized
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _system_command_adapter().help(update, context)
+
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _safe_reply(update.message, HELP_TEXT)
 
