@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
 from telegram import BotCommand, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
@@ -13,8 +11,8 @@ from bridge.services.ci_service import CIStatusService
 from bridge.telegram.commands.ci import CICommands
 from github_ci import GitHubCIClient
 
-CI_WORKFLOW = os.environ.get("GITHUB_CI_WORKFLOW", "CI").strip() or None
-client = GitHubCIClient()
+CI_WORKFLOW = core.SETTINGS.github.ci_workflow
+client = GitHubCIClient(core.SETTINGS.github.token)
 service = CIStatusService(v3_plugin.workspace_service, client, CI_WORKFLOW)
 _commands_instance: CICommands | None = None
 
