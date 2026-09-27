@@ -36,7 +36,9 @@ from bridge.domain.schedules import (
     parse_utc_datetime as schedule_parse_utc_datetime,
     split_pipe_args as schedule_split_pipe_args,
 )
+from bridge.services.media_service import MediaTaskService
 from bridge.services.schedule_service import ScheduleService
+from bridge.telegram.attachments import TelegramMediaAdapter
 from bridge.telegram.commands.schedules import ScheduleCommands
 from bridge.telegram.rendering.schedules import scheduled_job_line
 from formatter import MAX_MESSAGE_LENGTH
@@ -158,8 +160,16 @@ live_reporters: dict[int, LiveProgressReporter] = {}
 task_service: TaskService | None = None
 model_manager: ModelManager | None = None
 pending_cleanup_task: asyncio.Task[None] | None = None
-media_group_batches: dict[tuple[int, str], dict[str, object]] = {}
-media_group_flush_tasks: dict[tuple[int, str], asyncio.Task[None]] = {}
+_media_adapter_instance: TelegramMediaAdapter | None = None
+_request_guard = RequestGuard((check_build, check_hardline))
+_media_service = MediaTaskService(
+    task_store,
+    attachment_store,
+    _request_guard,
+    pending_ttl_seconds=ATTACHMENT_PENDING_SECONDS,
+    max_count=ATTACHMENT_MAX_COUNT,
+    max_total_bytes=ATTACHMENT_MAX_TOTAL_BYTES,
+)
 UTC = timezone.utc
 
 F = TypeVar("F", bound=Callable[..., Awaitable[None]])
@@ -830,7 +840,7 @@ def _scheduled_job_line(job) -> str:
 
 _schedule_service = ScheduleService(
     task_store,
-    RequestGuard((check_build, check_hardline)),
+    _request_guard,
 )
 _schedule_commands: ScheduleCommands | None = None
 
@@ -856,6 +866,24 @@ def _schedule_command_adapter() -> ScheduleCommands:
             logger=log,
         )
     return _schedule_commands
+
+
+def _media_adapter() -> TelegramMediaAdapter:
+    global _media_adapter_instance
+    if _media_adapter_instance is None:
+        _media_adapter_instance = TelegramMediaAdapter(
+            attachment_store,
+            _media_service,
+            reply=_safe_reply,
+            create_status=_create_task_status_message,
+            edit_status=_edit_task_status_message,
+            wake_tasks=_wake_task_service,
+            error_message=user_error,
+            audit_write=audit.write,
+            debounce_seconds=MEDIA_GROUP_DEBOUNCE_SECONDS,
+            logger=log,
+        )
+    return _media_adapter_instance
 
 
 async def _render_schedules_for_owner(owner_id: str) -> str:
@@ -1194,54 +1222,8 @@ async def _queue_attachment_task(
     attachments: list,
     bot,
 ) -> None:
-    records = [attachment.to_record() for attachment in attachments]
-    pending_records, expired = await task_store.pop_pending_attachments(owner_id, chat_id)
-    if expired:
-        attachment_store.delete_input_records(pending_records)
-        pending_records = ()
-    combined_records = [*pending_records, *records]
-    attachment_store.validate_input_records(combined_records)
-
-    build_reason = check_build(prompt)
-    hardline_reason = check_hardline(prompt)
-    if build_reason or hardline_reason:
-        attachment_store.delete_input_records(combined_records)
-        blocked_text = (
-            build_blocked_message(build_reason)
-            if build_reason
-            else f"لم يُنفذ الطلب لأنه محظور لحماية الخادم: {hardline_reason}."
-        )
-        await bot.send_message(chat_id=chat_id, text=blocked_text)
-        return
-
-    status_message_id = await _create_task_status_message(bot, chat_id, "جاري تجهيز الملفات…")
-    try:
-        task, position = await task_store.enqueue(
-            owner_id,
-            chat_id,
-            prompt,
-            attachments=combined_records,
-            status_message_id=status_message_id,
-        )
-    except Exception as exc:
-        error_text = user_error(exc, "تسجيل الطلب")
-        if status_message_id is not None:
-            await _edit_task_status_message(bot, chat_id, status_message_id, error_text)
-        raise
-
-    assert task_service is not None
-    task_service.wake()
-    audit.write(
-        "attachment_task_queued",
-        "accepted",
-        actor_id=owner_id,
-        details={
-            "task_id": task.id,
-            "position": position,
-            "attachment_count": len(combined_records),
-            "total_bytes": sum(int(item.get("size", 0) or 0) for item in combined_records),
-        },
-    )
+    """Compatibility wrapper for the T02 media application service."""
+    await _media_adapter().queue_batch(owner_id, chat_id, prompt, attachments, bot)
 
 
 async def _stage_attachment_batch(
@@ -1250,31 +1232,8 @@ async def _stage_attachment_batch(
     attachments: list,
     bot,
 ) -> None:
-    records = [attachment.to_record() for attachment in attachments]
-    attachment_store.validate_input_records(records)
-    try:
-        batch, expired_records = await task_store.stage_pending_attachments(
-            owner_id,
-            chat_id,
-            records,
-            ttl_seconds=ATTACHMENT_PENDING_SECONDS,
-            max_count=ATTACHMENT_MAX_COUNT,
-            max_total_bytes=ATTACHMENT_MAX_TOTAL_BYTES,
-        )
-    except ValueError:
-        attachment_store.delete_input_records(records)
-        raise
-    if expired_records:
-        attachment_store.delete_input_records(expired_records)
-    audit.write(
-        "attachment_staged",
-        "accepted",
-        actor_id=owner_id,
-        details={
-            "attachment_count": len(batch.attachments),
-            "expires_at": batch.expires_at.isoformat(),
-        },
-    )
+    """Compatibility wrapper for pending attachment staging."""
+    await _media_adapter().stage_batch(owner_id, chat_id, attachments)
 
 
 async def _ingest_attachment_batch(
@@ -1284,124 +1243,21 @@ async def _ingest_attachment_batch(
     prompt: str,
     bot,
 ) -> None:
-    prompt = prompt.strip()
-    if prompt:
-        await _queue_attachment_task(owner_id, chat_id, prompt, attachments, bot)
-    else:
-        await _stage_attachment_batch(owner_id, chat_id, attachments, bot)
-
-
-async def _flush_media_group_after_delay(key: tuple[int, str], bot) -> None:
-    current_task = asyncio.current_task()
-    batch: dict[str, object] | None = None
-    try:
-        await asyncio.sleep(MEDIA_GROUP_DEBOUNCE_SECONDS)
-        batch = media_group_batches.pop(key, None)
-        if not batch:
-            return
-        attachments = list(batch.get("attachments") or [])
-        await _ingest_attachment_batch(
-            str(batch["owner_id"]),
-            int(batch["chat_id"]),
-            attachments,
-            str(batch.get("prompt") or ""),
-            bot,
-        )
-    except asyncio.CancelledError:
-        return
-    except (AttachmentError, ValueError) as exc:
-        if batch:
-            attachment_store.delete_input_records(
-                [item.to_record() for item in list(batch.get("attachments") or [])]
-            )
-        await bot.send_message(chat_id=key[0], text=f"ما قدرت أجهّز مجموعة المرفقات: {exc}.")
-    except Exception as exc:
-        if batch:
-            attachment_store.delete_input_records(
-                [item.to_record() for item in list(batch.get("attachments") or [])]
-            )
-        log.exception("فشل تجهيز مجموعة مرفقات تيليغرام")
-        await bot.send_message(chat_id=key[0], text=user_error(exc, "تجهيز مجموعة المرفقات"))
-    finally:
-        if media_group_flush_tasks.get(key) is current_task:
-            media_group_flush_tasks.pop(key, None)
+    await _media_adapter().ingest_batch(owner_id, chat_id, attachments, prompt, bot)
 
 
 async def _pending_attachment_cleanup_loop() -> None:
-    while True:
-        try:
-            await asyncio.sleep(min(60, max(15, ATTACHMENT_PENDING_SECONDS // 4)))
-            expired_records = await task_store.purge_expired_pending_attachments()
-            if expired_records:
-                deleted = attachment_store.delete_input_records(expired_records)
-                audit.write(
-                    "pending_attachments_expired",
-                    "cleaned",
-                    details={"records": len(expired_records), "files_deleted": deleted},
-                )
-        except asyncio.CancelledError:
-            return
-        except Exception as exc:
-            log.warning("تعذر تنظيف المرفقات المعلّقة المنتهية: %s", type(exc).__name__)
+    await _media_adapter().cleanup_loop()
 
 
 @authorized
 async def cmd_discard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.effective_user or not update.effective_chat:
-        return
-    owner_id = str(update.effective_user.id)
-    records, _ = await task_store.pop_pending_attachments(owner_id, update.effective_chat.id)
-    if not records:
-        await _safe_reply(update.message, "ما في مرفقات معلّقة لإلغائها.")
-        return
-    attachment_store.delete_input_records(records)
-    await _safe_reply(update.message, "تم إلغاء الملفات المعلّقة.")
+    await _media_adapter().discard(update, context)
 
 
 @authorized
 async def handle_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.effective_chat or not update.effective_user:
-        return
-    attachment = None
-    try:
-        owner_id = str(update.effective_user.id)
-        chat_id = update.effective_chat.id
-        attachment = await attachment_store.download_from_message(update.message, context.bot, owner_id)
-        prompt = (update.message.caption or "").strip()
-        media_group_id = getattr(update.message, "media_group_id", None)
-
-        if media_group_id:
-            key = (chat_id, str(media_group_id))
-            batch = media_group_batches.setdefault(
-                key,
-                {"owner_id": owner_id, "chat_id": chat_id, "attachments": [], "prompt": ""},
-            )
-            if str(batch["owner_id"]) != owner_id:
-                raise AttachmentError("مجموعة الوسائط لا تطابق صاحب المهمة")
-            cast_attachments = batch["attachments"]
-            if not isinstance(cast_attachments, list):
-                raise AttachmentError("حالة مجموعة الوسائط غير صالحة")
-            cast_attachments.append(attachment)
-            if prompt and not batch.get("prompt"):
-                batch["prompt"] = prompt
-            previous = media_group_flush_tasks.get(key)
-            if previous:
-                previous.cancel()
-            media_group_flush_tasks[key] = asyncio.create_task(
-                _flush_media_group_after_delay(key, context.bot)
-            )
-            return
-
-        await _ingest_attachment_batch(owner_id, chat_id, [attachment], prompt, context.bot)
-    except (AttachmentError, ValueError) as exc:
-        if attachment is not None:
-            attachment_store.delete_input_records([attachment.to_record()])
-        await _safe_reply(update.message, f"ما قدرت أستلم المرفق: {exc}.")
-    except Exception as exc:
-        if attachment is not None:
-            attachment_store.delete_input_records([attachment.to_record()])
-        log.exception("فشل استلام مرفق تيليغرام")
-        await _safe_reply(update.message, user_error(exc, "استلام المرفق"))
+    await _media_adapter().handle_attachment(update, context)
 
 
 @authorized
@@ -1438,43 +1294,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     user_id = str(update.effective_user.id)
-    pending_records, pending_expired = await task_store.pop_pending_attachments(
-        user_id,
-        update.effective_chat.id,
-    )
-    if pending_records:
-        if pending_expired:
-            attachment_store.delete_input_records(pending_records)
-            await _safe_reply(
-                update.message,
-                "انتهت مهلة الملفات المعلّقة. أعد إرسالها ثم أرسل الأمر.",
-            )
-            return
-        try:
-            pending_attachments = [
-                attachment_store.validate_input_records([record])[0]
-                for record in pending_records
-            ]
-            await _queue_attachment_task(
-                user_id,
-                update.effective_chat.id,
-                text,
-                pending_attachments,
-                context.bot,
-            )
-        except Exception:
-            try:
-                await task_store.stage_pending_attachments(
-                    user_id,
-                    update.effective_chat.id,
-                    list(pending_records),
-                    ttl_seconds=ATTACHMENT_PENDING_SECONDS,
-                    max_count=ATTACHMENT_MAX_COUNT,
-                    max_total_bytes=ATTACHMENT_MAX_TOTAL_BYTES,
-                )
-            except Exception:
-                log.exception("تعذر استعادة الملفات المعلّقة بعد فشل ربط الأمر")
-            raise
+    if await _media_adapter().consume_pending_instruction(update, context, text):
         return
 
     status_message_id = await _create_task_status_message(
@@ -1603,18 +1423,8 @@ async def post_shutdown(app: Application) -> None:
         except asyncio.CancelledError:
             pass
         pending_cleanup_task = None
-    for task in list(media_group_flush_tasks.values()):
-        task.cancel()
-    media_group_flush_tasks.clear()
-    orphaned_records = [
-        attachment.to_record()
-        for batch in media_group_batches.values()
-        for attachment in list(batch.get("attachments") or [])
-        if hasattr(attachment, "to_record")
-    ]
-    media_group_batches.clear()
-    if orphaned_records:
-        attachment_store.delete_input_records(orphaned_records)
+    if _media_adapter_instance is not None:
+        await _media_adapter_instance.shutdown()
     if model_manager is not None:
         await model_manager.stop()
         model_manager = None
