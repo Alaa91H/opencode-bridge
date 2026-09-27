@@ -44,6 +44,22 @@ It is intentionally designed so the production server acts as an **agent executi
 - GitHub CI integration for verification and release workflows.
 - systemd-based deployment for long-running services.
 
+## Attachment & Media Tasks
+
+Telegram attachments are first-class queued tasks:
+
+- A photo, video, audio item or document with a caption is queued together with that caption as one instruction-bound task.
+- Files sent without a caption are persisted temporarily; the next ordinary text message in the same chat becomes the instruction for the whole pending batch.
+- Telegram media groups are debounced and combined into a single task instead of spawning one task per image/video.
+- Multiple separately sent files can be staged before the instruction, subject to per-file, per-task count, and aggregate-size limits.
+- Pending files survive a bridge process restart and expire automatically if no instruction arrives; `/discard` removes them immediately.
+- Every downloaded input receives a SHA-256 digest and is revalidated for path, size and content integrity immediately before execution.
+- Attachment content is treated as untrusted data. Embedded instructions, scripts, macros and binaries are never executed merely because they arrived in a file.
+- OpenCode-visible text and supported image formats are attached directly to the model. PDF, audio, video and other binary formats are processed from their validated local paths with already-installed server tools when the requested task requires it.
+- Intermediate conversions are restricted to a per-task scratch directory that is deleted at task completion. Only files written to the managed output directory are returned to Telegram.
+- Original incoming files are deleted after a non-recurring task reaches its terminal execution path; daily maintenance remains a fallback for interrupted-process cleanup.
+
+The bridge never installs a parser or codec on demand. If an appropriate read-only server tool is unavailable, the agent must report that limitation rather than execute unknown content or fabricate an analysis. See the current [OpenCode attachment documentation](https://opencode.ai/v2/docs/attachments) for model-visible formats.
 ## Safety & Execution Guardrails
 
 The checked-in OpenCode policy blocks high-risk or inappropriate server-side operations, including:
