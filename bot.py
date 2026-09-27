@@ -1150,33 +1150,23 @@ async def _queue_attachment_task(
         await bot.send_message(chat_id=chat_id, text=blocked_text)
         return
 
-    task, position = await task_store.enqueue(
-        owner_id,
-        chat_id,
-        prompt,
-        attachments=combined_records,
-    )
-    assert task_service is not None
-    task_service.wake()
+    status_message_id = await _create_task_status_message(bot, chat_id, "جاري تجهيز الملفات…")
     try:
-        today_count = await task_store.count_created_for_day(
+        task, position = await task_store.enqueue(
             owner_id,
-            day_timezone=DAILY_TASK_COUNTER_TIMEZONE,
-        )
-        position_text = "وهي الجاية بالتنفيذ" if position == 1 else f"بترتيب {position}"
-        await bot.send_message(
-            chat_id=chat_id,
-            text=(
-                f"تم ربط الأمر مع {len(combined_records)} مرفق وتسجيل مهمة اليوم رقم "
-                f"{today_count} {position_text}."
-            ),
+            chat_id,
+            prompt,
+            attachments=combined_records,
+            status_message_id=status_message_id,
         )
     except Exception as exc:
-        log.warning(
-            "تم إنشاء مهمة المرفقات #%s لكن تعذر إرسال تأكيد تيليغرام: %s",
-            task.id,
-            type(exc).__name__,
-        )
+        error_text = user_error(exc, "تسجيل الطلب")
+        if status_message_id is not None:
+            await _edit_task_status_message(bot, chat_id, status_message_id, error_text)
+        raise
+
+    assert task_service is not None
+    task_service.wake()
     audit.write(
         "attachment_task_queued",
         "accepted",
@@ -1212,22 +1202,6 @@ async def _stage_attachment_batch(
         raise
     if expired_records:
         attachment_store.delete_input_records(expired_records)
-    minutes = max(1, ATTACHMENT_PENDING_SECONDS // 60)
-    try:
-        await bot.send_message(
-            chat_id=chat_id,
-            text=(
-                f"تم استلام {len(batch.attachments)} مرفق وحفظه بأمان. "
-                f"أرسل الآن الأمر المطلوب خلال {minutes} دقائق وسأربطه بكل الملفات في مهمة واحدة. "
-                "يمكنك إرسال ملفات إضافية قبل الأمر، أو /discard لإلغاء المرفقات المعلّقة."
-            ),
-        )
-    except Exception as exc:
-        log.warning(
-            "تم حفظ %s مرفق معلّق لكن تعذر إرسال تأكيد تيليغرام: %s",
-            len(batch.attachments),
-            type(exc).__name__,
-        )
     audit.write(
         "attachment_staged",
         "accepted",
@@ -1316,8 +1290,8 @@ async def cmd_discard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not records:
         await _safe_reply(update.message, "ما في مرفقات معلّقة لإلغائها.")
         return
-    deleted = attachment_store.delete_input_records(records)
-    await _safe_reply(update.message, f"تم إلغاء المرفقات المعلّقة وحذف {deleted} ملف من مساحة الاستلام.")
+    attachment_store.delete_input_records(records)
+    await _safe_reply(update.message, "تم إلغاء الملفات المعلّقة.")
 
 
 @authorized
@@ -1409,7 +1383,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             attachment_store.delete_input_records(pending_records)
             await _safe_reply(
                 update.message,
-                "انتهت مهلة المرفقات المعلّقة قبل وصول الأمر. أعد إرسال الملفات مع الأمر أو أرسلها ثم اكتب الأمر مباشرة.",
+                "انتهت مهلة الملفات المعلّقة. أعد إرسالها ثم أرسل الأمر.",
             )
             return
         try:
@@ -1435,21 +1409,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     max_total_bytes=ATTACHMENT_MAX_TOTAL_BYTES,
                 )
             except Exception:
-                log.exception("تعذر استعادة المرفقات المعلّقة بعد فشل ربط الأمر")
+                log.exception("تعذر استعادة الملفات المعلّقة بعد فشل ربط الأمر")
             raise
         return
 
-    task, position = await task_store.enqueue(user_id, update.effective_chat.id, text)
-    today_count = await task_store.count_created_for_day(user_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
-    assert task_service is not None
-    task_service.wake()
-    if position == 1:
-        reply = f"تمام، سجلت مهمة اليوم رقم {today_count} وهي الجاية بالتنفيذ."
-    else:
-        reply = f"تمام، سجلت مهمة اليوم رقم {today_count} بترتيب {position}. أول ما تخلص المهمة اللي قبلها رح تبلّش لحالها."
-
-    await _safe_reply(update.message, reply)
-    audit.write("task_queued", "accepted", actor_id=task.owner_id, details={"task_id": task.id, "position": position})
+    status_message_id = await _create_task_status_message(
+        context.bot,
+        update.effective_chat.id,
+        "جاري تجهيز الطلب…",
+    )
+    try:
+        task, position = await task_store.enqueue(
+            user_id,
+            update.effective_chat.id,
+            text,
+            status_message_id=status_message_id,
+        )
+        assert task_service is not None
+        task_service.wake()
+        audit.write(
+            "task_queued",
+            "accepted",
+            actor_id=task.owner_id,
+            details={"task_id": task.id, "position": position},
+        )
+    except Exception as exc:
+        log.exception("فشل تسجيل الطلب")
+        error_text = user_error(exc, "تسجيل الطلب")
+        if status_message_id is not None:
+            await _edit_task_status_message(
+                context.bot,
+                update.effective_chat.id,
+                status_message_id,
+                error_text,
+            )
+        else:
+            await _safe_reply(update.message, error_text)
 
 
 async def post_init(app: Application) -> None:
