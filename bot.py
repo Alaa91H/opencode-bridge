@@ -806,21 +806,26 @@ async def cmd_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         when_text, prompt = _split_schedule_args(" ".join(context.args))
         reason = check_build(prompt) or check_hardline(prompt)
         if reason:
-            await _safe_reply(update.message, f"ما جدولت الطلب لأنه محظور لحماية الخادم: {reason}.")
+            await _safe_reply(update.message, f"تعذر جدولة الطلب: {reason}.")
             return
         due_at = _parse_utc_datetime(when_text)
         user_id = str(update.effective_user.id)
         task = await task_store.schedule(user_id, update.effective_chat.id, prompt, due_at)
-        today_count = await task_store.count_created_for_day(user_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
+        message_id = await _create_task_status_message(
+            context.bot,
+            update.effective_chat.id,
+            f"تمت الجدولة إلى {due_at.strftime('%Y-%m-%d %H:%M UTC')}.",
+        )
+        if message_id is not None:
+            await task_store.set_status_message_id(task.id, message_id)
         assert task_service is not None
         task_service.wake()
-        await _safe_reply(update.message, f"تمام، جدولت مهمة اليوم رقم {today_count} لوقت {due_at.strftime('%Y-%m-%d %H:%M UTC')}." )
         audit.write("task_scheduled", "accepted", actor_id=task.owner_id, details={"task_id": task.id, "repeat_seconds": None})
     except ValueError as exc:
-        await _safe_reply(update.message, f"ما قدرت أجدولها: {exc}.\nمثال: /schedule 2026-08-22 09:30 | فحص حالة الخدمات")
+        await _safe_reply(update.message, f"تعذر الجدولة: {exc}.\nمثال: /schedule 2026-08-22 09:30 | فحص حالة الخدمات")
     except Exception as exc:
         log.exception("فشل جدولة المهمة")
-        await _safe_reply(update.message, user_error(exc, "جدولة المهمة"))
+        await _safe_reply(update.message, user_error(exc, "جدولة الطلب"))
 
 
 @authorized
@@ -834,24 +839,29 @@ async def cmd_repeat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         multiplier = {"m": 60, "h": 3600, "d": 86400}[unit]
         repeat_seconds = amount * multiplier
         if repeat_seconds < 300:
-            raise ValueError("أقصر تكرار مسموح هو 5m حتى ما يصير إزعاج")
+            raise ValueError("أقصر تكرار مسموح هو 5m")
         reason = check_build(prompt) or check_hardline(prompt)
         if reason:
-            await _safe_reply(update.message, f"ما جدولت الطلب لأنه محظور لحماية الخادم: {reason}.")
+            await _safe_reply(update.message, f"تعذر جدولة الطلب: {reason}.")
             return
         due_at = datetime.now(UTC) + timedelta(seconds=repeat_seconds)
         user_id = str(update.effective_user.id)
         task = await task_store.schedule(user_id, update.effective_chat.id, prompt, due_at, repeat_seconds)
-        today_count = await task_store.count_created_for_day(user_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
+        message_id = await _create_task_status_message(
+            context.bot,
+            update.effective_chat.id,
+            f"تمت الجدولة للتكرار كل {interval_text}.",
+        )
+        if message_id is not None:
+            await task_store.set_status_message_id(task.id, message_id)
         assert task_service is not None
         task_service.wake()
-        await _safe_reply(update.message, f"تمام، مهمة اليوم رقم {today_count} رح تتكرر كل {interval_text} وأول تنفيذ {due_at.strftime('%Y-%m-%d %H:%M UTC')}." )
         audit.write("task_scheduled", "accepted", actor_id=task.owner_id, details={"task_id": task.id, "repeat_seconds": repeat_seconds})
     except ValueError as exc:
-        await _safe_reply(update.message, f"ما قدرت أجدولها: {exc}.\nمثال: /repeat 1d | ابعتلي ملخص حالة الخادم")
+        await _safe_reply(update.message, f"تعذر الجدولة: {exc}.\nمثال: /repeat 1d | ابعتلي ملخص حالة الخادم")
     except Exception as exc:
         log.exception("فشل جدولة المهمة المتكررة")
-        await _safe_reply(update.message, user_error(exc, "جدولة المهمة المتكررة"))
+        await _safe_reply(update.message, user_error(exc, "جدولة الطلب المتكرر"))
 
 
 @authorized
@@ -918,48 +928,36 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_progress(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     try:
-        requested_id = int(context.args[0]) if context.args and context.args[0].isdigit() else None
-        progress = progress_store.get(requested_id) if requested_id else progress_store.latest_for_owner(user_id)
+        progress = progress_store.latest_for_owner(user_id)
         if progress and progress.owner_id == user_id:
             await _safe_reply(update.message, render_progress(progress, detail=True))
             return
-        task_id = requested_id
-        if task_id is None:
-            active = await task_store.list_active(user_id, limit=1)
-            task_id = active[0].id if active else None
-        if task_id is None:
-            await _safe_reply(update.message, "ما في مهمة حالية لعرض تقدمها. استخدم /trace رقم_المهمة لعرض سجل مهمة سابقة.")
+        task = await task_store.latest_active_for_owner(user_id)
+        if task is None:
+            await _safe_reply(update.message, "لا يوجد طلب حالي لعرض تقدمه.")
             return
-        task = await task_store.get(task_id)
-        if task is None or task.owner_id != user_id:
-            await _safe_reply(update.message, "ما لقيت مهمة بهالرقم ضمن حسابك.")
-            return
-        await _safe_reply(update.message, render_persisted_activity(task.id, task.status, task.activity, detail=False))
+        await _safe_reply(update.message, render_persisted_activity(task.id, task.status, task.activity, detail=True))
     except Exception as exc:
-        log.exception("فشل عرض تقدم المهمة")
-        await _safe_reply(update.message, user_error(exc, "عرض تقدم المهمة"))
+        log.exception("فشل عرض تقدم الطلب")
+        await _safe_reply(update.message, user_error(exc, "عرض تقدم الطلب"))
 
 
 @authorized
 async def cmd_trace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not context.args or not context.args[0].isdigit():
-        await _safe_reply(update.message, "استخدمها هيك: /trace رقم_المهمة")
-        return
     user_id = str(update.effective_user.id)
-    task_id = int(context.args[0])
     try:
-        progress = progress_store.get(task_id)
+        progress = progress_store.latest_for_owner(user_id)
         if progress and progress.owner_id == user_id:
             await _safe_reply(update.message, render_progress(progress, detail=True))
             return
-        task = await task_store.get(task_id)
-        if task is None or task.owner_id != user_id:
-            await _safe_reply(update.message, "ما لقيت مهمة بهالرقم ضمن حسابك.")
+        task = await task_store.latest_active_for_owner(user_id)
+        if task is None:
+            await _safe_reply(update.message, "لا يوجد سجل طلب حالي.")
             return
         await _safe_reply(update.message, render_persisted_activity(task.id, task.status, task.activity, detail=True))
     except Exception as exc:
-        log.exception("فشل عرض سجل المهمة %s", task_id)
-        await _safe_reply(update.message, user_error(exc, "عرض سجل المهمة"))
+        log.exception("فشل عرض سجل الطلب")
+        await _safe_reply(update.message, user_error(exc, "عرض سجل الطلب"))
 
 
 async def handle_reboot_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1090,7 +1088,9 @@ async def cmd_research_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if hardline_reason:
         await _safe_reply(update.message, f"لم يُنفذ الطلب لأنه محظور لحماية الخادم: {hardline_reason}.")
         return
+
     user_id = str(update.effective_user.id)
+    status_message_id = await _create_task_status_message(context.bot, update.effective_chat.id, "جاري تجهيز البحث…")
     try:
         enhanced = enhance_prompt(prompt, requested_mode=mode)
         task, position = await task_store.enqueue(
@@ -1098,15 +1098,10 @@ async def cmd_research_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             update.effective_chat.id,
             prompt,
             execution_mode=mode.value,
+            status_message_id=status_message_id,
         )
-        today_count = await task_store.count_created_for_day(user_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
         assert task_service is not None
         task_service.wake()
-        position_text = "وهي الجاية بالتنفيذ" if position == 1 else f"بترتيب {position}"
-        await _safe_reply(
-            update.message,
-            f"تمام، سجلت {RESEARCH_COMMAND_LABELS[mode]} كمهمة اليوم رقم {today_count} {position_text}.",
-        )
         audit.write(
             "research_command_queued",
             "accepted",
@@ -1121,7 +1116,11 @@ async def cmd_research_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
     except Exception as exc:
         log.exception("فشل تسجيل أمر البحث %s", raw_command)
-        await _safe_reply(update.message, user_error(exc, "تسجيل مهمة البحث"))
+        error_text = user_error(exc, "تسجيل مهمة البحث")
+        if status_message_id is not None:
+            await _edit_task_status_message(context.bot, update.effective_chat.id, status_message_id, error_text)
+        else:
+            await _safe_reply(update.message, error_text)
 
 
 async def _queue_attachment_task(
