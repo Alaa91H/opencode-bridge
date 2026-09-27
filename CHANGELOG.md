@@ -1,3 +1,49 @@
+## [1.7.0] - 2026-09-27
+
+### Highlights
+
+- Promoted Telegram images, video, audio and arbitrary documents to instruction-bound queued agent tasks.
+- Added persistent no-caption staging so files can be sent first and automatically bound to the user's next text instruction.
+- Added media-group batching so Telegram albums are processed as one coherent task.
+- Added safe server-side binary-media routing through preinstalled inspection/conversion tools instead of assuming every provider can consume every binary format directly.
+
+### Attachment Task Pipeline
+
+- Captioned attachments execute immediately using the caption as the authoritative user instruction.
+- Uncaptioned attachments are persisted in SQLite for a configurable bounded window and survive bridge restarts until an instruction arrives.
+- Multiple staged files are merged into one task with duplicate-path suppression; `/discard` removes a pending batch before execution.
+- Telegram media groups use a short configurable debounce window to avoid splitting one album into independent tasks.
+- Model-visible text/image files use OpenCode file parts; PDF, audio, video and other binaries are handled from validated local paths using already-installed server tools when available.
+- Binary inspection and conversions use an isolated per-task scratch directory that is removed on task completion.
+- Managed outputs remain restricted to each task's outgoing directory and are returned to Telegram without exposing arbitrary server files.
+
+### Integrity and Safety
+
+- Every newly downloaded attachment receives a SHA-256 digest and is revalidated for path, size and content integrity before agent execution.
+- Added configurable per-file, per-task-count and aggregate-byte limits.
+- Attachment contents are explicitly framed as untrusted data so embedded file instructions cannot supersede the user's Telegram request.
+- Incoming binaries, scripts and macros are not executed, dependency installation remains blocked, and original uploads are not modified.
+- Pending files expire automatically; the existing seven-day managed-attachment cleanup remains a final retention guard.
+- If a specialized parser/tool is unavailable, the agent is instructed to report the limitation rather than install software or invent results.
+
+### Reliability
+
+- Confirmation-message failures no longer discard a successfully queued task or a successfully persisted pending batch.
+- Existing text-only tasks, scheduling, progress reporting, model fallback and adaptive worker behavior remain compatible.
+
+### Configuration
+
+- Added `TELEGRAM_ATTACHMENT_MAX_COUNT` (default `10`).
+- Added `TELEGRAM_ATTACHMENT_MAX_TOTAL_BYTES` (default `52428800`).
+- Added `TELEGRAM_ATTACHMENT_PENDING_SECONDS` (default `600`).
+- Added `TELEGRAM_MEDIA_GROUP_DEBOUNCE_SECONDS` (default `1.25`).
+- Synchronized the standard and V3 environment examples and documented the workflow in the deployment guide.
+
+### Verification
+
+- Added deterministic coverage for SHA-256 tamper detection, attachment task limits, prompt-injection framing, restart-safe pending batches, duplicate suppression and expiry cleanup.
+- GitHub Actions remains the source of truth for syntax, unit tests, OpenCode configuration, semantic-version validation and release publication.
+
 ## [1.6.0] - 2026-09-21
 
 ### Highlights
