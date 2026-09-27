@@ -573,6 +573,11 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
             attachment_store.cleanup_task_work(task.id)
         except Exception as exc:
             log.warning("تعذر تنظيف مساحة العمل المؤقتة للمهمة %s: %s", task.id, type(exc).__name__)
+        if task.attachments and not task.is_recurring:
+            try:
+                attachment_store.delete_input_records(task.attachments)
+            except Exception as exc:
+                log.warning("تعذر تنظيف مرفقات الإدخال للمهمة %s: %s", task.id, type(exc).__name__)
         stop_typing.set()
         if event_task:
             event_task.cancel()
@@ -671,6 +676,8 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             session = await store.get_session(user_id)
             if session:
                 await client.abort_session(session.opencode_session_id)
+        elif before_cancel and before_cancel.attachments:
+            attachment_store.delete_input_records(before_cancel.attachments)
         reporter = live_reporters.get(task_id)
         if reporter:
             await reporter.finish("cancelled", "تم إرسال طلب إيقاف المهمة.", "warning")
