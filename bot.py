@@ -986,12 +986,12 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     try:
         session = await store.get_session(str(update.effective_user.id))
         health = await client.health()
-        user_id = str(update.effective_user.id)
-        today_count = await task_store.count_created_for_day(user_id, day_timezone=DAILY_TASK_COUNTER_TIMEZONE)
         if not session:
             await _safe_reply(
                 update.message,
-                f"حالة الوكيل: {'متاح' if health.get('healthy') else 'غير متاح'}\nالإصدار: {health.get('version', 'غير معروف')}\nمهام اليوم: {today_count}\nلا توجد جلسة نشطة.",
+                f"حالة الوكيل: {'متاح' if health.get('healthy') else 'غير متاح'}\n"
+                f"الإصدار: {health.get('version', 'غير معروف')}\n"
+                "لا توجد جلسة نشطة.",
             )
             return
         states = await client.get_session_status()
@@ -1000,13 +1000,10 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             "معلومات الجلسة\n"
             f"• حالة الوكيل: {'متاح' if health.get('healthy') else 'غير متاح'}\n"
             f"• إصدار الوكيل: {health.get('version', 'غير معروف')}\n"
-            f"• المعرّف: {session.opencode_session_id}\n"
             f"• الحالة: {state}\n"
             f"• النموذج: {session.model or DEFAULT_MODEL}\n"
             f"• مستوى الاستدلال: {_variant_for_model(session.model or DEFAULT_MODEL) or 'افتراضي'}\n"
-            f"• الوكيل: {DEFAULT_AGENT}\n"
-            f"• مهام اليوم: {today_count}\n"
-            f"• الإنشاء: {session.created_at.strftime('%Y-%m-%d %H:%M UTC')}"
+            f"• الوكيل: {DEFAULT_AGENT}"
         )
         await _safe_reply(update.message, text)
     except Exception as exc:
@@ -1482,12 +1479,12 @@ async def post_init(app: Application) -> None:
         BotCommand("start", "بدء جلسة جديدة"),
         BotCommand("new", "إنشاء جلسة جديدة"),
         BotCommand("reset", "إعادة ضبط الجلسة"),
-        BotCommand("abort", "إيقاف المهمة الجارية"),
-        BotCommand("stop", "إيقاف المهمة الجارية"),
-        BotCommand("tasks", "عرض الطابور والمهام المجدولة"),
-        BotCommand("progress", "عرض تقدم المهمة الحي"),
-        BotCommand("trace", "عرض سجل نشاط مهمة"),
-        BotCommand("cancel", "إلغاء مهمة برقمها"),
+        BotCommand("abort", "إيقاف الطلب الجاري"),
+        BotCommand("stop", "إيقاف الطلب الجاري"),
+        BotCommand("tasks", "عرض الطلبات الحالية"),
+        BotCommand("progress", "عرض تقدم الطلب الحالي"),
+        BotCommand("trace", "عرض سجل الطلب الحالي"),
+        BotCommand("cancel", "إلغاء الطلب الحالي"),
         BotCommand("discard", "حذف المرفقات المعلّقة"),
         BotCommand("schedule", "جدولة مهمة لوقت UTC"),
         BotCommand("repeat", "جدولة مهمة متكررة"),
