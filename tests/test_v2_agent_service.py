@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
+import httpx
+
 from bridge.services.agent_service import AgentService, NoActiveSession
 
 
@@ -32,6 +34,8 @@ class FakeClient:
         self.aborted = []
         self.shared = []
         self.models = []
+        self.send_calls = []
+        self.send_errors = []
 
     async def create_session(self, title=None):
         self.created += 1
@@ -63,15 +67,59 @@ class FakeClient:
     async def list_providers(self):
         return []
 
+    async def send_prompt(
+        self,
+        session_id,
+        prompt,
+        *,
+        model=None,
+        agent=None,
+        parts=None,
+        variant=None,
+    ):
+        self.send_calls.append(
+            {
+                "session_id": session_id,
+                "prompt": prompt,
+                "model": model,
+                "agent": agent,
+                "parts": list(parts or []),
+                "variant": variant,
+            }
+        )
+        if self.send_errors:
+            status = self.send_errors.pop(0)
+            request = httpx.Request("POST", "https://example.invalid/prompt")
+            response = httpx.Response(status, request=request)
+            raise httpx.HTTPStatusError(
+                f"status {status}",
+                request=request,
+                response=response,
+            )
+        return {
+            "parts": [{"type": "text", "text": "ok"}],
+            "_bridge_usage_points": 3,
+        }
+
 
 class FakeManager:
     preferred_model = "model/preferred"
+
+    def __init__(self) -> None:
+        self.fallback_model = None
 
     def variant_for_model(self, model):
         return "high" if model else None
 
     async def ensure_session_model(self, user_id, session_id, model, **kwargs):
+        if kwargs.get("excluded_ids") and self.fallback_model:
+            return self.fallback_model
         return model
+
+    async def best_available_for_inputs(self, required_inputs):
+        if required_inputs == {"image"}:
+            return "model/media"
+        return None
 
 
 class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -121,6 +169,58 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(status.healthy)
         self.assertEqual(status.agent, "development-agent")
         self.assertEqual(status.variant, "high")
+
+
+    async def test_current_model_and_input_routing_are_service_owned(self) -> None:
+        session_id, model = await self.service.current_model("u")
+        self.assertEqual(session_id, "s-1")
+        self.assertEqual(model, "model/default")
+        selected = await self.service.best_model_for_inputs(model, {"image"})
+        self.assertEqual(selected, "model/media")
+
+    async def test_send_prompt_uses_variant_and_reports_usage(self) -> None:
+        response, model, points = await self.service.send_prompt_with_fallback(
+            "u",
+            "s-1",
+            "hello",
+            [],
+            "model/default",
+        )
+        self.assertEqual(model, "model/default")
+        self.assertEqual(points, 3)
+        self.assertEqual(response["parts"][0]["text"], "ok")
+        self.assertEqual(self.client.send_calls[0]["variant"], "high")
+        self.assertEqual(self.client.send_calls[0]["agent"], "development-agent")
+
+    async def test_file_transport_failure_retries_without_direct_parts(self) -> None:
+        self.client.send_errors = [415]
+        response, model, points = await self.service.send_prompt_with_fallback(
+            "u",
+            "s-1",
+            "hello",
+            [{"type": "file", "url": "file:///tmp/x"}],
+            "model/default",
+        )
+        self.assertEqual(response["parts"][0]["text"], "ok")
+        self.assertEqual(points, 3)
+        self.assertEqual(len(self.client.send_calls), 2)
+        self.assertTrue(self.client.send_calls[0]["parts"])
+        self.assertEqual(self.client.send_calls[1]["parts"], [])
+
+    async def test_unavailable_model_falls_back_after_variant_retry(self) -> None:
+        self.manager.fallback_model = "model/fallback"
+        self.client.send_errors = [404, 404]
+        _, model, points = await self.service.send_prompt_with_fallback(
+            "u",
+            "s-1",
+            "hello",
+            [],
+            "model/default",
+        )
+        self.assertEqual(model, "model/fallback")
+        self.assertEqual(points, 3)
+        self.assertEqual(len(self.client.send_calls), 3)
+        self.assertEqual(self.client.send_calls[-1]["model"], "model/fallback")
 
 
 if __name__ == "__main__":
