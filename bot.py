@@ -783,23 +783,11 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
 
 @authorized
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        await _create_fresh_session(str(update.effective_user.id))
-        await _safe_reply(update.message, startup_message())
-    except Exception as exc:
-        log.exception("فشل إنشاء جلسة البداية")
-        await _safe_reply(update.message, user_error(exc, "إنشاء الجلسة"))
-
+    await _agent_command_adapter().start(update, context)
 
 @authorized
 async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        await _create_fresh_session(str(update.effective_user.id))
-        await _safe_reply(update.message, "تم إنشاء جلسة جديدة بنجاح. أرسل طلبك للبدء.")
-    except Exception as exc:
-        log.exception("فشل إنشاء جلسة جديدة")
-        await _safe_reply(update.message, user_error(exc, "إنشاء جلسة جديدة"))
-
+    await _agent_command_adapter().new(update, context)
 
 @authorized
 async def cmd_abort(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -880,63 +868,15 @@ async def cmd_schedrun(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 @authorized
 async def cmd_share(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        session = await store.get_session(str(update.effective_user.id))
-        if not session:
-            await _safe_reply(update.message, "لا توجد جلسة نشطة لمشاركتها.")
-            return
-        url = await client.share_session(session.opencode_session_id)
-        await _safe_reply(update.message, f"رابط المشاركة:\n{url}" if url else "تعذر إنشاء رابط مشاركة للجلسة.")
-    except Exception as exc:
-        log.exception("فشل إنشاء رابط مشاركة")
-        await _safe_reply(update.message, user_error(exc, "إنشاء رابط المشاركة"))
-
+    await _agent_command_adapter().share(update, context)
 
 @authorized
 async def cmd_unshare(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        session = await store.get_session(str(update.effective_user.id))
-        if not session:
-            await _safe_reply(update.message, "لا توجد جلسة نشطة لإلغاء مشاركتها.")
-            return
-        removed = await client.unshare_session(session.opencode_session_id)
-        await _safe_reply(update.message, "تم إلغاء مشاركة الجلسة." if removed else "تعذر إلغاء رابط المشاركة؛ قد لا يكون موجودًا.")
-    except Exception as exc:
-        log.exception("فشل إلغاء المشاركة")
-        await _safe_reply(update.message, user_error(exc, "إلغاء رابط المشاركة"))
-
+    await _agent_command_adapter().unshare(update, context)
 
 @authorized
 async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = str(update.effective_user.id)
-    try:
-        if context.args:
-            await _safe_reply(
-                update.message,
-                "اختيار النموذج تلقائي يوميًا من نماذج OpenCode Zen المجانية، ويُستخدم أعلى variant مدعوم للاستدلال عندما يعلنه الكتالوج. استخدم /model لعرض الحالة الحالية.",
-            )
-            return
-
-        models = ranked_zen_general_model_ids(await client.list_providers())
-        if not models:
-            await _safe_reply(update.message, "لم يعثر OpenCode Zen على نماذج مجانية نشطة متاحة حاليًا؛ سيبقى النموذج الحالي حتى يعود كتالوج صالح.")
-            return
-        session_id = await _ensure_session(user_id)
-        session = await store.get_session(user_id)
-        current_model = session.model if session else models[0]
-        listed = "\n".join(f"• {name}" for name in models)
-        await _safe_reply(
-            update.message,
-            f"النموذج الحالي: {current_model}\n"
-            f"النموذج المختار تلقائيًا: {model_manager.preferred_model if model_manager and model_manager.preferred_model else current_model}\n"
-            f"مستوى الاستدلال: {_variant_for_model(current_model) or 'افتراضي/أقصى ما يدعمه النموذج'}\n\n"
-            f"ترتيب النماذج العامة المتاحة ({len(models)}):\n{listed}\n\n"
-            "يعيد Agent Scout تقييم النماذج المجانية يوميًا ويختار الأقوى للتطوير الوكيلي، مع التحقق من أن التكلفة صفر قبل التطبيق.",
-        )
-    except Exception as exc:
-        log.exception("فشل التعامل مع أمر النموذج")
-        await _safe_reply(update.message, user_error(exc, "عرض أو تغيير النموذج"))
-
+    await _agent_command_adapter().model(update, context)
 
 @authorized
 async def cmd_progress(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -952,65 +892,15 @@ async def handle_reboot_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 @authorized
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        session = await store.get_session(str(update.effective_user.id))
-        health = await client.health()
-        if not session:
-            await _safe_reply(
-                update.message,
-                f"حالة الوكيل: {'متاح' if health.get('healthy') else 'غير متاح'}\n"
-                f"الإصدار: {health.get('version', 'غير معروف')}\n"
-                "لا توجد جلسة نشطة.",
-            )
-            return
-        states = await client.get_session_status()
-        state = states.get(session.opencode_session_id, {}).get("state", "غير معروف")
-        text = (
-            "معلومات الجلسة\n"
-            f"• حالة الوكيل: {'متاح' if health.get('healthy') else 'غير متاح'}\n"
-            f"• إصدار الوكيل: {health.get('version', 'غير معروف')}\n"
-            f"• الحالة: {state}\n"
-            f"• النموذج: {session.model or DEFAULT_MODEL}\n"
-            f"• مستوى الاستدلال: {_variant_for_model(session.model or DEFAULT_MODEL) or 'افتراضي'}\n"
-            f"• الوكيل: {DEFAULT_AGENT}"
-        )
-        await _safe_reply(update.message, text)
-    except Exception as exc:
-        log.exception("فشل عرض حالة الجلسة")
-        await _safe_reply(update.message, user_error(exc, "عرض حالة الجلسة"))
-
+    await _agent_command_adapter().status(update, context)
 
 @authorized
 async def cmd_health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        health = await client.health()
-        if health.get("healthy"):
-            await _safe_reply(update.message, f"الوكيل متصل ويعمل بشكل سليم. الإصدار: {health.get('version', 'غير معروف')}")
-        else:
-            await _safe_reply(update.message, "الوكيل استجاب لكنه لا يعلن حالة سليمة. راجع سجل الخدمة.")
-    except Exception as exc:
-        log.exception("فشل الفحص الصحي")
-        await _safe_reply(update.message, user_error(exc, "فحص حالة الوكيل"))
-
+    await _agent_command_adapter().health(update, context)
 
 @authorized
 async def cmd_agents(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        agents = await client.list_agents()
-        if not agents:
-            await _safe_reply(update.message, "لم يُرجع الوكيل قائمة بالوكلاء المتاحين.")
-            return
-        lines = []
-        for agent in agents[:40]:
-            name = agent.get("name") or agent.get("id") or "وكيل غير مسمى"
-            mode = agent.get("mode", "غير محدد")
-            description = agent.get("description") or ""
-            lines.append(f"• {name} ({mode}){': ' + description if description else ''}")
-        await _safe_reply(update.message, "الوكلاء المتاحون:\n" + "\n".join(lines))
-    except Exception as exc:
-        log.exception("فشل عرض الوكلاء")
-        await _safe_reply(update.message, user_error(exc, "عرض الوكلاء"))
-
+    await _agent_command_adapter().agents(update, context)
 
 @authorized
 async def cmd_maintenance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
