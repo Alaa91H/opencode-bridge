@@ -250,6 +250,86 @@ def _reboot_callback_adapter() -> RebootCallbackAdapter:
     return _reboot_callback_instance
 
 
+def _wake_task_workers() -> None:
+    if task_service is None:
+        raise RuntimeError("خدمة المهام غير مهيأة بعد")
+    task_service.wake()
+
+
+def _media_adapter() -> TelegramMediaAdapter:
+    global _media_adapter_instance
+    if _media_adapter_instance is None:
+        _media_adapter_instance = TelegramMediaAdapter(
+            attachment_store,
+            _media_service,
+            reply=_safe_reply,
+            create_status=_create_task_status_message,
+            edit_status=_edit_task_status_message,
+            wake_tasks=_wake_task_workers,
+            error_message=user_error,
+            audit_write=audit.write,
+            debounce_seconds=MEDIA_GROUP_DEBOUNCE_SECONDS,
+            logger=log,
+        )
+    return _media_adapter_instance
+
+
+def _schedule_command_adapter() -> ScheduleCommands:
+    global _schedule_commands_instance
+    if _schedule_commands_instance is None:
+        _schedule_commands_instance = ScheduleCommands(
+            _schedule_service,
+            reply=_safe_reply,
+            create_status=_create_task_status_message,
+            edit_status=_edit_task_status_message,
+            wake_tasks=_wake_task_workers,
+            error_message=user_error,
+            audit_write=audit.write,
+            max_message_length=MAX_MESSAGE_LENGTH,
+            logger=log,
+        )
+    return _schedule_commands_instance
+
+
+def _task_command_adapter() -> TaskCommands:
+    global _task_commands_instance
+    if _task_commands_instance is None:
+        _task_commands_instance = TaskCommands(
+            _task_application_service,
+            _schedule_service,
+            _media_adapter,
+            reply=_safe_reply,
+            create_status=_create_task_status_message,
+            edit_status=_edit_task_status_message,
+            wake_tasks=_wake_task_workers,
+            error_message=user_error,
+            audit_write=audit.write,
+            live_reporters=live_reporters,
+            progress_store=progress_store,
+            max_message_length=MAX_MESSAGE_LENGTH,
+            research_modes=RESEARCH_COMMAND_MODES,
+            logger=log,
+        )
+    return _task_commands_instance
+
+
+def _agent_command_adapter() -> AgentCommands:
+    global _agent_commands_instance
+    if _agent_commands_instance is None:
+        _agent_commands_instance = AgentCommands(
+            _agent_service,
+            reply=_safe_reply,
+            error_message=user_error,
+            startup_text=startup_message,
+            logger=log,
+        )
+    return _agent_commands_instance
+
+
+async def _pending_attachment_cleanup_loop() -> None:
+    await _media_adapter().cleanup_loop()
+
+
 def _extract_session_id(session: dict) -> str:
     """Compatibility wrapper for AgentService."""
     return AgentService.extract_session_id(session)
