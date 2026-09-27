@@ -55,7 +55,8 @@ class BotImportTests(unittest.TestCase):
         self.assertNotIn("_task_reply_chunks", source)
         task_adapter = (PROJECT_DIR / "bridge" / "telegram" / "commands" / "tasks.py").read_text(encoding="utf-8")
         self.assertIn("status_message_id=status_message_id", task_adapter)
-        self.assertIn("reporter.finalize_text(", source)
+        execution_service = (PROJECT_DIR / "bridge" / "services" / "task_execution_service.py").read_text(encoding="utf-8")
+        self.assertIn("reporter.finalize_text(", execution_service)
 
     def test_reboot_decision_buttons_are_registered(self) -> None:
         source = (PROJECT_DIR / "bot.py").read_text(encoding="utf-8")
