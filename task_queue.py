@@ -631,6 +631,73 @@ class TaskQueueStore:
                 raise
         return tuple(records)
 
+    async def enqueue_once(
+        self, scope: str, idempotency_key: str, owner_id: str, chat_id: int, prompt: str,
+        **kwargs: Any,
+    ) -> tuple[QueuedTask, int, bool]:
+        """Create a task at most once for a durable input key."""
+        now = encode_time(utc_now())
+        db = await self._get_db()
+        async with self._lock:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    "SELECT task_id FROM idempotency_records WHERE scope=? AND idempotency_key=?",
+                    (scope, idempotency_key),
+                ) as cursor:
+                    existing = await cursor.fetchone()
+                if existing and existing["task_id"] is not None:
+                    task_id = int(existing["task_id"])
+                    await db.commit()
+                    task = await self.get(task_id)
+                    if task is None:
+                        raise RuntimeError("Idempotency record points to a missing task")
+                    return task, task.sequence, False
+                async with db.execute(
+                    "SELECT COALESCE(MAX(sequence),0)+1 AS n FROM agent_tasks WHERE owner_id=? AND status IN ('queued','leased','running','retrying')",
+                    (owner_id,),
+                ) as cursor:
+                    sequence = int((await cursor.fetchone())["n"])
+                public_id = str(uuid.uuid4())
+                cursor = await db.execute(
+                    """INSERT INTO agent_tasks
+                       (owner_id,chat_id,prompt,status,created_at,updated_at,sequence,attachments_json,
+                        execution_mode,status_message_id,public_id,idempotency_key,priority)
+                       VALUES (?,?,?,'queued',?,?,?,?,?,?,?,?,?)""",
+                    (owner_id, chat_id, prompt, now, now, sequence,
+                     encode_attachments(kwargs.get("attachments")), kwargs.get("execution_mode"),
+                     kwargs.get("status_message_id"), public_id, f"{scope}:{idempotency_key}",
+                     int(kwargs.get("priority", 0))),
+                )
+                task_id = int(cursor.lastrowid)
+                await db.execute(
+                    """INSERT INTO idempotency_records
+                       (scope,idempotency_key,owner_id,task_id,status,created_at,updated_at)
+                       VALUES (?,?,?,?, 'committed', ?, ?)""",
+                    (scope, idempotency_key, owner_id, task_id, now, now),
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        task = await self.get(task_id)
+        assert task is not None
+        return task, sequence, True
+
+    async def claim_schedule_occurrence(
+        self, schedule_key: str, occurrence_key: str, task_id: int | None = None
+    ) -> bool:
+        db = await self._get_db()
+        now = encode_time(utc_now())
+        async with self._lock:
+            cursor = await db.execute(
+                """INSERT OR IGNORE INTO schedule_occurrences
+                   (schedule_key,occurrence_key,task_id,created_at) VALUES (?,?,?,?)""",
+                (schedule_key, occurrence_key, task_id, now),
+            )
+            await db.commit()
+        return bool(cursor.rowcount)
+
     async def enqueue(
         self,
         owner_id: str,
