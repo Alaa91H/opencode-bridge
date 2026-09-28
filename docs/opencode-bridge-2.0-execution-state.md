@@ -654,3 +654,21 @@ T15 — OpenCode Client v2: typed models/contracts، HTTP config/retry/timeouts�
 
 ## الخطوة التالية غير المكتملة بالضبط
 T16 — Circuit Breakers مستقلة لـTelegram/OpenCode/model provider/GitHub/storage، مع CLOSED/OPEN/HALF_OPEN وthresholds/metrics/events/recovery tests.
+
+
+## تقدم T16 — Circuit Breakers
+- [x] دوائر مستقلة لـ Telegram/OpenCode/model provider/GitHub/storage.
+- [x] CLOSED/OPEN/HALF_OPEN.
+- [x] failure/recovery/half-open thresholds قابلة للضبط.
+- [x] metrics + transition events.
+- [x] deterministic recovery/reopen/isolation tests.
+- [x] توثيق semantics.
+
+### CI النهائي وإغلاق T16
+- commit المتحقق منه: `6b4d6bb368b06b104c71962d3d447dba41037924`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36389664666
+- النتيجة: **success** على Python 3.12/3.13/3.14.
+- **T16 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T17 — Model Router v2: capability/quality/latency/reliability/cost/context scoring، availability/quota/failure history، fallback chain، per-task selection، واختبار catalog runtime changes.
