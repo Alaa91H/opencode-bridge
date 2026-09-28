@@ -67,7 +67,7 @@ class TelegramTransportTests(unittest.IsolatedAsyncioTestCase):
             path = Path(temp) / "out.bin"
             path.write_bytes(b"z" * (2 * 1024 * 1024))
             bot = SimpleNamespace(send_document=AsyncMock())
-            delivery = TelegramExecutionDelivery(bot, None, None, {}, SimpleNamespace(), max_message_length=4096, error_message=str)
+            delivery = TelegramExecutionDelivery(bot, None, None, {}, max_message_length=4096, error_message=str)
             task = SimpleNamespace(chat_id=7)
             self.assertEqual(await delivery.send_outputs(task, [path]), 1)
             document = bot.send_document.await_args.kwargs["document"]
