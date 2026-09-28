@@ -290,7 +290,6 @@ def _schedule_callback_adapter() -> ScheduleCallbacks:
         _schedule_callbacks_instance = ScheduleCallbacks(_schedule_service, max_message_length=MAX_MESSAGE_LENGTH)
     return _schedule_callbacks_instance
 
-@authorized
 async def handle_schedule_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _schedule_callback_adapter().handle(update, context)
 
