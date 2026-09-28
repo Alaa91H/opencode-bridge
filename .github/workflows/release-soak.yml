@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/release-soak.yml"
+      - "soak-request-2.0.json"
   workflow_dispatch:
 
 permissions:
@@ -49,7 +50,7 @@ jobs:
         shell: bash
         run: |
           REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
-          python scripts/soak_segment.py --request-id "$REQUEST_ID" --segment 1 --output segment-1.json --duration-seconds 14700
+          python scripts/soak_segment.py --request-id "$REQUEST_ID" --source-sha "$GITHUB_SHA" --segment 1 --output segment-1.json --duration-seconds 14700
       - uses: actions/upload-artifact@v4
         with:
           name: soak-segment-1
@@ -69,7 +70,7 @@ jobs:
         shell: bash
         run: |
           REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
-          python scripts/soak_segment.py --request-id "$REQUEST_ID" --segment 2 --output segment-2.json --duration-seconds 14700
+          python scripts/soak_segment.py --request-id "$REQUEST_ID" --source-sha "$GITHUB_SHA" --segment 2 --output segment-2.json --duration-seconds 14700
       - uses: actions/upload-artifact@v4
         with:
           name: soak-segment-2
@@ -89,7 +90,7 @@ jobs:
         shell: bash
         run: |
           REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
-          python scripts/soak_segment.py --request-id "$REQUEST_ID" --segment 3 --output segment-3.json --duration-seconds 14700
+          python scripts/soak_segment.py --request-id "$REQUEST_ID" --source-sha "$GITHUB_SHA" --segment 3 --output segment-3.json --duration-seconds 14700
       - uses: actions/upload-artifact@v4
         with:
           name: soak-segment-3
@@ -109,7 +110,7 @@ jobs:
         shell: bash
         run: |
           REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
-          python scripts/soak_segment.py --request-id "$REQUEST_ID" --segment 4 --output segment-4.json --duration-seconds 14700
+          python scripts/soak_segment.py --request-id "$REQUEST_ID" --source-sha "$GITHUB_SHA" --segment 4 --output segment-4.json --duration-seconds 14700
       - uses: actions/upload-artifact@v4
         with:
           name: soak-segment-4
@@ -129,7 +130,7 @@ jobs:
         shell: bash
         run: |
           REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
-          python scripts/soak_segment.py --request-id "$REQUEST_ID" --segment 5 --output segment-5.json --duration-seconds 14700
+          python scripts/soak_segment.py --request-id "$REQUEST_ID" --source-sha "$GITHUB_SHA" --segment 5 --output segment-5.json --duration-seconds 14700
       - uses: actions/upload-artifact@v4
         with:
           name: soak-segment-5
@@ -149,7 +150,7 @@ jobs:
         shell: bash
         run: |
           REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
-          python scripts/soak_segment.py --request-id "$REQUEST_ID" --segment 6 --output segment-6.json --duration-seconds 14700
+          python scripts/soak_segment.py --request-id "$REQUEST_ID" --source-sha "$GITHUB_SHA" --segment 6 --output segment-6.json --duration-seconds 14700
       - uses: actions/upload-artifact@v4
         with:
           name: soak-segment-6
@@ -187,7 +188,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - uses: actions/download-artifact@v5
@@ -207,11 +208,18 @@ jobs:
           soak = json.loads(Path("soak-evidence.json").read_text(encoding="utf-8"))
           if soak.get("completed") is not True or not 24 <= float(soak.get("duration_hours", 0)) <= 72:
               raise SystemExit("invalid soak evidence")
+          if soak.get("source_sha") != "${{ github.sha }}":
+              raise SystemExit("soak evidence does not match workflow source SHA")
           evidence["soak"] = soak
           release_path.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           Path("VERSION").write_text("2.0.0\n", encoding="utf-8")
           PY
           python scripts/release_readiness.py release-evidence-2.0.json
+          git fetch origin main
+          [[ "$(git rev-parse origin/main)" == "${{ github.sha }}" ]] || {
+            echo "main moved after soak started; refusing to promote unsoaked code" >&2
+            exit 1
+          }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add VERSION release-evidence-2.0.json
