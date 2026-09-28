@@ -1198,3 +1198,22 @@ T44 — إزالة الحدود الداخلية القديمة.
 
 ## الخطوة التالية غير المكتملة بالضبط
 T45 — Local Telegram API كخيار Production.
+
+
+## تقدم T45 — Local Telegram API Production
+- [x] deployment profile مستقل.
+- [x] cloud default.
+- [x] capability detection عبر العقود الحالية.
+- [x] systemd hardening guidance.
+- [x] logical 4GiB streaming/load shape.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T45
+- commit المتحقق منه: `ff69bbaa04e9a083f2858ecc61f0cc45ddceea54`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36469234518 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36469234386 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36469234604 — success.
+- **T45 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T46 — إزالة ازدواجية Legacy/V3.
