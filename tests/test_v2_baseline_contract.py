@@ -35,8 +35,12 @@ class V2BaselineContractTests(unittest.TestCase):
             r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)",
             re.IGNORECASE,
         )
-        for path in ROOT.glob("*.py"):
+        schema_sources = [*ROOT.glob("*.py"), ROOT / "bridge" / "infrastructure" / "database" / "migrations.py"]
+        for path in schema_sources:
             found.update(pattern.findall(path.read_text(encoding="utf-8")))
+        # T04 adds new v2 tables in the migration registry; this baseline assertion
+        # continues to require that every original v1.8 table remains represented.
+        found.intersection_update(expected)
         self.assertEqual(found, expected)
 
     def test_attachment_limits_match_v18_baseline(self) -> None:
