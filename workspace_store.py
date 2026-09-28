@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-import aiosqlite
+
+from bridge.infrastructure.database.sqlite import BridgeDatabase
 
 
 @dataclass(frozen=True)
@@ -19,19 +19,14 @@ class ActiveWorkspace:
 
 
 class WorkspaceStore:
-    def __init__(self, db_path: Path) -> None:
-        self.db_path = db_path
-        self._db: aiosqlite.Connection | None = None
-        self._lock = asyncio.Lock()
+    def __init__(self, db_path: Path, database: BridgeDatabase | None = None) -> None:
+        self.db_path = Path(db_path)
+        self.database = database or BridgeDatabase(self.db_path)
+        self._owns_database = database is None
+        self._lock = self.database.transaction_lock
 
-    async def _get_db(self) -> aiosqlite.Connection:
-        if self._db is None:
-            self._db = await aiosqlite.connect(str(self.db_path))
-            self._db.row_factory = aiosqlite.Row
-            await self._db.execute("PRAGMA journal_mode=WAL")
-            await self._db.execute("PRAGMA synchronous=NORMAL")
-            await self._db.execute("PRAGMA busy_timeout=5000")
-        return self._db
+    async def _get_db(self):
+        return await self.database.connect()
 
     async def init(self) -> None:
         db = await self._get_db()
@@ -83,6 +78,5 @@ class WorkspaceStore:
         return ActiveWorkspace(owner_id, repo_slug, directory, now)
 
     async def close(self) -> None:
-        if self._db is not None:
-            await self._db.close()
-            self._db = None
+        if self._owns_database:
+            await self.database.close()
