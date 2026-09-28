@@ -107,6 +107,22 @@ MIGRATIONS = (
         "CREATE INDEX IF NOT EXISTS idx_resource_snapshots_time ON resource_snapshots(captured_at)",
         "CREATE INDEX IF NOT EXISTS idx_failure_records_task_time ON failure_records(task_id, created_at)",
     )),
+    Migration(3, "durable_queue_v2", (
+        "ALTER TABLE agent_tasks ADD COLUMN public_id TEXT",
+        "ALTER TABLE agent_tasks ADD COLUMN idempotency_key TEXT",
+        "ALTER TABLE agent_tasks ADD COLUMN lease_owner TEXT",
+        "ALTER TABLE agent_tasks ADD COLUMN lease_expires_at TEXT",
+        "ALTER TABLE agent_tasks ADD COLUMN heartbeat_at TEXT",
+        "ALTER TABLE agent_tasks ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE agent_tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE agent_tasks ADD COLUMN checkpoint_json TEXT NOT NULL DEFAULT '{}'",
+        "ALTER TABLE agent_tasks ADD COLUMN next_attempt_at TEXT",
+        "ALTER TABLE agent_tasks ADD COLUMN retry_after_seconds REAL",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_tasks_public_id ON agent_tasks(public_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_tasks_idempotency ON agent_tasks(idempotency_key) WHERE idempotency_key IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_agent_tasks_claimable ON agent_tasks(status, next_attempt_at, priority DESC, created_at, id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_tasks_lease_expiry ON agent_tasks(status, lease_expires_at)",
+    )),
 )
 
 
@@ -132,7 +148,7 @@ class MigrationRunner:
                 continue
             async with self.database.transaction(immediate=True):
                 for statement in migration.statements:
-                    if migration.version == 1 and statement.startswith("ALTER TABLE agent_tasks"):
+                    if statement.startswith("ALTER TABLE agent_tasks"):
                         async with db.execute("PRAGMA table_info(agent_tasks)") as cursor:
                             columns = {str(row[1]) for row in await cursor.fetchall()}
                         column = statement.split("ADD COLUMN ", 1)[1].split()[0]
