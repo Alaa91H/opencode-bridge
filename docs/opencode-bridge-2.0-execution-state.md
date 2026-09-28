@@ -4,12 +4,12 @@
 
 ## المرحلة الحالية
 
-- المرحلة المغلقة الأخيرة: **T07 — Scheduler Engine v2**
+- المرحلة المغلقة الأخيرة: **T08 — واجهة إدارة الجدولة الحديثة**
 - حالة T00: **مكتملة**
 - حالة T01: **مكتملة**
 - حالة T02: **مكتملة**
-- المرحلة التالية المسموحة فقط: **T08 — واجهة إدارة الجدولة الحديثة**
-- قاعدة الانتقال: لا يجوز بدء T09 قبل إغلاق T08 بالكامل بنفس الصرامة.
+- المرحلة التالية المسموحة فقط: **T09 — Draft / Prompt Editor للأوامر الضخمة**
+- قاعدة الانتقال: لا يجوز بدء T10 قبل إغلاق T09 بالكامل بنفس الصرامة.
 
 ## تقدم T00
 
@@ -410,3 +410,37 @@ T07 — Scheduler Engine v2: once/interval/cron/daily/weekly/monthly/weekdays م
 ## الخطوة التالية غير المكتملة بالضبط
 
 T08 — واجهة إدارة الجدولة الحديثة: Inline Keyboard، pagination، تشغيل/إيقاف/استئناف، تعديل الاسم/الأمر/الوقت/timezone/recurrence، history، duplicate، delete confirmation. لا يبدأ T09 قبل إغلاق T08 بالكامل ونجاح CI.
+
+
+## تقدم T08 — مكتملة
+
+- [x] Inline Keyboard لمتصفح الجدولات.
+- [x] pagination ديناميكية.
+- [x] تشغيل الآن/إيقاف/استئناف.
+- [x] تعديل الاسم/الأمر/الوقت/timezone/recurrence مع بقاء الأوامر النصية متوافقة.
+- [x] history.
+- [x] duplicate باسم غير متعارض.
+- [x] delete confirmation بخطوتين.
+- [x] owner isolation لكل callbacks.
+- [x] اختبارات browser/actions/confirmation.
+- [x] توثيق واجهة الإدارة الحديثة.
+
+### أدلة T08
+- `bridge/telegram/rendering/schedule_browser.py`.
+- `bridge/telegram/callbacks/schedules.py`.
+- `bridge/telegram/commands/schedules.py`.
+- `bridge/services/schedule_service.py`.
+- `bridge/telegram/app.py`, `bot.py`.
+- `tests/test_v2_schedule_ui.py`.
+- `docs/t08-schedule-ui-ar.md`.
+
+### CI النهائي لـT08
+- commit المتحقق منه: `1767d350fb70bf6ef7b3071f08d6cab9f5cc16cb`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36385791260
+- النتيجة: **success**
+- نجحت مصفوفة Python 3.12/3.13/3.14.
+- **T08 مغلقة.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T09 — Draft / Prompt Editor للأوامر الضخمة: /draft new، تجميع رسائل وملفات في Draft دائم، show/clear/save/run/schedule، prompt versioning، دعم أحجام كبيرة حسب storage policy، وrestart persistence. لا يبدأ T10 قبل إغلاق T09 بالكامل ونجاح CI.
