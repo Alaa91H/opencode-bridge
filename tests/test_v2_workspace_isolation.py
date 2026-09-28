@@ -1,5 +1,6 @@
 import asyncio
 import tempfile
+import shutil
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -15,7 +16,10 @@ class WorkspaceIsolationTests(unittest.IsolatedAsyncioTestCase):
             repo.mkdir()
             manager = WorkspaceManager(root)
             async def fake_git(cwd, *args):
-                (root / "task").mkdir(parents=True)
+                if args[:2] == ("worktree", "add"):
+                    (root / "task").mkdir(parents=True)
+                elif args[:2] == ("worktree", "remove"):
+                    shutil.rmtree(root / "task", ignore_errors=True)
             with patch.object(manager, "_git", side_effect=fake_git):
                 first = await manager.acquire("task", repo)
                 with self.assertRaises(WorkspaceBusy):
