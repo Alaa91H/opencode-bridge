@@ -48,6 +48,7 @@ from bridge.telegram.callbacks.reboot import RebootCallbackAdapter
 from bridge.telegram.commands.agent import AgentCommands
 from bridge.telegram.commands.config import ConfigCommands
 from bridge.telegram.commands.schedules import ScheduleCommands
+from bridge.telegram.callbacks.schedules import ScheduleCallbacks
 from bridge.telegram.commands.system import SystemCommands
 from bridge.telegram.commands.tasks import TaskCommands
 from bridge.telegram.execution import TelegramExecutionDelivery
@@ -279,6 +280,19 @@ def _schedule_command_adapter() -> ScheduleCommands:
             logger=log,
         )
     return _schedule_commands_instance
+
+
+_schedule_callbacks_instance = None
+
+def _schedule_callback_adapter() -> ScheduleCallbacks:
+    global _schedule_callbacks_instance
+    if _schedule_callbacks_instance is None:
+        _schedule_callbacks_instance = ScheduleCallbacks(_schedule_service, max_message_length=MAX_MESSAGE_LENGTH)
+    return _schedule_callbacks_instance
+
+@authorized
+async def handle_schedule_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _schedule_callback_adapter().handle(update, context)
 
 
 def _task_command_adapter() -> TaskCommands:
