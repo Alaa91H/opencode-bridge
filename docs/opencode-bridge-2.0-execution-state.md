@@ -444,3 +444,29 @@ T08 — واجهة إدارة الجدولة الحديثة: Inline Keyboard، p
 ## الخطوة التالية غير المكتملة بالضبط
 
 T09 — Draft / Prompt Editor للأوامر الضخمة: /draft new، تجميع رسائل وملفات في Draft دائم، show/clear/save/run/schedule، prompt versioning، دعم أحجام كبيرة حسب storage policy، وrestart persistence. لا يبدأ T10 قبل إغلاق T09 بالكامل ونجاح CI.
+
+
+## تقدم T09 — مكتملة
+
+- [x] `/draft new` وإنشاء Draft دائم versioned.
+- [x] جمع عدة رسائل وملفات عبر DraftIntakeAdapter مع بقاء compatibility handlers رفيعة.
+- [x] `/draft show`, `clear`, `save`, `run`, `schedule`.
+- [x] prompt versioning في `draft_versions` مع snapshot لكل تعديل.
+- [x] اختبار prompt بحجم 1 MiB دون قص اصطناعي.
+- [x] restart persistence بإغلاق BridgeDatabase وإعادة فتحها ثم استعادة المحتوى والإصدار.
+- [x] owner-scoped DraftStore وعدم تخزين binary داخل SQLite.
+- [x] توثيق T09.
+
+### أدلة T09
+- `bridge/infrastructure/database/draft_store.py`
+- `bridge/services/draft_service.py`
+- `bridge/telegram/commands/drafts.py`
+- `bridge/telegram/draft_intake.py`
+- `tests/test_v2_drafts.py`
+- `docs/t09-draft-editor-ar.md`
+- commit بوابة الاختبارات المعمارية: `5dcac7af3f2992c559a693ef1de0b53b0a213ed1`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36386713637
+
+### بوابة الإغلاق
+- T09 لا تعتبر مغلقة تنفيذياً إلا إذا انتهى CI أعلاه بـ success على Python 3.12/3.13/3.14.
+- بعد نجاحه تكون المرحلة التالية المسموحة فقط T10 — إزالة قيود Telegram للملفات الكبيرة.
