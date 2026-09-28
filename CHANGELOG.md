@@ -1,3 +1,17 @@
+## [1.8.2] - 2026-09-28
+
+### Stable self-update
+
+- Changed daily self-update to deploy the newest stable semantic-version release tag from the trusted repository instead of untagged `main`.
+- Treats detached HEAD as the normal release deployment state.
+- Preserves non-conflicting untracked files and existing stashes.
+- Blocks updates on tracked local edits, conflicting untracked paths, divergent/newer local history, or active queued work.
+- Validates the target release in a temporary detached worktree before activating it.
+
+### Telegram
+
+- Carries forward the v1.8.1 removal of the free-points indicator and local quota-tracking subsystem.
+
 ## [1.8.1] - 2026-09-28
 
 ### Telegram
