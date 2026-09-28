@@ -7,6 +7,8 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from telegram import Update
+
+from bridge.telegram.rendering.schedule_browser import schedule_page
 from telegram.ext import ContextTypes
 
 from bridge.domain.policies import RequestRejected
@@ -62,7 +64,9 @@ class ScheduleCommands:
 
     async def schedules(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         jobs = await self.service.list(self._owner(update))
-        await self.reply(update.message, render_schedule_list(jobs, self.max_message_length))
+        if update.message is not None:
+            text, markup = schedule_page(jobs, 0)
+            await update.message.reply_text(text, reply_markup=markup)
 
     async def schedule(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
