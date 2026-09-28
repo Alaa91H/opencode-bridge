@@ -915,3 +915,21 @@ T29 — Observability كاملة: queue/task/retry/failure/DB/resource/attachmen
 
 ## الخطوة التالية غير المكتملة بالضبط
 T30 — Distributed Tracing: OpenTelemetry-compatible trace context، propagation عبر Telegram/DB/OpenCode/model/media/GitHub/result، sampling وprivacy redaction.
+
+
+## تقدم T30 — Distributed Tracing
+- [x] W3C/OpenTelemetry-compatible trace context.
+- [x] trace_id عبر Telegram/DB/OpenCode/model/media/GitHub/result.
+- [x] ContextVar/header propagation.
+- [x] sampling policy.
+- [x] privacy redaction.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T30
+- commit المتحقق منه: `ad13b52ad23b551e9e8656c23b7600b78afd3d12`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36465761286
+- النتيجة: **success**.
+- **T30 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T31 — Logging احترافي: structured JSON، الحقول السياقية المطلوبة، privacy redaction، وعدم تسجيل prompt كامل، مع rotation/retention.
