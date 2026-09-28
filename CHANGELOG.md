@@ -1,3 +1,22 @@
+## [1.8.1] - 2026-09-28
+
+### Telegram
+
+- Removed the user-facing free-points estimate and per-command points usage header.
+- Removed the local free-points tracker, quota-specific config variables, response metadata, audit fields, and maintenance-state reporting.
+
+### Self-update
+
+- Detached release checkouts can recover safely to `main` when history is fast-forward compatible.
+- Non-conflicting untracked files are preserved instead of blocking the update.
+- Tracked modifications, divergent history, and untracked paths that collide with `origin/main` still stop the update.
+- Candidate revisions continue to run the full local validation suite in a temporary worktree before switching production.
+
+### Verification
+
+- Added regression tests preventing the points indicator from returning.
+- CI, Code Quality, and Supply Chain Security remain required release gates.
+
 ## [1.8.0] - 2026-09-27
 
 ### Persistent Scheduled Jobs
