@@ -933,3 +933,21 @@ T30 — Distributed Tracing: OpenTelemetry-compatible trace context، propagatio
 
 ## الخطوة التالية غير المكتملة بالضبط
 T31 — Logging احترافي: structured JSON، الحقول السياقية المطلوبة، privacy redaction، وعدم تسجيل prompt كامل، مع rotation/retention.
+
+
+## تقدم T31 — Logging احترافي
+- [x] structured JSON logs.
+- [x] event/task/schedule/owner_hash/trace/attempt/component/duration/status.
+- [x] prompt/file content غير مسجل افتراضيًا عبر safe logging API.
+- [x] secret redaction.
+- [x] bounded rotation/retention.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T31
+- commit المتحقق منه: `33fd73ad8207644b11682fea8e6e754e06abc8b8`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36466135379
+- النتيجة: **success**.
+- **T31 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T32 — Health / Readiness / Liveness مع degraded semantics وsystemd readiness integration.
