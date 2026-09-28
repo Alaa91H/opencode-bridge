@@ -48,9 +48,8 @@ class ReporterPort(Protocol):
 class ExecutionDeliveryPort(Protocol):
     async def begin(self, task: Any) -> ReporterPort: ...
     async def send_outputs(self, task: Any, paths: list[Any]) -> int: ...
-    def final_text(self, text: str, command_points: int) -> str: ...
+    def final_text(self, text: str) -> str: ...
     def error_text(self, exc: Exception, operation: str) -> str: ...
-    def remaining_points(self) -> int: ...
     async def end(self, task: Any) -> None: ...
 
 
@@ -82,7 +81,6 @@ class TaskExecutionService:
 
         reporter = await delivery.begin(task)
         event_task: asyncio.Task[None] | None = None
-        command_points = 0
         try:
             requested_mode: ResearchMode | None = None
             if task.execution_mode:
@@ -166,7 +164,7 @@ class TaskExecutionService:
                 "الوكيل استلم المهمة وعم يعالجها.",
             )
 
-            response, selected_model, usage_points = (
+            response, selected_model = (
                 await self.agent_service.send_prompt_with_fallback(
                     task.owner_id,
                     session_id,
@@ -177,7 +175,6 @@ class TaskExecutionService:
                     task_id=task.id,
                 )
             )
-            command_points += usage_points
             reply_text = extract_text_response(response)
             output_files = self.attachment_store.collect_task_outputs(task.id)
 
@@ -188,7 +185,7 @@ class TaskExecutionService:
                     "warning",
                     force=True,
                 )
-                response, selected_model, usage_points = (
+                response, selected_model = (
                     await self.agent_service.send_prompt_with_fallback(
                         task.owner_id,
                         session_id,
@@ -199,7 +196,6 @@ class TaskExecutionService:
                         task_id=task.id,
                     )
                 )
-                command_points += usage_points
                 reply_text = extract_text_response(response)
                 output_files = self.attachment_store.collect_task_outputs(task.id)
 
@@ -226,10 +222,7 @@ class TaskExecutionService:
                     error="empty_response",
                 )
                 await reporter.finalize_text(
-                    delivery.final_text(
-                        empty_response_message(),
-                        command_points,
-                    ),
+                    delivery.final_text(empty_response_message()),
                     status="failed",
                     message="لم يرجع الوكيل نتيجة واضحة بعد إعادة المحاولة.",
                 )
@@ -258,7 +251,7 @@ class TaskExecutionService:
             )
             await self.repository.finish(task.id, success=True)
             await reporter.finalize_text(
-                delivery.final_text(final_body, command_points),
+                delivery.final_text(final_body),
                 status="completed",
                 message="اكتمل التنفيذ.",
             )
@@ -273,8 +266,6 @@ class TaskExecutionService:
                     "attachment_count": len(attachments),
                     "output_files": delivered_files,
                     "agent_file_parts": len(extract_file_response(response)),
-                    "free_points_used": command_points,
-                    "free_points_remaining": delivery.remaining_points(),
                 },
             )
         except AttachmentError as exc:
