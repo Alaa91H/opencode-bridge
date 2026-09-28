@@ -898,3 +898,20 @@ T28 — User Preferences: timezone/language/notification/default workspace/defau
 
 ## الخطوة التالية غير المكتملة بالضبط
 T29 — Observability كاملة: queue/task/retry/failure/DB/resource/attachment/worker/schedule metrics وPrometheus endpoint اختياري.
+
+
+## تقدم T29 — Observability كاملة
+- [x] queue depth/task latency-duration/retry metrics.
+- [x] model/Telegram failures وDB latency/locks.
+- [x] memory/CPU/disk وattachment throughput وactive workers وschedule lag.
+- [x] Prometheus endpoint اختياري.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T29
+- commit المتحقق منه: `d8474367b1565bfcc5212805ca9062d95b365fff`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36465231506
+- النتيجة: **success**.
+- **T29 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T30 — Distributed Tracing: OpenTelemetry-compatible trace context، propagation عبر Telegram/DB/OpenCode/model/media/GitHub/result، sampling وprivacy redaction.
