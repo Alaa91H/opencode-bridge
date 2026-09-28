@@ -22,7 +22,14 @@ class Migration:
 
 
 MIGRATIONS = (
-    Migration(1, "v2_core_schema", (
+    Migration(1, "legacy_task_queue_columns", (
+        "ALTER TABLE agent_tasks ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'",
+        "ALTER TABLE agent_tasks ADD COLUMN activity_json TEXT NOT NULL DEFAULT '[]'",
+        "ALTER TABLE agent_tasks ADD COLUMN execution_mode TEXT",
+        "ALTER TABLE agent_tasks ADD COLUMN status_message_id INTEGER",
+        "ALTER TABLE agent_tasks ADD COLUMN schedule_job_id INTEGER",
+    )),
+    Migration(2, "v2_core_schema", (
         """CREATE TABLE IF NOT EXISTS task_attempts (
             id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL,
             attempt INTEGER NOT NULL, started_at TEXT, finished_at TEXT,
@@ -100,6 +107,12 @@ class MigrationRunner:
                 continue
             async with self.database.transaction(immediate=True):
                 for statement in migration.statements:
+                    if migration.version == 1 and statement.startswith("ALTER TABLE agent_tasks"):
+                        async with db.execute("PRAGMA table_info(agent_tasks)") as cursor:
+                            columns = {str(row[1]) for row in await cursor.fetchall()}
+                        column = statement.split("ADD COLUMN ", 1)[1].split()[0]
+                        if column in columns:
+                            continue
                     await db.execute(statement)
                 await db.execute(
                     "INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (?, ?, ?, ?)",
