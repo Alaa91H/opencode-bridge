@@ -231,6 +231,17 @@ class ScheduleCommands:
                 f"تعذر تغيير الموعد: {exc}.\nالصيغة: /schedtime الاسم | YYYY-MM-DD HH:MM",
             )
 
+    async def change_timezone(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        try:
+            name, timezone_name = split_pipe_args(" ".join(context.args), 2)
+            job = await self.service.change_timezone(self._owner(update), name, timezone_name)
+            self.wake_tasks()
+            await self.reply(update.message, f"تم تغيير timezone لـ«{job.name}» إلى {job.timezone_name}.")
+        except ScheduleNotFound:
+            await self.reply(update.message, "لم أجد مهمة مجدولة بهذا الاسم.")
+        except ValueError as exc:
+            await self.reply(update.message, f"تعذر تغيير timezone: {exc}.\nالصيغة: /schedtimezone الاسم | Europe/Berlin")
+
     async def change_interval(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             name, interval_text = split_pipe_args(" ".join(context.args), 2)
