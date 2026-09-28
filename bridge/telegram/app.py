@@ -29,6 +29,7 @@ def core_commands() -> list[BotCommand]:
         BotCommand("repeat", "إنشاء مهمة متكررة باسم"),
         BotCommand("schedules", "عرض المهام المجدولة"),
         BotCommand("schedshow", "عرض تفاصيل مهمة مجدولة"),
+        BotCommand("schedhistory", "عرض سجل تشغيل الجدولة"),
         BotCommand("schedrename", "تغيير اسم مهمة مجدولة"),
         BotCommand("schededit", "استبدال أمر مهمة مجدولة"),
         BotCommand("schedappend", "إلحاق نص بأمر مجدول"),
@@ -91,6 +92,7 @@ def register_core_handlers(
     app.add_handler(CommandHandler("schedpause", handlers.cmd_schedpause))
     app.add_handler(CommandHandler("schedresume", handlers.cmd_schedresume))
     app.add_handler(CommandHandler("scheddelete", handlers.cmd_scheddelete))
+    app.add_handler(CallbackQueryHandler(handlers.handle_schedule_callback, pattern=r"^sch:"))
     app.add_handler(CommandHandler("share", handlers.cmd_share))
     app.add_handler(CommandHandler("unshare", handlers.cmd_unshare))
     app.add_handler(CommandHandler("model", handlers.cmd_model))
