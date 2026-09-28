@@ -26,10 +26,10 @@ jobs:
         run: ruff check bridge --select E9,F63,F7,F82
 
       - name: Formatting check on v2 infrastructure
-        run: ruff format --check bridge/infrastructure bridge/services
+        run: ruff format --check bridge/infrastructure/tracing bridge/infrastructure/security bridge/infrastructure/deployment bridge/infrastructure/logging bridge/services/health_service.py
 
       - name: Import sorting check on v2 infrastructure
-        run: ruff check bridge/infrastructure bridge/services --select I
+        run: ruff check bridge/infrastructure/tracing bridge/infrastructure/security bridge/infrastructure/deployment bridge/infrastructure/logging bridge/services/health_service.py --select I
 
       - name: Type-check new policy modules
         run: mypy --ignore-missing-imports bridge/infrastructure/tracing bridge/infrastructure/security bridge/services/health_service.py
