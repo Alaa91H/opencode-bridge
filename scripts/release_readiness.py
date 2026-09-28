@@ -15,7 +15,7 @@ REQUIRED = (
 )
 
 
-def validate(path: Path) -> list[str]:
+def validate(path: Path, request_path: Path = Path("soak-request-2.0.json")) -> list[str]:
     data = json.loads(path.read_text(encoding="utf-8"))
     failures = [name for name in REQUIRED if data.get(name) is not True]
     soak = data.get("soak", {})
@@ -24,6 +24,11 @@ def validate(path: Path) -> list[str]:
         failures.append("soak_24_72h")
     if soak.get("completed") is not True:
         failures.append("soak_completed")
+    if request_path.is_file():
+        request = json.loads(request_path.read_text(encoding="utf-8"))
+        expected_request_id = str(request.get("request_id", ""))
+        if not expected_request_id or soak.get("request_id") != expected_request_id:
+            failures.append("soak_request_id")
     if data.get("high_critical_vulnerabilities_accepted_or_zero") is not True:
         failures.append("dependency_vulnerability_acceptance")
     return failures
