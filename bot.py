@@ -55,6 +55,7 @@ from bridge.telegram.callbacks.schedules import ScheduleCallbacks
 from bridge.telegram.commands.system import SystemCommands
 from bridge.telegram.commands.tasks import TaskCommands
 from bridge.telegram.execution import TelegramExecutionDelivery
+from bridge.telegram.draft_intake import DraftIntakeAdapter
 from bridge.telegram.middleware import TelegramAccessController
 from bridge.telegram.rendering.schedules import scheduled_job_line
 from formatter import MAX_MESSAGE_LENGTH
@@ -147,6 +148,7 @@ _agent_commands_instance: AgentCommands | None = None
 _system_commands_instance: SystemCommands | None = None
 _config_commands_instance: ConfigCommands | None = None
 _draft_commands_instance: DraftCommands | None = None
+_draft_intake_instance: DraftIntakeAdapter | None = None
 _reboot_callback_instance: RebootCallbackAdapter | None = None
 _access_controller_instance: TelegramAccessController | None = None
 _request_guard = RequestGuard((check_build, check_hardline))
@@ -308,6 +310,14 @@ def _draft_command_adapter() -> DraftCommands:
 async def cmd_draft(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _draft_command_adapter().handle(update, context)
 
+
+def _draft_intake_adapter() -> DraftIntakeAdapter:
+    global _draft_intake_instance
+    if _draft_intake_instance is None:
+        _draft_intake_instance = DraftIntakeAdapter(
+            _draft_service, _media_adapter(), attachment_store, _safe_reply, _task_command_adapter()
+        )
+    return _draft_intake_instance
 
 def _task_command_adapter() -> TaskCommands:
     global _task_commands_instance
@@ -635,24 +645,11 @@ async def cmd_discard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 @authorized
 async def handle_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    active = context.user_data.get("active_draft")
-    if active and update.message and update.effective_user:
-        attachment = await attachment_store.download_from_message(update.message, context.bot, str(update.effective_user.id))
-        await _draft_service.append(
-            str(update.effective_user.id), active,
-            text=(update.message.caption or "").strip(),
-            attachments=[attachment.to_record()],
-        )
-        await _safe_reply(update.message, f"أضيف المرفق إلى Draft «{active}».")
-        return
-    await _media_adapter().handle_attachment(update, context)
-
+    await _draft_intake_adapter().attachment(update, context)
 
 @authorized
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if await _draft_command_adapter().capture_text(update, context):
-        return
-    await _task_command_adapter().text(update, context)
+    await _draft_intake_adapter().text(update, context)
 
 async def post_init(app: Application) -> None:
     global task_service, model_manager, pending_cleanup_task
