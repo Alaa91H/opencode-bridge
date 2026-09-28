@@ -505,7 +505,7 @@ T10 — إزالة قيود Telegram للملفات الكبيرة: Local Bot AP
 ### CI
 - اختبارات النقل الجديدة: https://github.com/Alaa91H/opencode-bridge/actions/runs/36387662978 — success.
 - آخر CI مكتمل قبل وثيقة T10: https://github.com/Alaa91H/opencode-bridge/actions/runs/36387669238 — success.
-- بوابة الإغلاق النهائية: يجب أن ينجح CI على commit وثيقة T10/الرأس الحالي قبل اعتبار T10 مغلقة تنفيذيًا وبدء T11.
+- CI النهائي لوثيقة T10: https://github.com/Alaa91H/opencode-bridge/actions/runs/36387770136 — **success** على commit `5da7ef64c11c722d67af62ad381c69bf3c774428` ومصفوفة Python 3.12/3.13/3.14.\n- **T10 مغلقة تنفيذيًا.**
 
 ## الخطوة التالية المشروطة
 
