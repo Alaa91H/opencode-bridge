@@ -81,6 +81,7 @@ def register_core_handlers(
     app.add_handler(CommandHandler("repeat", handlers.cmd_repeat))
     app.add_handler(CommandHandler("schedules", handlers.cmd_schedules))
     app.add_handler(CommandHandler("schedshow", handlers.cmd_schedshow))
+    app.add_handler(CommandHandler("schedhistory", handlers.cmd_schedhistory))
     app.add_handler(CommandHandler("schedrename", handlers.cmd_schedrename))
     app.add_handler(CommandHandler("schededit", handlers.cmd_schededit))
     app.add_handler(CommandHandler("schedappend", handlers.cmd_schedappend))
