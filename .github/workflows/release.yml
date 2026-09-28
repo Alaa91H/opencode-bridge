@@ -37,6 +37,13 @@ jobs:
           ref: ${{ steps.commit.outputs.sha }}
           fetch-depth: 0
 
+      - name: Enforce 2.0 release evidence
+        shell: bash
+        run: |
+          if [[ "$(tr -d '[:space:]' < VERSION)" == "2.0.0" ]]; then
+            python scripts/release_readiness.py release-evidence-2.0.json
+          fi
+
       - name: Read and validate version
         id: version
         shell: bash
