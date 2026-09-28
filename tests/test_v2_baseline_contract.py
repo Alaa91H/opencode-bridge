@@ -27,7 +27,6 @@ class V2BaselineContractTests(unittest.TestCase):
             "scheduled_jobs",
             "pending_attachment_batches",
             "sessions",
-            "free_points_usage",
             "active_workspaces",
         }
         found: set[str] = set()
