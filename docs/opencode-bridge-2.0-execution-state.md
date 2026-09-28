@@ -467,6 +467,13 @@ T09 — Draft / Prompt Editor للأوامر الضخمة: /draft new، تجمي
 - commit بوابة الاختبارات المعمارية: `5dcac7af3f2992c559a693ef1de0b53b0a213ed1`
 - GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36386713637
 
-### بوابة الإغلاق
-- T09 لا تعتبر مغلقة تنفيذياً إلا إذا انتهى CI أعلاه بـ success على Python 3.12/3.13/3.14.
-- بعد نجاحه تكون المرحلة التالية المسموحة فقط T10 — إزالة قيود Telegram للملفات الكبيرة.
+### CI النهائي وإغلاق T09
+- commit المتحقق منه: `59305ddc111b283e7fdfaf230f1268b59d4a6ef0`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36387350322
+- النتيجة: **success**
+- نجحت jobs على Python 3.12 وPython 3.13 وPython 3.14.
+- **T09 مغلقة.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T10 — إزالة قيود Telegram للملفات الكبيرة: Local Bot API اختياري، `TELEGRAM_API_MODE=cloud|local`، local paths في local mode، streaming download/upload، capability detection، وعدم تحميل الملف كاملًا إلى RAM. لا يبدأ T11 قبل إغلاق T10 بالكامل ونجاح CI.
