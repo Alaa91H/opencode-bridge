@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timezone
 
-from bridge.domain.schedules.engine import MisfirePolicy, Recurrence, due_occurrences, validate_timezone
+from bridge.domain.schedules.engine import MisfirePolicy, OverlapPolicy, Recurrence, due_occurrences, overlap_action, validate_timezone
 
 UTC = timezone.utc
 
@@ -44,6 +44,13 @@ class SchedulerEngineTests(unittest.TestCase):
         cron = Recurrence("cron", cron="30 8 * * 1", timezone_name="UTC")
         nxt = cron.next_after(base)
         self.assertEqual((nxt.hour, nxt.minute, (nxt.weekday()+1)%7), (8,30,1))
+
+    def test_overlap_policy_decisions(self):
+        self.assertEqual(overlap_action(OverlapPolicy.FORBID, 1), "skip")
+        self.assertEqual(overlap_action(OverlapPolicy.ALLOW, 1), "enqueue")
+        self.assertEqual(overlap_action(OverlapPolicy.REPLACE, 1), "replace")
+        self.assertEqual(overlap_action(OverlapPolicy.QUEUE, 1), "queue")
+        self.assertEqual(overlap_action(OverlapPolicy.FORBID, None), "enqueue")
 
 
 if __name__ == "__main__":
