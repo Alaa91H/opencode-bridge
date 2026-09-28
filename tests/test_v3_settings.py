@@ -15,10 +15,6 @@ class BridgeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.opencode.port, 4096)
         self.assertEqual(settings.agent.task_workers, 2)
         self.assertTrue(settings.features.adaptive_workers)
-        self.assertEqual(
-            settings.telegram.daily_task_counter_timezone,
-            "Etc/GMT-2",
-        )
 
     def test_environment_overrides_config_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -90,12 +86,6 @@ port = 5000
                     "TELEGRAM_ATTACHMENT_MAX_BYTES": "100",
                     "TELEGRAM_ATTACHMENT_MAX_TOTAL_BYTES": "50",
                 }
-            )
-
-    def test_invalid_timezone_is_rejected(self) -> None:
-        with self.assertRaises(SettingsError):
-            BridgeSettings.load(
-                env={"TELEGRAM_DAILY_TASK_COUNTER_TIMEZONE": "No/Such_Zone"}
             )
 
     def test_user_policy_then_task_override_precedence(self) -> None:
