@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-soak-2.0
+  group: release-soak-2.0-final-a
   cancel-in-progress: true
 
 jobs:
@@ -37,7 +37,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
-      - run: python scripts/soak_segment.py --segment 1 --output segment-1.json --duration-seconds 14700
+      - name: Run endurance segment 1
+        shell: bash
+        run: |
+          REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
+          python scripts/soak_segment.py --request-id "$REQUEST_ID" --segment 1 --output segment-1.json --duration-seconds 14700
       - uses: actions/upload-artifact@v4
         with:
           name: soak-segment-1
@@ -53,7 +57,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
-      - run: python scripts/soak_segment.py --segment 2 --output segment-2.json --duration-seconds 14700
+      - name: Run endurance segment 2
+        shell: bash
+        run: |
+          REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
+          python scripts/soak_segment.py --request-id "$REQUEST_ID" --segment 2 --output segment-2.json --duration-seconds 14700
       - uses: actions/upload-artifact@v4
         with:
           name: soak-segment-2
@@ -69,7 +77,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
-      - run: python scripts/soak_segment.py --segment 3 --output segment-3.json --duration-seconds 14700
+      - name: Run endurance segment 3
+        shell: bash
+        run: |
+          REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
+          python scripts/soak_segment.py --request-id "$REQUEST_ID" --segment 3 --output segment-3.json --duration-seconds 14700
       - uses: actions/upload-artifact@v4
         with:
           name: soak-segment-3
@@ -85,7 +97,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
-      - run: python scripts/soak_segment.py --segment 4 --output segment-4.json --duration-seconds 14700
+      - name: Run endurance segment 4
+        shell: bash
+        run: |
+          REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
+          python scripts/soak_segment.py --request-id "$REQUEST_ID" --segment 4 --output segment-4.json --duration-seconds 14700
       - uses: actions/upload-artifact@v4
         with:
           name: soak-segment-4
@@ -101,7 +117,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
-      - run: python scripts/soak_segment.py --segment 5 --output segment-5.json --duration-seconds 14700
+      - name: Run endurance segment 5
+        shell: bash
+        run: |
+          REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
+          python scripts/soak_segment.py --request-id "$REQUEST_ID" --segment 5 --output segment-5.json --duration-seconds 14700
       - uses: actions/upload-artifact@v4
         with:
           name: soak-segment-5
@@ -117,7 +137,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
-      - run: python scripts/soak_segment.py --segment 6 --output segment-6.json --duration-seconds 14700
+      - name: Run endurance segment 6
+        shell: bash
+        run: |
+          REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
+          python scripts/soak_segment.py --request-id "$REQUEST_ID" --segment 6 --output segment-6.json --duration-seconds 14700
       - uses: actions/upload-artifact@v4
         with:
           name: soak-segment-6
