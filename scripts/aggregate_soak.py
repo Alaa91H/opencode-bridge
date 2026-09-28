@@ -14,6 +14,10 @@ def aggregate(root: Path) -> dict[str, object]:
     if len(files) != 6:
         raise RuntimeError(f"expected 6 soak segments, found {len(files)}")
     segments = [json.loads(path.read_text(encoding="utf-8")) for path in files]
+    request_ids = {str(item.get("request_id", "")) for item in segments}
+    if len(request_ids) != 1 or "" in request_ids:
+        raise RuntimeError(f"invalid/mixed soak request ids: {sorted(request_ids)}")
+    request_id = next(iter(request_ids))
     if not all(item.get("completed") is True for item in segments):
         raise RuntimeError("one or more soak segments are incomplete")
     elapsed = sum(float(item["elapsed_seconds"]) for item in segments)
@@ -22,6 +26,7 @@ def aggregate(root: Path) -> dict[str, object]:
         raise RuntimeError(f"aggregate soak duration outside 24-72h: {hours:.3f}h")
     max_peak = max(int(item["peak_memory_bytes"]) for item in segments)
     return {
+        "request_id": request_id,
         "completed": True,
         "duration_hours": hours,
         "active_seconds": elapsed,
