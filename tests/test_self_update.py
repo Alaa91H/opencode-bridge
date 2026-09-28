@@ -39,8 +39,16 @@ class SelfUpdatePolicyTests(unittest.TestCase):
         source = MODULE_PATH.read_text(encoding="utf-8")
         self.assertNotIn("reset --hard", source)
         self.assertNotIn("git clean", source)
-        self.assertIn('"merge", "--ff-only"', source)
+        self.assertNotIn('"merge", "--ff-only"', source)
         self.assertIn('"worktree", "add", "--detach"', source)
+        self.assertIn('"checkout", "--detach", "--quiet"', source)
+        self.assertIn('"fetch", "--prune", "--tags"', source)
+
+    def test_stable_tag_pattern_rejects_prereleases(self) -> None:
+        self.assertIsNotNone(self_update._STABLE_TAG.fullmatch("v1.8.2"))
+        self.assertIsNotNone(self_update._STABLE_TAG.fullmatch("v2.0.0"))
+        self.assertIsNone(self_update._STABLE_TAG.fullmatch("v2.0.0-rc1"))
+        self.assertIsNone(self_update._STABLE_TAG.fullmatch("latest"))
 
     def test_untracked_parser_and_conflict_detection_are_exact(self) -> None:
         self.assertEqual(
@@ -54,7 +62,7 @@ class SelfUpdatePolicyTests(unittest.TestCase):
         self.assertIn('"--untracked-files=no"', source)
         self.assertIn('"ls-files", "--others", "--exclude-standard", "-z"', source)
         self.assertIn('"ls-tree", "-r", "--name-only", "-z"', source)
-        self.assertIn("untracked files would conflict with origin/main", source)
+        self.assertIn("untracked files would conflict with the target release", source)
 
 
 if __name__ == "__main__":
