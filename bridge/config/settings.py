@@ -175,7 +175,6 @@ _ALLOWED_SECTION_KEYS: dict[str, set[str]] = {
         "pin_default_model",
         "agent",
         "model_sync_seconds",
-        "free_daily_points",
     },
     "agent": {
         "scout_interval_seconds",
@@ -256,7 +255,6 @@ class OpenCodeSettings:
     pin_default_model: bool = False
     agent: str = "telegram-operator"
     model_sync_seconds: int = 900
-    free_daily_points: int = 200
 
 
 @dataclass(frozen=True)
@@ -489,13 +487,6 @@ class BridgeSettings:
                     "opencode.model_sync_seconds", 900
                 ),
                 key="OPENCODE_MODEL_SYNC_SECONDS", minimum=60,
-            ),
-            free_daily_points=_parse_int(
-                _source_value(
-                    merged_env, config, "OPENCODE_FREE_DAILY_POINTS",
-                    "opencode.free_daily_points", 200
-                ),
-                key="OPENCODE_FREE_DAILY_POINTS", minimum=1,
             ),
         )
 
