@@ -1279,3 +1279,22 @@ T48 — Migration من v1.8 إلى 2.0.
 
 ## الخطوة التالية غير المكتملة بالضبط
 T49 — Canary: shadow، scheduler comparison، نسبة صغيرة من المهام، metrics، توسعة تدريجية، rollback thresholds.
+
+
+## تقدم T49 — Canary
+- [x] shadow scheduler comparison دون تنفيذ.
+- [x] deterministic small-percentage task routing.
+- [x] metrics thresholds.
+- [x] gradual expansion.
+- [x] automatic rollback decision.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T49
+- commit المتحقق منه: `16d7a13dd22548b52317dd8e145e8d06be119eda`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471847712 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471847818 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471847807 — success.
+- **T49 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T50 — إصدار OpenCode Bridge 2.0، ولا يغلق إلا بعد تحقق release checklist كاملة وtag/release 2.0.0.
