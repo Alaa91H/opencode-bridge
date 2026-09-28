@@ -1298,3 +1298,24 @@ T49 — Canary: shadow، scheduler comparison، نسبة صغيرة من الم�
 
 ## الخطوة التالية غير المكتملة بالضبط
 T50 — إصدار OpenCode Bridge 2.0، ولا يغلق إلا بعد تحقق release checklist كاملة وtag/release 2.0.0.
+
+
+## تقدم T50 — إصدار OpenCode Bridge 2.0
+- [x] release-readiness evidence gate fail-closed.
+- [x] CI/Python matrix/migration/backup/crash/schedule/duplicate/streaming/Local API/long-prompt/multi-workspace/security/rollback/docs evidence mapped.
+- [x] Release workflow يمنع 2.0.0 عند نقص evidence.
+- [x] اختبارات تثبت رفض soak أقصر من 24h أو أطول من 72h وعدم اكتماله.
+- [x] CI الحالي أخضر.
+- [ ] تنفيذ soak حقيقي مستمر 24–72 ساعة في بيئة endurance وتسجيل نتيجته.
+- [ ] رفع VERSION إلى 2.0.0 وإضافة release notes بعد نجاح soak.
+- [ ] tag/release 2.0.0 ناجح.
+
+### تحقق T50 الحالي
+- commit المتحقق منه: `318df75f06805a009779f9094c77dae750d131de`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36472093190 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36472093108 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36472093218 — success.
+- **T50 غير مغلقة** لأن شرط الخطة الصريح 24–72h soak لم يُنفذ فعليًا بعد؛ لا يجوز تزوير evidence أو إنشاء release قبل ذلك.
+
+## الخطوة التالية غير المكتملة بالضبط
+تشغيل `scripts/load_soak.py --duration-seconds 86400` (أو حتى 259200) على بيئة endurance فعلية، مراقبة T29/T43 thresholds، ثم فقط عند النجاح تحديث evidence وVERSION/release notes وإنشاء v2.0.0.
