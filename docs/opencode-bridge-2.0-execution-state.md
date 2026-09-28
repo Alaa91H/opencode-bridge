@@ -750,3 +750,22 @@ T20 — Build Sandbox: اختيار backend موثوق حسب البيئة، res
 
 ## الخطوة التالية غير المكتملة بالضبط
 T21 — Workspace Isolation: workspace مستقل لكل development task، worktree/temp clone/container volume، locking، commit/push/PR policy، failure retention، cleanup آمن.
+
+
+## تقدم T21 — Workspace Isolation
+- [x] workspace مستقل لكل development task.
+- [x] Git worktree افتراضي وtemp clone اختياري.
+- [x] lock يمنع امتلاك نفس task/repository مرتين.
+- [x] commit/push/PR وفق WorkspacePolicy وpush/PR deny-by-default.
+- [x] failure retention للتشخيص.
+- [x] cleanup محصور بمساحة المهمة ويحافظ على source repository.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T21
+- commit المتحقق منه: `098b7e820d7dd184c6196b4c02a76c08f2f427b3`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36403644595
+- النتيجة: **success** بعد إصلاح test double الخاص بـworktree remove.
+- **T21 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T22 — Resource Scheduler v2: ResourceCost CPU/RAM/disk/I/O/model/media، dynamic bin-packing، current pressure، OOM/disk guards، mixed workload tests.
