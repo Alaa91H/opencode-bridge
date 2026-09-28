@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 import tempfile
 from pathlib import Path
 from typing import BinaryIO
 
 from .backend import StorageBackend, StorageObject
+from .streaming import copy_stream
 
 
 class LocalStorage(StorageBackend):
