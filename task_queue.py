@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import random
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
@@ -75,6 +77,15 @@ class QueuedTask:
     execution_mode: str | None = None
     status_message_id: int | None = None
     schedule_job_id: int | None = None
+    public_id: str | None = None
+    idempotency_key: str | None = None
+    lease_owner: str | None = None
+    lease_expires_at: datetime | None = None
+    heartbeat_at: datetime | None = None
+    attempt: int = 0
+    priority: int = 0
+    checkpoint: dict[str, Any] | None = None
+    next_attempt_at: datetime | None = None
 
     @property
     def is_recurring(self) -> bool:
@@ -153,6 +164,15 @@ class TaskQueueStore:
                 if "status_message_id" in row.keys() and row["status_message_id"] is not None
                 else None
             ),
+            public_id=str(row["public_id"]) if "public_id" in row.keys() and row["public_id"] else None,
+            idempotency_key=str(row["idempotency_key"]) if "idempotency_key" in row.keys() and row["idempotency_key"] else None,
+            lease_owner=str(row["lease_owner"]) if "lease_owner" in row.keys() and row["lease_owner"] else None,
+            lease_expires_at=decode_time(row["lease_expires_at"]) if "lease_expires_at" in row.keys() else None,
+            heartbeat_at=decode_time(row["heartbeat_at"]) if "heartbeat_at" in row.keys() else None,
+            attempt=int(row["attempt"]) if "attempt" in row.keys() else 0,
+            priority=int(row["priority"]) if "priority" in row.keys() else 0,
+            checkpoint=(json.loads(row["checkpoint_json"]) if "checkpoint_json" in row.keys() and row["checkpoint_json"] else {}),
+            next_attempt_at=decode_time(row["next_attempt_at"]) if "next_attempt_at" in row.keys() else None,
             schedule_job_id=(
                 int(row["schedule_job_id"])
                 if "schedule_job_id" in row.keys() and row["schedule_job_id"] is not None
@@ -620,6 +640,8 @@ class TaskQueueStore:
         created_at: datetime | None = None,
         execution_mode: str | None = None,
         status_message_id: int | None = None,
+        idempotency_key: str | None = None,
+        priority: int = 0,
     ) -> tuple[QueuedTask, int]:
         now = encode_time(created_at or utc_now())
         db = await self._get_db()
@@ -633,8 +655,9 @@ class TaskQueueStore:
             cursor = await db.execute(
                 """
                 INSERT INTO agent_tasks
-                (owner_id, chat_id, prompt, status, created_at, updated_at, sequence, attachments_json, execution_mode, status_message_id)
-                VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)
+                (owner_id, chat_id, prompt, status, created_at, updated_at, sequence, attachments_json,
+                 execution_mode, status_message_id, public_id, idempotency_key, priority)
+                VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     owner_id,
@@ -646,6 +669,9 @@ class TaskQueueStore:
                     encode_attachments(attachments),
                     execution_mode,
                     status_message_id,
+                    str(uuid.uuid4()),
+                    idempotency_key,
+                    int(priority),
                 ),
             )
             task_id = int(cursor.lastrowid)
