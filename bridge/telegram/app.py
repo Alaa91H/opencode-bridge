@@ -30,6 +30,7 @@ def core_commands() -> list[BotCommand]:
         BotCommand("schedules", "عرض المهام المجدولة"),
         BotCommand("schedshow", "عرض تفاصيل مهمة مجدولة"),
         BotCommand("schedhistory", "عرض سجل تشغيل الجدولة"),
+        BotCommand("draft", "إنشاء وإدارة Draft دائم"),
         BotCommand("schedrename", "تغيير اسم مهمة مجدولة"),
         BotCommand("schededit", "استبدال أمر مهمة مجدولة"),
         BotCommand("schedappend", "إلحاق نص بأمر مجدول"),
@@ -84,6 +85,7 @@ def register_core_handlers(
     app.add_handler(CommandHandler("schedules", handlers.cmd_schedules))
     app.add_handler(CommandHandler("schedshow", handlers.cmd_schedshow))
     app.add_handler(CommandHandler("schedhistory", handlers.cmd_schedhistory))
+    app.add_handler(CommandHandler("draft", handlers.cmd_draft))
     app.add_handler(CommandHandler("schedrename", handlers.cmd_schedrename))
     app.add_handler(CommandHandler("schededit", handlers.cmd_schededit))
     app.add_handler(CommandHandler("schedappend", handlers.cmd_schedappend))
