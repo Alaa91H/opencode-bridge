@@ -672,3 +672,22 @@ T16 — Circuit Breakers مستقلة لـTelegram/OpenCode/model provider/GitHu
 
 ## الخطوة التالية غير المكتملة بالضبط
 T17 — Model Router v2: capability/quality/latency/reliability/cost/context scoring، availability/quota/failure history، fallback chain، per-task selection، واختبار catalog runtime changes.
+
+
+## تقدم T17 — Model Router v2
+- [x] routing حسب text/image/coding/long-context/reasoning capabilities.
+- [x] dynamic scoring للcapability/quality/latency/reliability/cost/context/quota.
+- [x] availability/quota/failure-history eligibility والpenalty.
+- [x] fallback chain مرتبة.
+- [x] preferred model per-task دون تعديل global state.
+- [x] runtime catalog replacement واختبار القرار بعد التغيير.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T17
+- commit المتحقق منه: `07a1438a8a882461e5ea220d4d7691695b86d539`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36389789205
+- النتيجة: **success** على مصفوفة CI.
+- **T17 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T18 — Context Management: budget، summarization، task-history retrieval، selective attachments، token estimation، compression، checkpoints، واختبارات تجاوز context.
