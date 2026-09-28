@@ -477,3 +477,36 @@ T09 — Draft / Prompt Editor للأوامر الضخمة: /draft new، تجمي
 ## الخطوة التالية غير المكتملة بالضبط
 
 T10 — إزالة قيود Telegram للملفات الكبيرة: Local Bot API اختياري، `TELEGRAM_API_MODE=cloud|local`، local paths في local mode، streaming download/upload، capability detection، وعدم تحميل الملف كاملًا إلى RAM. لا يبدأ T11 قبل إغلاق T10 بالكامل ونجاح CI.
+
+
+## تقدم T10 — مكتملة
+
+- [x] دعم اختياري Telegram Local Bot API Server مع بقاء cloud هو الافتراضي.
+- [x] `TELEGRAM_API_MODE=cloud|local` typed ومتحقق منه.
+- [x] دعم local file paths في local mode عبر streamed disk copy.
+- [x] streaming download عبر `download_to_drive` في cloud وchunked copy في local.
+- [x] streaming upload بتمرير file handle إلى `send_document` دون bytes buffer.
+- [x] capability detection مستقل عبر `TelegramCapabilities`.
+- [x] لا يوجد مسار T10 يحمل الملف كاملًا إلى RAM.
+- [x] اختبارات cloud/local/validation/download/upload.
+- [x] توثيق T10.
+
+### أدلة T10
+- `bridge/config/settings.py`
+- `bridge/infrastructure/telegram/capabilities.py`
+- `bridge/telegram/app.py`
+- `attachments.py`
+- `bridge/telegram/execution.py`
+- `tests/test_v2_telegram_transport.py`
+- `.env.example`
+- `docs/t10-telegram-large-files-ar.md`
+- commits التنفيذية: `6d0672d2`, `fa17a4b2`, `4289dfc3`, `41a427de`, `99afc1d6`, `ba268519`, `3f373e08`, `5da7ef64`.
+
+### CI
+- اختبارات النقل الجديدة: https://github.com/Alaa91H/opencode-bridge/actions/runs/36387662978 — success.
+- آخر CI مكتمل قبل وثيقة T10: https://github.com/Alaa91H/opencode-bridge/actions/runs/36387669238 — success.
+- بوابة الإغلاق النهائية: يجب أن ينجح CI على commit وثيقة T10/الرأس الحالي قبل اعتبار T10 مغلقة تنفيذيًا وبدء T11.
+
+## الخطوة التالية المشروطة
+
+بعد نجاح CI للرأس الحالي فقط: T11 — Attachment Storage v2. لا يبدأ T11 قبل ذلك.
