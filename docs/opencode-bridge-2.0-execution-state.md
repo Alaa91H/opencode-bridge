@@ -842,3 +842,22 @@ T25 — Progress Protocol موحد: structured events، renderer مستقل، Te
 
 ## الخطوة التالية غير المكتملة بالضبط
 T26 — نتائج طويلة بلا قص: summary، full artifact، pagination اختياري، output manifest، واختبارات نتائج ضخمة دون فقد المحتوى.
+
+
+## تقدم T26 — نتائج طويلة بلا قص
+- [x] full UTF-8 artifact دون قص.
+- [x] summary منفصل لرسالة Telegram.
+- [x] .md/.txt output artifact مع MIME/size/SHA-256.
+- [x] paginated view اختياري قابل لإعادة تركيب النص كاملًا.
+- [x] OutputManifest.
+- [x] اختبارات نتائج ضخمة متعددة اللغات.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T26
+- commit المتحقق منه: `447e34d0216dc49f1c35b0eaea43543b85389728`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36432456022
+- النتيجة: **success**.
+- **T26 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T27 — Telegram UX v2: pagination/inline keyboard/breadcrumbs/confirmations/task history/output browser/schedule browser/retry/cancel/duplicate/rerun/download، مع بقاء الأوامر النصية.
