@@ -233,15 +233,6 @@ class AgentService:
             return current_model
         return candidate or current_model
 
-    @staticmethod
-    def response_usage_points(response: dict | None) -> int:
-        if not isinstance(response, dict):
-            return 0
-        try:
-            return max(0, int(response.get("_bridge_usage_points", 0)))
-        except (TypeError, ValueError):
-            return 0
-
     async def send_prompt_with_fallback(
         self,
         owner_id: str,
@@ -252,7 +243,7 @@ class AgentService:
         *,
         audit_write: Callable[..., None] | None = None,
         task_id: int | None = None,
-    ) -> tuple[dict, str | None, int]:
+    ) -> tuple[dict, str | None]:
         """Send through OpenCode with variant, file-transport, and model fallback."""
 
         def audit(event: str, outcome: str, details: dict[str, Any]) -> None:
@@ -321,7 +312,7 @@ class AgentService:
 
         try:
             response = await send_for_model(selected_model)
-            return response, selected_model, self.response_usage_points(response)
+            return response, selected_model
         except httpx.HTTPStatusError as exc:
             manager = self.model_manager_provider()
             if (
@@ -348,7 +339,7 @@ class AgentService:
                 },
             )
             response = await send_for_model(fallback_model)
-            return response, fallback_model, self.response_usage_points(response)
+            return response, fallback_model
 
     async def health(self) -> dict:
         return await self.client.health()
