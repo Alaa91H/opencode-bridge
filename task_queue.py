@@ -921,7 +921,7 @@ class TaskQueueStore:
         return await self.cancel(int(row["id"]), owner_id) if row else None
 
     async def promote_due(self) -> int:
-        """Promote legacy scheduled tasks and materialize due persistent schedules."""
+        """Recover downtime and materialize due persistent schedules without duplicates."""
         now_dt = utc_now()
         now = encode_time(now_dt)
         db = await self._get_db()
@@ -930,81 +930,82 @@ class TaskQueueStore:
             await db.execute("BEGIN IMMEDIATE")
             try:
                 legacy = await db.execute(
-                    """
-                    UPDATE agent_tasks SET status = 'queued', updated_at = ?, sequence = 0
-                    WHERE status = 'scheduled' AND due_at <= ?
-                    """,
+                    "UPDATE agent_tasks SET status='queued',updated_at=?,sequence=0 WHERE status='scheduled' AND due_at<=?",
                     (now, now),
                 )
                 promoted += int(legacy.rowcount)
-
                 async with db.execute(
-                    """
-                    SELECT * FROM scheduled_jobs
-                    WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
-                    ORDER BY next_run_at, id
-                    """,
+                    "SELECT * FROM scheduled_jobs WHERE enabled=1 AND next_run_at IS NOT NULL AND next_run_at<=? ORDER BY next_run_at,id",
                     (now,),
                 ) as cursor:
                     due_rows = await cursor.fetchall()
-
                 for row in due_rows:
                     job = self._scheduled_from_row(row)
+                    occurrence = job.next_run_at or now_dt
+                    occurrence_key = encode_time(occurrence)
                     async with db.execute(
-                        """
-                        SELECT 1 FROM agent_tasks
-                        WHERE schedule_job_id = ? AND status IN ('queued', 'running')
-                        LIMIT 1
-                        """,
+                        "SELECT 1 FROM schedule_occurrences WHERE schedule_key=? AND occurrence_key=?",
+                        (str(job.id), occurrence_key),
+                    ) as cursor:
+                        seen = await cursor.fetchone()
+                    if seen is not None:
+                        continue
+                    async with db.execute(
+                        "SELECT id FROM agent_tasks WHERE schedule_job_id=? AND status IN ('queued','leased','running','retrying') ORDER BY id DESC LIMIT 1",
                         (job.id,),
                     ) as cursor:
-                        already_active = await cursor.fetchone()
-                    if already_active is None:
+                        active = await cursor.fetchone()
+                    # Legacy schedules use FORBID overlap until v2 definitions opt into another policy.
+                    if active is None:
                         async with db.execute(
-                            "SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence FROM agent_tasks "
-                            "WHERE owner_id = ? AND status IN ('queued', 'running')",
+                            "SELECT COALESCE(MAX(sequence),0)+1 AS n FROM agent_tasks WHERE owner_id=? AND status IN ('queued','leased','running','retrying')",
                             (job.owner_id,),
                         ) as cursor:
-                            sequence = int((await cursor.fetchone())["next_sequence"])
+                            sequence = int((await cursor.fetchone())["n"])
+                        public_id = str(uuid.uuid4())
+                        task_cur = await db.execute(
+                            """INSERT INTO agent_tasks
+                               (owner_id,chat_id,prompt,status,created_at,updated_at,sequence,attachments_json,
+                                execution_mode,schedule_job_id,public_id,idempotency_key)
+                               VALUES (?,?,?,'queued',?,?,?,'[]',NULL,?,?,?)""",
+                            (job.owner_id, job.chat_id, job.prompt, now, now, sequence, job.id,
+                             public_id, f"schedule:{job.id}:{occurrence_key}"),
+                        )
+                        task_id = int(task_cur.lastrowid)
                         await db.execute(
-                            """
-                            INSERT INTO agent_tasks
-                            (owner_id, chat_id, prompt, status, created_at, updated_at, sequence,
-                             attachments_json, execution_mode, schedule_job_id)
-                            VALUES (?, ?, ?, 'queued', ?, ?, ?, '[]', NULL, ?)
-                            """,
-                            (
-                                job.owner_id,
-                                job.chat_id,
-                                job.prompt,
-                                now,
-                                now,
-                                sequence,
-                                job.id,
-                            ),
+                            "INSERT INTO schedule_occurrences(schedule_key,occurrence_key,task_id,created_at) VALUES (?,?,?,?)",
+                            (str(job.id), occurrence_key, task_id, now),
+                        )
+                        await db.execute(
+                            """INSERT OR IGNORE INTO schedule_runs
+                               (schedule_id,task_id,scheduled_for,started_at,status)
+                               VALUES (?,?,?,?, 'queued')""",
+                            (job.id, task_id, occurrence_key, now),
                         )
                         promoted += 1
-
+                    else:
+                        await db.execute(
+                            "INSERT OR IGNORE INTO schedule_occurrences(schedule_key,occurrence_key,task_id,created_at) VALUES (?,?,?,?)",
+                            (str(job.id), occurrence_key, int(active["id"]), now),
+                        )
+                        await db.execute(
+                            """INSERT OR IGNORE INTO schedule_runs
+                               (schedule_id,task_id,scheduled_for,started_at,finished_at,status,error)
+                               VALUES (?,?,?,?,?,'skipped','overlap forbidden')""",
+                            (job.id, int(active["id"]), occurrence_key, now, now),
+                        )
                     if job.repeat_seconds:
-                        next_due = job.next_run_at or now_dt
+                        next_due = occurrence
                         while next_due <= now_dt:
                             next_due += timedelta(seconds=job.repeat_seconds)
                         await db.execute(
-                            """
-                            UPDATE scheduled_jobs
-                            SET next_run_at = ?, updated_at = ?, last_run_at = ?, last_error = NULL
-                            WHERE id = ?
-                            """,
-                            (encode_time(next_due), now, now, job.id),
+                            "UPDATE scheduled_jobs SET next_run_at=?,updated_at=?,last_run_at=?,last_error=NULL WHERE id=?",
+                            (encode_time(next_due), now, occurrence_key, job.id),
                         )
                     else:
                         await db.execute(
-                            """
-                            UPDATE scheduled_jobs
-                            SET enabled = 0, next_run_at = NULL, updated_at = ?, last_run_at = ?, last_error = NULL
-                            WHERE id = ?
-                            """,
-                            (now, now, job.id),
+                            "UPDATE scheduled_jobs SET enabled=0,next_run_at=NULL,updated_at=?,last_run_at=?,last_error=NULL WHERE id=?",
+                            (now, occurrence_key, job.id),
                         )
                 await db.commit()
             except Exception:
