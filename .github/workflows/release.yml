@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: release-main
@@ -55,6 +56,36 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for 2.0 quality and supply-chain gates
+        if: steps.version.outputs.version == '2.0.0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.commit.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for WORKFLOW in "Code Quality" "Supply Chain Security"; do
+            OK=0
+            for _ in $(seq 1 90); do
+              RUNS="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TARGET_SHA}&per_page=100")"
+              STATUS="$(jq -r --arg name "$WORKFLOW" '[.workflow_runs[] | select(.name==$name)] | sort_by(.created_at) | last | .status // ""' <<<"$RUNS")"
+              CONCLUSION="$(jq -r --arg name "$WORKFLOW" '[.workflow_runs[] | select(.name==$name)] | sort_by(.created_at) | last | .conclusion // ""' <<<"$RUNS")"
+              if [[ "$STATUS" == "completed" ]]; then
+                if [[ "$CONCLUSION" != "success" ]]; then
+                  echo "$WORKFLOW failed for $TARGET_SHA: $CONCLUSION" >&2
+                  exit 1
+                fi
+                OK=1
+                break
+              fi
+              sleep 20
+            done
+            if [[ "$OK" != "1" ]]; then
+              echo "Timed out waiting for $WORKFLOW on $TARGET_SHA" >&2
+              exit 1
+            fi
+          done
 
       - name: Verify release notes source
         shell: bash
