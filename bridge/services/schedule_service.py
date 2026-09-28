@@ -44,6 +44,9 @@ class ScheduleRepository(Protocol):
     ) -> Any | None: ...
     async def set_scheduled_job_enabled(self, owner_id: str, name: str, enabled: bool) -> Any | None: ...
     async def delete_scheduled_job(self, owner_id: str, name: str) -> bool: ...
+    async def list_schedule_history(self, owner_id: str, name: str, limit: int = 20) -> list[dict[str, Any]]: ...
+    async def record_schedule_run(self, schedule_id: int, scheduled_for: datetime, status: str, task_id: int | None = None, error: str | None = None) -> bool: ...
+
     async def enqueue_scheduled_job_now(
         self,
         owner_id: str,
@@ -198,6 +201,10 @@ class ScheduleService:
     async def delete(self, owner_id: str, name: str) -> None:
         if not await self.repository.delete_scheduled_job(owner_id, name):
             raise ScheduleNotFound(name)
+
+    async def history(self, owner_id: str, name: str, limit: int = 20) -> list[dict[str, Any]]:
+        await self.get(owner_id, name)
+        return await self.repository.list_schedule_history(owner_id, name, limit)
 
     async def run_now(
         self,
