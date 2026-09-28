@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone, tzinfo
@@ -10,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 import aiosqlite
+
+from bridge.infrastructure.database.sqlite import BridgeDatabase
 
 
 UTC = timezone.utc
@@ -113,16 +114,14 @@ class PendingAttachmentBatch:
 class TaskQueueStore:
     """SQLite-backed task queue. All timestamps are stored in UTC."""
 
-    def __init__(self, db_path: Path) -> None:
-        self.db_path = db_path
-        self._db: aiosqlite.Connection | None = None
-        self._lock = asyncio.Lock()
+    def __init__(self, db_path: Path, database: BridgeDatabase | None = None) -> None:
+        self.db_path = Path(db_path)
+        self.database = database or BridgeDatabase(self.db_path)
+        self._owns_database = database is None
+        self._lock = self.database.transaction_lock
 
     async def _get_db(self) -> aiosqlite.Connection:
-        if self._db is None:
-            self._db = await aiosqlite.connect(str(self.db_path))
-            self._db.row_factory = aiosqlite.Row
-        return self._db
+        return await self.database.connect()
 
     async def init(self) -> None:
         db = await self._get_db()
@@ -1074,6 +1073,5 @@ class TaskQueueStore:
         return cursor.rowcount
 
     async def close(self) -> None:
-        if self._db is not None:
-            await self._db.close()
-            self._db = None
+        if self._owns_database:
+            await self.database.close()
