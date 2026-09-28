@@ -1006,3 +1006,22 @@ T34 — Atomic Deployment: download/verify/test/migrate/health/switch/restart/sm
 
 ## الخطوة التالية غير المكتملة بالضبط
 T35 — Database Migration Rollback: version/checksum، snapshot requirement، compatibility window، forward/restore strategy، self-update safety.
+
+
+## تقدم T35 — Database Migration Rollback
+- [x] version/checksum.
+- [x] verified snapshot requirement للمigrations الخطرة.
+- [x] compatibility window.
+- [x] forward migration safety gate.
+- [x] reverse/restore rollback strategy.
+- [x] self-update snapshot protection.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T35
+- commit المتحقق منه: `649eb25e6324ef4f56301b6127b2de491cd8d7f7`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36466746106
+- النتيجة: **success**.
+- **T35 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T36 — Security Hardening.
