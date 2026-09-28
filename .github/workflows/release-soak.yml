@@ -12,10 +12,24 @@ permissions:
 
 concurrency:
   group: release-soak-2.0
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
+  preflight:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Validate release head before endurance
+        run: |
+          python -m compileall -q .
+          python -m unittest discover -s tests -p 'test_*.py'
+          python scripts/release_readiness.py release-evidence-2.0.json || true
+
   segment-1:
+    needs: preflight
     runs-on: ubuntu-26.04
     timeout-minutes: 260
     steps:
