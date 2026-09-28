@@ -82,8 +82,7 @@ def _validate_candidate(candidate: Path) -> None:
         cwd=candidate,
         timeout=900,
     )
-    for config_name in ("opencode.json", "opencode-v3.json"):
-        _run(str(PYTHON_BIN), "-m", "json.tool", config_name, cwd=candidate, timeout=30)
+    _run(str(PYTHON_BIN), "-m", "json.tool", "opencode.json", cwd=candidate, timeout=30)
     shell_files = [candidate / "start.sh", *sorted((candidate / "maintenance").glob("*.sh"))]
     for shell_file in shell_files:
         if shell_file.is_file():
@@ -97,43 +96,79 @@ def update() -> dict[str, object]:
         raise UpdateError("origin is not the trusted Alaa91H/opencode-bridge repository")
 
     branch = _git("branch", "--show-current").stdout.strip()
-    if branch != UPDATE_BRANCH:
-        return {"status": "skipped", "reason": f"current branch is {branch or 'detached'}, expected {UPDATE_BRANCH}"}
+    if branch not in {"", UPDATE_BRANCH}:
+        return {"status": "skipped", "reason": f"current branch is {branch}, expected {UPDATE_BRANCH}"}
 
     dirty = _git("status", "--porcelain=v1", "--untracked-files=normal").stdout.strip()
     if dirty:
-        return {"status": "skipped", "reason": "working tree contains local changes"}
+        return {
+            "status": "skipped",
+            "reason": "working tree contains local changes",
+            "branch": branch or "detached",
+        }
 
     _git("fetch", "--prune", "origin", UPDATE_BRANCH, timeout=180)
     local_sha = _git("rev-parse", "HEAD").stdout.strip()
     remote_sha = _git("rev-parse", f"origin/{UPDATE_BRANCH}").stdout.strip()
-    if local_sha == remote_sha:
-        return {"status": "up_to_date", "from": local_sha, "to": remote_sha}
 
     ancestor = _git("merge-base", "--is-ancestor", local_sha, remote_sha, check=False)
     if ancestor.returncode != 0:
-        return {"status": "skipped", "reason": "local branch diverged from origin/main", "from": local_sha, "to": remote_sha}
+        return {
+            "status": "skipped",
+            "reason": "checked-out commit diverged from origin/main",
+            "from": local_sha,
+            "to": remote_sha,
+        }
 
-    temp_root = Path(tempfile.mkdtemp(prefix="opencode-bridge-update-"))
-    candidate = temp_root / "candidate"
-    try:
-        _git("worktree", "add", "--detach", str(candidate), remote_sha, timeout=120)
+    if branch == "":
+        local_main = _git("rev-parse", "--verify", f"refs/heads/{UPDATE_BRANCH}", check=False)
+        if local_main.returncode == 0:
+            main_sha = local_main.stdout.strip()
+            main_ancestor = _git("merge-base", "--is-ancestor", main_sha, remote_sha, check=False)
+            if main_ancestor.returncode != 0:
+                return {
+                    "status": "skipped",
+                    "reason": "local main diverged from origin/main",
+                    "from": main_sha,
+                    "to": remote_sha,
+                }
+
+    if local_sha != remote_sha:
+        temp_root = Path(tempfile.mkdtemp(prefix="opencode-bridge-update-"))
+        candidate = temp_root / "candidate"
         try:
-            _validate_candidate(candidate)
+            _git("worktree", "add", "--detach", str(candidate), remote_sha, timeout=120)
+            try:
+                _validate_candidate(candidate)
+            finally:
+                _git("worktree", "remove", "--force", str(candidate), timeout=120, check=False)
         finally:
-            _git("worktree", "remove", "--force", str(candidate), timeout=120, check=False)
-    finally:
-        shutil.rmtree(temp_root, ignore_errors=True)
+            shutil.rmtree(temp_root, ignore_errors=True)
 
-    # Re-check immediately before changing the checked-out deployment.
     if _git("rev-parse", "HEAD").stdout.strip() != local_sha:
         raise UpdateError("local HEAD changed while the update was being validated")
     if _git("status", "--porcelain=v1", "--untracked-files=normal").stdout.strip():
         raise UpdateError("working tree changed while the update was being validated")
 
-    _git("merge", "--ff-only", f"origin/{UPDATE_BRANCH}", timeout=120)
+    recovered_detached = branch == ""
+    if recovered_detached:
+        local_main = _git("rev-parse", "--verify", f"refs/heads/{UPDATE_BRANCH}", check=False)
+        if local_main.returncode == 0:
+            _git("switch", UPDATE_BRANCH, timeout=120)
+            _git("merge", "--ff-only", f"origin/{UPDATE_BRANCH}", timeout=120)
+        else:
+            _git("switch", "-c", UPDATE_BRANCH, "--track", f"origin/{UPDATE_BRANCH}", timeout=120)
+    elif local_sha != remote_sha:
+        _git("merge", "--ff-only", f"origin/{UPDATE_BRANCH}", timeout=120)
+
     applied_sha = _git("rev-parse", "HEAD").stdout.strip()
-    return {"status": "updated", "from": local_sha, "to": applied_sha}
+    status = "updated" if applied_sha != local_sha else "up_to_date"
+    return {
+        "status": status,
+        "from": local_sha,
+        "to": applied_sha,
+        "recovered_detached": recovered_detached,
+    }
 
 
 def main() -> int:
