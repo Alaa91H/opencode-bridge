@@ -1140,3 +1140,23 @@ T41 — Fault Injection.
 
 ## الخطوة التالية غير المكتملة بالضبط
 T42 — Load & Soak Testing.
+
+
+## تقدم T42 — Load & Soak Testing
+- [x] آلاف المهام ومئات schedules.
+- [x] logical large-file/huge payload دون RAM proportional allocation.
+- [x] parallel owners.
+- [x] slow backend mode.
+- [x] memory peak checks.
+- [x] 24–72h duration mode موثق وقابل للتشغيل خارج CI القصير.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T42
+- commit المتحقق منه: `8065f33a9ae277f7c809d2199b5589569709f15f`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468586944 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468586965 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468586753 — success.
+- **T42 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T43 — Performance Targets.
