@@ -1,0 +1,11 @@
+{
+  "release": "2.0.0",
+  "segments": 6,
+  "segment_seconds": 14700,
+  "active_hours": 24.5,
+  "tasks_per_segment": 2000,
+  "schedules": 200,
+  "owners": 50,
+  "logical_payload_bytes": 4294967296,
+  "slow_ms": 250
+}
