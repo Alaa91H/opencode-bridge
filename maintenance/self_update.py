@@ -64,6 +64,22 @@ def _git(*args: str, cwd: Path = BRIDGE_DIR, timeout: float = 300.0, check: bool
     return _run("git", *args, cwd=cwd, timeout=timeout, check=check)
 
 
+def _nul_paths(output: str) -> set[str]:
+    return {item for item in output.split("\0") if item}
+
+
+def _untracked_paths() -> set[str]:
+    return _nul_paths(_git("ls-files", "--others", "--exclude-standard", "-z").stdout)
+
+
+def _tracked_paths(ref: str) -> set[str]:
+    return _nul_paths(_git("ls-tree", "-r", "--name-only", "-z", ref).stdout)
+
+
+def _untracked_conflicts(ref: str) -> set[str]:
+    return _untracked_paths() & _tracked_paths(ref)
+
+
 def _validate_candidate(candidate: Path) -> None:
     if not PYTHON_BIN.is_file():
         raise UpdateError("prepared Python environment is missing")
@@ -99,17 +115,25 @@ def update() -> dict[str, object]:
     if branch not in {"", UPDATE_BRANCH}:
         return {"status": "skipped", "reason": f"current branch is {branch}, expected {UPDATE_BRANCH}"}
 
-    dirty = _git("status", "--porcelain=v1", "--untracked-files=normal").stdout.strip()
-    if dirty:
+    tracked_dirty = _git("status", "--porcelain=v1", "--untracked-files=no").stdout.strip()
+    if tracked_dirty:
         return {
             "status": "skipped",
-            "reason": "working tree contains local changes",
+            "reason": "tracked files contain local changes",
             "branch": branch or "detached",
         }
 
     _git("fetch", "--prune", "origin", UPDATE_BRANCH, timeout=180)
     local_sha = _git("rev-parse", "HEAD").stdout.strip()
     remote_sha = _git("rev-parse", f"origin/{UPDATE_BRANCH}").stdout.strip()
+    conflicts = sorted(_untracked_conflicts(f"origin/{UPDATE_BRANCH}"))
+    if conflicts:
+        return {
+            "status": "skipped",
+            "reason": "untracked files would conflict with origin/main",
+            "conflicts": conflicts[:20],
+            "branch": branch or "detached",
+        }
 
     ancestor = _git("merge-base", "--is-ancestor", local_sha, remote_sha, check=False)
     if ancestor.returncode != 0:
@@ -147,8 +171,11 @@ def update() -> dict[str, object]:
 
     if _git("rev-parse", "HEAD").stdout.strip() != local_sha:
         raise UpdateError("local HEAD changed while the update was being validated")
-    if _git("status", "--porcelain=v1", "--untracked-files=normal").stdout.strip():
-        raise UpdateError("working tree changed while the update was being validated")
+    if _git("status", "--porcelain=v1", "--untracked-files=no").stdout.strip():
+        raise UpdateError("tracked files changed while the update was being validated")
+    conflicts = sorted(_untracked_conflicts(f"origin/{UPDATE_BRANCH}"))
+    if conflicts:
+        raise UpdateError("untracked files became conflicting while the update was being validated")
 
     recovered_detached = branch == ""
     if recovered_detached:
@@ -168,6 +195,7 @@ def update() -> dict[str, object]:
         "from": local_sha,
         "to": applied_sha,
         "recovered_detached": recovered_detached,
+        "preserved_untracked": len(_untracked_paths()),
     }
 
 
