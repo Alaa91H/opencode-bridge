@@ -449,9 +449,16 @@ class TaskQueueStore:
         db = await self._get_db()
         async with self._lock:
             async with db.execute(
+                "SELECT id FROM schedules WHERE owner_id=? AND name=?",
+                (owner_id, name),
+            ) as schedule_cursor:
+                schedule_row = await schedule_cursor.fetchone()
+            if schedule_row is None:
+                return []
+            async with db.execute(
                 """SELECT scheduled_for,started_at,finished_at,status,error,task_id
                    FROM schedule_runs WHERE schedule_id=? ORDER BY scheduled_for DESC LIMIT ?""",
-                (job.id, max(1, min(int(limit), 100))),
+                (int(schedule_row["id"]), max(1, min(int(limit), 100))),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [dict(row) for row in rows]
