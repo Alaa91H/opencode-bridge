@@ -26,7 +26,7 @@ class DraftPersistenceTests(unittest.TestCase):
                 await db.close()
 
                 db2 = BridgeDatabase(path)
-                await MigrationRunner(db2).apply()
+                await MigrationRunner(db2).migrate()
                 restored = await DraftStore(db2).get("owner", "large")
                 self.assertIsNotNone(restored)
                 self.assertEqual(restored.version, 2)
