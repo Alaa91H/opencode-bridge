@@ -116,6 +116,36 @@ class TaskCommands:
             ),
         )
 
+    async def failed(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        owner_id = self._owner(update)
+        tasks = await self.task_service.failed(owner_id)
+        if not tasks:
+            await self.reply(update.message, "لا توجد مهام فاشلة أو في Dead Letter Queue.")
+            return
+        lines = ["المهام الفاشلة:"]
+        for task in tasks:
+            public_id = task.public_id or str(task.id)
+            lines.append(f"• {public_id} — {task.status} — {task.last_error or 'بدون تفاصيل'}")
+        await self.reply(update.message, "\n".join(lines)[: self.max_message_length])
+
+    async def retry(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        owner_id = self._owner(update)
+        if not context.args:
+            await self.reply(update.message, "الاستخدام: /retry <task-id>")
+            return
+        token = context.args[0].strip()
+        tasks = await self.task_service.failed(owner_id, 100)
+        match = next((task for task in tasks if str(task.id) == token or task.public_id == token), None)
+        if match is None:
+            await self.reply(update.message, "لم يتم العثور على مهمة فاشلة بهذا المعرّف.")
+            return
+        task = await self.task_service.retry_failed(owner_id, match.id)
+        if task is None:
+            await self.reply(update.message, "تعذر إعادة المهمة إلى الطابور.")
+            return
+        self.wake_tasks()
+        await self.reply(update.message, "تمت إعادة المهمة إلى الطابور.")
+
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user_id = self._owner(update)
         try:
