@@ -44,6 +44,7 @@ class ScheduleRepository(Protocol):
     ) -> Any | None: ...
     async def set_scheduled_job_enabled(self, owner_id: str, name: str, enabled: bool) -> Any | None: ...
     async def delete_scheduled_job(self, owner_id: str, name: str) -> bool: ...
+    async def duplicate_scheduled_job(self, owner_id: str, name: str, new_name: str) -> Any | None: ...
     async def list_schedule_history(self, owner_id: str, name: str, limit: int = 20) -> list[dict[str, Any]]: ...
     async def record_schedule_run(self, schedule_id: int, scheduled_for: datetime, status: str, task_id: int | None = None, error: str | None = None) -> bool: ...
 
@@ -196,6 +197,16 @@ class ScheduleService:
         job = await self.repository.set_scheduled_job_enabled(owner_id, name, True)
         if job is None:
             raise ScheduleNotFound(name)
+        return job
+
+    async def duplicate(self, owner_id: str, name: str, new_name: str) -> Any:
+        source = await self.get(owner_id, name)
+        job = await self.repository.create_scheduled_job(
+            owner_id, source.chat_id, new_name, source.prompt,
+            source.next_run_at or (self.now() + timedelta(minutes=1)),
+            repeat_seconds=source.repeat_seconds,
+            timezone_name=source.timezone_name,
+        )
         return job
 
     async def delete(self, owner_id: str, name: str) -> None:
