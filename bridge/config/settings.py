@@ -161,7 +161,6 @@ _ALLOWED_SECTION_KEYS: dict[str, set[str]] = {
         "attachment_max_total_bytes",
         "attachment_pending_seconds",
         "media_group_debounce_seconds",
-        "daily_task_counter_timezone",
     },
     "opencode": {
         "host",
@@ -239,7 +238,6 @@ class TelegramSettings:
     attachment_max_total_bytes: int = 50 * 1024 * 1024
     attachment_pending_seconds: int = 600
     media_group_debounce_seconds: float = 1.25
-    daily_task_counter_timezone: str = "Etc/GMT-2"
 
 
 @dataclass(frozen=True)
@@ -412,10 +410,6 @@ class BridgeSettings:
                 minimum=0.25,
                 maximum=5.0,
             ),
-            daily_task_counter_timezone=str(_source_value(
-                merged_env, config, "TELEGRAM_DAILY_TASK_COUNTER_TIMEZONE",
-                "telegram.daily_task_counter_timezone", "Etc/GMT-2"
-            )).strip(),
         )
 
         if telegram.api_mode not in {"cloud", "local"}:
@@ -661,16 +655,6 @@ class BridgeSettings:
                 "TELEGRAM_ATTACHMENT_MAX_TOTAL_BYTES must be >= "
                 "TELEGRAM_ATTACHMENT_MAX_BYTES"
             )
-        if not self.telegram.daily_task_counter_timezone:
-            raise SettingsError(
-                "TELEGRAM_DAILY_TASK_COUNTER_TIMEZONE must not be empty"
-            )
-        try:
-            ZoneInfo(self.telegram.daily_task_counter_timezone)
-        except ZoneInfoNotFoundError as exc:
-            raise SettingsError(
-                "TELEGRAM_DAILY_TASK_COUNTER_TIMEZONE must be a valid IANA timezone"
-            ) from exc
         if self.logging.level not in {
             "CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"
         }:
