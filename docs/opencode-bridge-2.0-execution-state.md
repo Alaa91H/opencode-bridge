@@ -951,3 +951,21 @@ T31 — Logging احترافي: structured JSON، الحقول السياقية 
 
 ## الخطوة التالية غير المكتملة بالضبط
 T32 — Health / Readiness / Liveness مع degraded semantics وsystemd readiness integration.
+
+
+## تقدم T32 — Health / Readiness / Liveness
+- [x] liveness مستقل.
+- [x] readiness مستقل.
+- [x] Telegram/DB/OpenCode/disk/workers/scheduler/model catalog.
+- [x] systemd READY/STATUS contract.
+- [x] degraded-mode semantics.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T32
+- commit المتحقق منه: `4c0de04106609d0ab258d990b0fe1b6d36860766`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36466288425
+- النتيجة: **success**.
+- **T32 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T33 — Backup & Disaster Recovery: SQLite online backup، metadata/config غير السري، verify/restore test، RPO/RTO، encryption hook.
