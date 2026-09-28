@@ -32,7 +32,7 @@ class BotImportTests(unittest.TestCase):
         self.assertIn("async def cmd_research_mode", source)
         self.assertIn("_task_command_adapter().research(update, context)", source)
         self.assertIn("execution_mode=mode", task_adapter)
-        self.assertIn("execution_mode=execution_mode.value", task_service)
+        self.assertIn('"execution_mode": execution_mode.value', task_service)\n        self.assertIn("idempotency_scope", task_service)
         app_source = (PROJECT_DIR / "bridge" / "telegram" / "app.py").read_text(encoding="utf-8")
         self.assertIn("CommandHandler(research_command_names, handlers.cmd_research_mode)", app_source)
         self.assertIn("/deepresearch", bot.HELP_TEXT)
