@@ -3,19 +3,19 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from bridge.infrastructure.database.v18_migration import V18MigrationPlanner
+from bridge.infrastructure.database.v18_migration import V18MigrationPlanner\nfrom bridge.infrastructure.database.migrations import MigrationRunner\nfrom bridge.infrastructure.database.sqlite import BridgeDatabase
 
 
-class V18MigrationTests(unittest.TestCase):
+class V18MigrationTests(unittest.IsolatedAsyncioTestCase):
     def _legacy(self, path: Path) -> None:
         db = sqlite3.connect(str(path))
         db.executescript("""
         CREATE TABLE sessions(telegram_user_id TEXT PRIMARY KEY, opencode_session_id TEXT);
         INSERT INTO sessions VALUES('42','s1');
-        CREATE TABLE scheduled_jobs(id INTEGER PRIMARY KEY, owner_id TEXT, name TEXT);
-        INSERT INTO scheduled_jobs VALUES(7,'42','daily');
-        CREATE TABLE pending_attachment_batches(owner_id TEXT, attachments_json TEXT);
-        INSERT INTO pending_attachment_batches VALUES('42','[{"file_id":"a"},{"file_id":"b"}]');
+        CREATE TABLE scheduled_jobs(id INTEGER PRIMARY KEY, owner_id TEXT, chat_id INTEGER, name TEXT, prompt TEXT, enabled INTEGER, created_at TEXT, updated_at TEXT, repeat_seconds INTEGER);
+        INSERT INTO scheduled_jobs VALUES(7,'42',99,'daily','run',1,'c','u',3600);
+        CREATE TABLE pending_attachment_batches(owner_id TEXT, chat_id INTEGER, attachments_json TEXT, created_at TEXT, updated_at TEXT, expires_at TEXT);
+        INSERT INTO pending_attachment_batches VALUES('42',99,'[{"file_id":"a"},{"file_id":"b"}]','c','u','e');
         """)
         db.commit()
         db.close()
@@ -59,3 +59,24 @@ class V18MigrationTests(unittest.TestCase):
                 self.assertEqual(restored.execute("SELECT COUNT(*) FROM sessions").fetchone()[0], 1)
             finally:
                 restored.close()
+
+
+    async def test_apply_is_idempotent_for_sessions_schedules_and_pending_attachments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, backup, target = root / "v18.db", root / "backup.db", root / "v2.db"
+            self._legacy(source)
+            planner = V18MigrationPlanner(source, backup)
+            planner.create_backup()
+            database = BridgeDatabase(target)
+            await MigrationRunner(database).migrate()
+            await database.close()
+            planner.migrate_into(target)
+            planner.migrate_into(target)
+            db = sqlite3.connect(str(target))
+            try:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM agent_sessions WHERE owner_id='42'").fetchone()[0], 1)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM schedules WHERE owner_id='42' AND name='daily'").fetchone()[0], 1)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM pending_attachment_batches WHERE owner_id='42'").fetchone()[0], 1)
+            finally:
+                db.close()
