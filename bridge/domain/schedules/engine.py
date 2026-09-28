@@ -112,3 +112,16 @@ def due_occurrences(
         result.append(cursor)
         cursor = recurrence.next_after(cursor)
     return result
+
+
+def overlap_action(policy: OverlapPolicy, active_task_id: int | None) -> str:
+    """Return the scheduler action for a due occurrence with an active predecessor."""
+    if active_task_id is None or policy == OverlapPolicy.ALLOW:
+        return "enqueue"
+    if policy == OverlapPolicy.FORBID:
+        return "skip"
+    if policy == OverlapPolicy.REPLACE:
+        return "replace"
+    if policy == OverlapPolicy.QUEUE:
+        return "queue"
+    raise ValueError(f"Unsupported overlap policy: {policy}")
