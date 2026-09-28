@@ -72,3 +72,60 @@ class V18MigrationPlanner:
         finally:
             db.close()
         return report
+
+    def migrate_into(self, target: Path) -> MigrationReport:
+        """Copy supported v1.8 state into an already migrated v2 database."""
+        report = self.inspect(dry_run=False)
+        src = sqlite3.connect(str(self.source))
+        src.row_factory = sqlite3.Row
+        dst = sqlite3.connect(str(target))
+        try:
+            tables = {r[0] for r in src.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if "sessions" in tables:
+                for row in src.execute("SELECT * FROM sessions"):
+                    exists = dst.execute(
+                        "SELECT 1 FROM agent_sessions WHERE owner_id=? AND provider_session_id=?",
+                        (str(row["telegram_user_id"]), str(row["opencode_session_id"])),
+                    ).fetchone()
+                    if not exists:
+                        created = row["created_at"] if "created_at" in row.keys() else ""
+                        updated = row["updated_at"] if "updated_at" in row.keys() else created
+                        dst.execute(
+                            "INSERT INTO agent_sessions(owner_id,provider_session_id,model,title,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+                            (str(row["telegram_user_id"]), str(row["opencode_session_id"]),
+                             row["model"] if "model" in row.keys() else None,
+                             row["title"] if "title" in row.keys() else None, created, updated),
+                        )
+            if "scheduled_jobs" in tables:
+                for row in src.execute("SELECT * FROM scheduled_jobs"):
+                    definition = {
+                        "kind": "interval" if ("repeat_seconds" in row.keys() and row["repeat_seconds"]) else "once",
+                        "legacy_id": int(row["id"]),
+                        "migration_key": self.schedule_key(str(row["owner_id"]), int(row["id"])),
+                        "prompt": row["prompt"] if "prompt" in row.keys() else "",
+                        "repeat_seconds": row["repeat_seconds"] if "repeat_seconds" in row.keys() else None,
+                    }
+                    dst.execute(
+                        "INSERT OR IGNORE INTO schedules(owner_id,name,definition_json,enabled,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+                        (str(row["owner_id"]), str(row["name"]), json.dumps(definition, sort_keys=True),
+                         int(row["enabled"]) if "enabled" in row.keys() else 1,
+                         row["created_at"] if "created_at" in row.keys() else "",
+                         row["updated_at"] if "updated_at" in row.keys() else ""),
+                    )
+            if "pending_attachment_batches" in tables:
+                for row in src.execute("SELECT * FROM pending_attachment_batches"):
+                    columns = row.keys()
+                    dst.execute(
+                        """INSERT OR REPLACE INTO pending_attachment_batches
+                           (owner_id,chat_id,attachments_json,created_at,updated_at,expires_at)
+                           VALUES(?,?,?,?,?,?)""",
+                        (str(row["owner_id"]), int(row["chat_id"]) if "chat_id" in columns else 0,
+                         row["attachments_json"], row["created_at"] if "created_at" in columns else "",
+                         row["updated_at"] if "updated_at" in columns else "",
+                         row["expires_at"] if "expires_at" in columns else ""),
+                    )
+            dst.commit()
+        finally:
+            dst.close()
+            src.close()
+        return report
