@@ -633,3 +633,24 @@ T14 — Attachment Intelligence Router: direct للصغير المدعوم، chu
 ## الخطوة التالية غير المكتملة بالضبط
 
 T15 — OpenCode Client v2: typed models/contracts، HTTP config/retry/timeouts، correlation IDs/metrics، streaming reconnect، contract tests وتقييم OpenAPI. لا يبدأ T16 قبل إغلاق T15 بالكامل.
+
+
+## تقدم T15 — OpenCode Client v2
+- [x] typed structured request/response/config models.
+- [x] endpoint contracts.
+- [x] centralized HTTP timeout config.
+- [x] bounded retry middleware semantics مع Retry-After.
+- [x] request/correlation IDs.
+- [x] metrics counters.
+- [x] streaming event reconnection مع Last-Event-ID.
+- [x] contract tests عبر MockTransport.
+- [x] تقييم OpenAPI: لا schema رسمي versioned مثبت، لذلك لا توليد speculative.
+
+### CI النهائي وإغلاق T15
+- commit المتحقق منه: `0f013695c22973b3850195688900c4c8c9e0ae03`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36389538170
+- النتيجة: **success** على Python 3.12/3.13/3.14.
+- **T15 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T16 — Circuit Breakers مستقلة لـTelegram/OpenCode/model provider/GitHub/storage، مع CLOSED/OPEN/HALF_OPEN وthresholds/metrics/events/recovery tests.
