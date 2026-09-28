@@ -43,7 +43,9 @@ class MediaArchitectureTests(unittest.TestCase):
     def test_text_handler_delegates_pending_attachment_instruction(self) -> None:
         source = (ROOT / "bot.py").read_text(encoding="utf-8")
         adapter = (ROOT / "bridge" / "telegram" / "commands" / "tasks.py").read_text(encoding="utf-8")
-        self.assertIn("_draft_intake_adapter().text(update, context)", source)\n        intake = (ROOT / "bridge" / "telegram" / "draft_intake.py").read_text(encoding="utf-8")\n        self.assertIn("self.task_commands.text(update, context)", intake)
+        self.assertIn("_draft_intake_adapter().text(update, context)", source)
+        intake = (ROOT / "bridge" / "telegram" / "draft_intake.py").read_text(encoding="utf-8")
+        self.assertIn("self.task_commands.text(update, context)", intake)
         self.assertIn(
             "media_adapter.consume_pending_instruction(update, context, text)",
             adapter,
