@@ -1025,3 +1025,23 @@ T35 — Database Migration Rollback: version/checksum، snapshot requirement، c
 
 ## الخطوة التالية غير المكتملة بالضبط
 T36 — Security Hardening.
+
+
+## تقدم T36 — Security Hardening
+- [x] localhost-only OpenCode policy.
+- [x] systemd hardening contract.
+- [x] file magic inspection.
+- [x] zip-bomb/traversal protections متكاملة مع T13.
+- [x] symlink/path traversal output jail.
+- [x] secret redaction متكامل مع T30/T31.
+- [x] max subprocess runtime.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T36
+- commit المتحقق منه: `bdb2ac28b8a6ee31e1aba15545da9e8e0da2762b`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36466899777
+- النتيجة: **success**.
+- **T36 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T37 — Secret Management.
