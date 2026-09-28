@@ -731,3 +731,22 @@ T19 — Execution Policy Profiles: SAFE/DEVELOPMENT/POWER/HOST_ADMIN، capabilit
 
 ## الخطوة التالية غير المكتملة بالضبط
 T20 — Build Sandbox: اختيار backend موثوق حسب البيئة، resource/network/process/time limits، dependency install/build داخل sandbox فقط، build profiles، cleanup، واختبارات breakout/security.
+
+
+## تقدم T20 — Build Sandbox
+- [x] rootless Podman ثم bubblewrap حسب البيئة، بلا host fallback.
+- [x] CPU/RAM/scratch-disk/wall-time/PIDs/network controls.
+- [x] dependency/build execution داخل sandbox فقط.
+- [x] Python/npm/Gradle test profiles.
+- [x] ephemeral cleanup semantics.
+- [x] breakout/security command-plan tests.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T20
+- commit المتحقق منه: `6add3ff224d9b9ee608a8d5f4db352ae0fa1b947`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36397603257
+- النتيجة: **success**.
+- **T20 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T21 — Workspace Isolation: workspace مستقل لكل development task، worktree/temp clone/container volume، locking، commit/push/PR policy، failure retention، cleanup آمن.
