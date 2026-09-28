@@ -4,12 +4,12 @@
 
 ## المرحلة الحالية
 
-- المرحلة المغلقة الأخيرة: **T04 — Database Layer v2**
+- المرحلة المغلقة الأخيرة: **T05 — Durable Queue v2**
 - حالة T00: **مكتملة**
 - حالة T01: **مكتملة**
 - حالة T02: **مكتملة**
-- المرحلة التالية المسموحة فقط: **T05 — Durable Queue v2**
-- قاعدة الانتقال: لا يجوز بدء T06 قبل إغلاق T05 بالكامل بنفس الصرامة.
+- المرحلة التالية المسموحة فقط: **T06 — Idempotency ومنع التكرار**
+- قاعدة الانتقال: لا يجوز بدء T07 قبل إغلاق T06 بالكامل بنفس الصرامة.
 
 ## تقدم T00
 
@@ -310,3 +310,37 @@ T04 — Database Layer v2: **توحيد SessionStore وTaskQueueStore خلف ط�
 ## الخطوة التالية غير المكتملة بالضبط
 
 T05 — Durable Queue v2: إضافة UUID عام وidempotency key وlease وheartbeat وattempt/priority/checkpoint والحالات الجديدة، ثم recovery/retry/DLQ وأوامر /failed و/retry واختبارات crash/restart. لا يبدأ T06 قبل إغلاق T05 بالكامل ونجاح CI.
+
+
+## تقدم T05 — مكتملة
+
+- [x] UUID عام وidempotency key وlease وheartbeat وattempt/priority/checkpoint لكل Task.
+- [x] الحالات المطلوبة مدعومة في durable state model مع توافق legacy أثناء الترحيل.
+- [x] worker lease واسترجاع المهمة بعد موت worker/انتهاء lease.
+- [x] heartbeat وتمديد lease للworker المالك فقط.
+- [x] retry engine مع exponential backoff + jitter واحترام Retry-After.
+- [x] تصنيف retryable/non-retryable.
+- [x] Dead Letter Queue.
+- [x] /failed و/retry عبر Telegram → service → durable store مع owner isolation.
+- [x] crash/restart-style tests: lease expiry/reclaim، heartbeat، attempts، retry، DLQ، manual retry، idempotency uniqueness.
+- [x] توثيق state/recovery/failure semantics.
+
+### أدلة T05
+- `bridge/infrastructure/database/migrations.py` — migration durable_queue_v2.
+- `task_queue.py` — durable metadata، claim/lease/heartbeat/recovery/retry/DLQ.
+- `bridge/services/task_service.py` — failed/retry use cases.
+- `bridge/telegram/commands/tasks.py`, `bridge/telegram/app.py`, `bot.py` — /failed و/retry مع thin compatibility handlers.
+- `tests/test_v2_durable_queue.py`.
+- `docs/t05-durable-queue-ar.md`.
+- commits الرئيسية: `32f0edc45b04b80d64eda77016ced11e27eef257`, `a41f4cbbbbabe05f08b29f10ad8c0e6b01f295c6`, `40c1755c63404bd058be0f8bf3e19ab1ac4f1f32`, `c862460e92d5f3e46c3124862fd9bd5ecec4550b`, `9cf36ec90ce29d6aec6a5f55d246ce12c55d9310`.
+
+### CI النهائي لـT05
+- commit المتحقق منه: `9cf36ec90ce29d6aec6a5f55d246ce12c55d9310`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36384731641
+- النتيجة: **success**
+- نجحت jobs: Python 3.12 وPython 3.13 وPython 3.14.
+- **T05 مغلقة.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T06 — Idempotency ومنع التكرار: idempotency record لكل Telegram update، at-least-once input مع effectively-once task creation، منع duplicate schedule occurrence وduplicate enqueue بعد restart، واختبارات update/tick مكررة. لا يبدأ T07 قبل إغلاق T06 بالكامل ونجاح CI.
