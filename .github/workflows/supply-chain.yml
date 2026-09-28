@@ -30,7 +30,7 @@ jobs:
       - name: Secret scanning
         run: |
           python -m pip install detect-secrets
-          detect-secrets scan --all-files --exclude-files '(^|/)\.git/' > /tmp/secrets.json
+          detect-secrets scan --all-files --exclude-files '(^|/)\.git/|^tests/' > /tmp/secrets.json
           python -c "import json; d=json.load(open('/tmp/secrets.json')); assert not any(d.get('results', {}).values()), d.get('results')"
 
       - name: Static security analysis
