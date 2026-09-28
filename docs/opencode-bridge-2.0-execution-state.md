@@ -861,3 +861,22 @@ T26 — نتائج طويلة بلا قص: summary، full artifact، pagination 
 
 ## الخطوة التالية غير المكتملة بالضبط
 T27 — Telegram UX v2: pagination/inline keyboard/breadcrumbs/confirmations/task history/output browser/schedule browser/retry/cancel/duplicate/rerun/download، مع بقاء الأوامر النصية.
+
+
+## تقدم T27 — Telegram UX v2
+- [x] pagination وinline action model.
+- [x] breadcrumbs.
+- [x] confirmations.
+- [x] task history/output/schedule browsers.
+- [x] retry/cancel/duplicate/rerun/download buttons.
+- [x] compatibility: الأوامر النصية باقية.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T27
+- commit المتحقق منه: `139e5aacba5db9a6aa349d61d8be10fcc9f97dd6`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36446513708
+- النتيجة: **success**.
+- **T27 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T28 — User Preferences: timezone/language/notification/default workspace/default execution profile/model preference/output style/retention/schedule defaults.
