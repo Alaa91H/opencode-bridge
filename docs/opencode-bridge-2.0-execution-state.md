@@ -1160,3 +1160,22 @@ T42 — Load & Soak Testing.
 
 ## الخطوة التالية غير المكتملة بالضبط
 T43 — Performance Targets.
+
+
+## تقدم T43 — Performance Targets
+- [x] durability/idempotency/recovery targets.
+- [x] text ACK <1s SLO موثق للبيئة المرجعية.
+- [x] DB lock/worker/restart/RAM/10k queue targets.
+- [x] critical metrics/tracing linkage.
+- [x] 99.9% monthly self-service uptime SLO موثق وقابل للقياس.
+- [x] contract tests تربط المقاييس/suites بالأهداف.
+
+### CI النهائي وإغلاق T43
+- commit المتحقق منه: `61edfe30a9743ca4698626b3bee08a06c0b803fe`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468731704 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468731654 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468731605 — success.
+- **T43 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T44 — إزالة الحدود الداخلية القديمة.
