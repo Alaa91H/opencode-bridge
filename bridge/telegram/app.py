@@ -35,6 +35,7 @@ def core_commands() -> list[BotCommand]:
         BotCommand("schedappend", "إلحاق نص بأمر مجدول"),
         BotCommand("schedtime", "تغيير وقت التشغيل التالي"),
         BotCommand("schedinterval", "تغيير فترة التكرار"),
+        BotCommand("schedtimezone", "تغيير المنطقة الزمنية"),
         BotCommand("schedrun", "تشغيل مهمة مجدولة الآن"),
         BotCommand("schedpause", "إيقاف مهمة مجدولة"),
         BotCommand("schedresume", "تشغيل مهمة مجدولة"),
@@ -88,6 +89,7 @@ def register_core_handlers(
     app.add_handler(CommandHandler("schedappend", handlers.cmd_schedappend))
     app.add_handler(CommandHandler("schedtime", handlers.cmd_schedtime))
     app.add_handler(CommandHandler("schedinterval", handlers.cmd_schedinterval))
+    app.add_handler(CommandHandler("schedtimezone", handlers.cmd_schedtimezone))
     app.add_handler(CommandHandler("schedrun", handlers.cmd_schedrun))
     app.add_handler(CommandHandler("schedpause", handlers.cmd_schedpause))
     app.add_handler(CommandHandler("schedresume", handlers.cmd_schedresume))
