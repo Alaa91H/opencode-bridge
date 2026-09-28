@@ -22,12 +22,37 @@ class Migration:
 
 
 MIGRATIONS = (
-    Migration(1, "legacy_task_queue_columns", (
+    Migration(1, "legacy_task_queue_schema", (
+        """CREATE TABLE IF NOT EXISTS agent_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL,
+            chat_id INTEGER NOT NULL, prompt TEXT NOT NULL, status TEXT NOT NULL,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL, due_at TEXT,
+            repeat_seconds INTEGER, sequence INTEGER NOT NULL DEFAULT 0,
+            started_at TEXT, completed_at TEXT, last_error TEXT)""",
+        """CREATE TABLE IF NOT EXISTS scheduled_jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL,
+            chat_id INTEGER NOT NULL, name TEXT NOT NULL COLLATE NOCASE,
+            prompt TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL, next_run_at TEXT,
+            repeat_seconds INTEGER, timezone_name TEXT NOT NULL DEFAULT 'UTC',
+            last_run_at TEXT, last_error TEXT, UNIQUE(owner_id, name))""",
+        """CREATE TABLE IF NOT EXISTS pending_attachment_batches (
+            owner_id TEXT NOT NULL, chat_id INTEGER NOT NULL,
+            attachments_json TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+            PRIMARY KEY(owner_id, chat_id))""",
+
         "ALTER TABLE agent_tasks ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'",
         "ALTER TABLE agent_tasks ADD COLUMN activity_json TEXT NOT NULL DEFAULT '[]'",
         "ALTER TABLE agent_tasks ADD COLUMN execution_mode TEXT",
         "ALTER TABLE agent_tasks ADD COLUMN status_message_id INTEGER",
         "ALTER TABLE agent_tasks ADD COLUMN schedule_job_id INTEGER",
+        "CREATE INDEX IF NOT EXISTS idx_agent_tasks_owner_status_sequence ON agent_tasks(owner_id, status, sequence, id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_tasks_status_due ON agent_tasks(status, due_at)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_tasks_owner_created ON agent_tasks(owner_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_owner_name ON scheduled_jobs(owner_id, name COLLATE NOCASE)",
+        "CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_due ON scheduled_jobs(enabled, next_run_at)",
+        "CREATE INDEX IF NOT EXISTS idx_pending_attachment_expiry ON pending_attachment_batches(expires_at)",
     )),
     Migration(2, "v2_core_schema", (
         """CREATE TABLE IF NOT EXISTS task_attempts (
