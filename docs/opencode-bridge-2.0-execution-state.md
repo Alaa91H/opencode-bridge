@@ -969,3 +969,22 @@ T32 — Health / Readiness / Liveness مع degraded semantics وsystemd readines
 
 ## الخطوة التالية غير المكتملة بالضبط
 T33 — Backup & Disaster Recovery: SQLite online backup، metadata/config غير السري، verify/restore test، RPO/RTO، encryption hook.
+
+
+## تقدم T33 — Backup & Disaster Recovery
+- [x] SQLite online backup API.
+- [x] persistent schedules/settings/metadata ضمن DB backup دون config secrets خارجية.
+- [x] checksum/size/integrity verification.
+- [x] automated restore test.
+- [x] RPO/RTO موثقان وقابلان للضبط.
+- [x] encryption hook اختياري.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T33
+- commit المتحقق منه: `38d558dbb7cce9b075b25008d7c4ad2dab86458e`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36466452221
+- النتيجة: **success**.
+- **T33 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T34 — Atomic Deployment: download/verify/test/migrate/health/switch/restart/smoke/automatic rollback.
