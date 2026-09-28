@@ -37,6 +37,8 @@ from bridge.domain.schedules import (
 )
 from bridge.services.agent_service import AgentService
 from bridge.services.config_service import ConfigurationService
+from bridge.services.draft_service import DraftService
+from bridge.infrastructure.database.draft_store import DraftStore
 from bridge.services.maintenance_service import MaintenanceReportService
 from bridge.services.media_service import MediaTaskService
 from bridge.services.schedule_service import ScheduleService
@@ -47,6 +49,7 @@ from bridge.telegram.attachments import TelegramMediaAdapter
 from bridge.telegram.callbacks.reboot import RebootCallbackAdapter
 from bridge.telegram.commands.agent import AgentCommands
 from bridge.telegram.commands.config import ConfigCommands
+from bridge.telegram.commands.drafts import DraftCommands
 from bridge.telegram.commands.schedules import ScheduleCommands
 from bridge.telegram.callbacks.schedules import ScheduleCallbacks
 from bridge.telegram.commands.system import SystemCommands
@@ -143,6 +146,7 @@ _schedule_commands_instance: ScheduleCommands | None = None
 _agent_commands_instance: AgentCommands | None = None
 _system_commands_instance: SystemCommands | None = None
 _config_commands_instance: ConfigCommands | None = None
+_draft_commands_instance: DraftCommands | None = None
 _reboot_callback_instance: RebootCallbackAdapter | None = None
 _access_controller_instance: TelegramAccessController | None = None
 _request_guard = RequestGuard((check_build, check_hardline))
@@ -171,6 +175,7 @@ _media_service = MediaTaskService(
     max_total_bytes=ATTACHMENT_MAX_TOTAL_BYTES,
 )
 _schedule_service = ScheduleService(task_store, _request_guard)
+_draft_service = DraftService(DraftStore(task_store.database), _task_application_service, _schedule_service)
 _task_execution_service = TaskExecutionService(
     task_store,
     _agent_service,
@@ -292,6 +297,16 @@ def _schedule_callback_adapter() -> ScheduleCallbacks:
 
 async def handle_schedule_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _schedule_callback_adapter().handle(update, context)
+
+
+def _draft_command_adapter() -> DraftCommands:
+    global _draft_commands_instance
+    if _draft_commands_instance is None:
+        _draft_commands_instance = DraftCommands(_draft_service, _safe_reply)
+    return _draft_commands_instance
+
+async def cmd_draft(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _draft_command_adapter().handle(update, context)
 
 
 def _task_command_adapter() -> TaskCommands:
