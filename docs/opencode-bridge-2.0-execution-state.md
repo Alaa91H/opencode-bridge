@@ -1121,3 +1121,22 @@ T40 — Test Architecture.
 
 ## الخطوة التالية غير المكتملة بالضبط
 T41 — Fault Injection.
+
+
+## تقدم T41 — Fault Injection
+- [x] fault matrix لكل الحالات المطلوبة.
+- [x] recovery assertion لكل fault.
+- [x] committed task لا يفقد.
+- [x] duplicate update effectively-once invariant.
+- [x] output retry invariant.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T41
+- commit المتحقق منه: `96a2800f5d2eb990bda7fd107c0f20f2fab34073`.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468334692 — success.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468334858 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468334699 — success.
+- **T41 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T42 — Load & Soak Testing.
