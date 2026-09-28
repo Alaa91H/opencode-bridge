@@ -1217,3 +1217,21 @@ T45 — Local Telegram API كخيار Production.
 
 ## الخطوة التالية غير المكتملة بالضبط
 T46 — إزالة ازدواجية Legacy/V3.
+
+
+## تقدم T46 — إزالة ازدواجية Legacy/V3
+- [x] opencode.json هو production config canonical الوحيد.
+- [x] BridgeSettings/task engine/OpenCode client مسارات موحدة.
+- [x] migration path موثق.
+- [x] opencode-v3.json بقي compatibility artifact فقط حتى إثبات T48، لا production path.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T46
+- commit المتحقق منه: `af93fbbefc435f1c821f066dce7868e3acf8ddcc`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36469435592 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36469435496 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36469435525 — success.
+- **T46 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T47 — Documentation.
