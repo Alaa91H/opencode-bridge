@@ -36,9 +36,11 @@ class DraftService:
         draft = await self.show(owner_id, name)
         if self.task_service is None:
             raise RuntimeError("task service unavailable")
-        return await self.task_service.create_task(
+        # Draft attachments are durable metadata; T11 will own binary storage.
+        return await self.task_service.enqueue_prompt(
             owner_id, chat_id, draft.prompt_text,
-            attachments=list(draft.attachments), idempotency_key=idempotency_key,
+            idempotency_scope="draft",
+            idempotency_key=idempotency_key,
         )
 
     async def schedule(self, owner_id: str, chat_id: int, name: str, schedule_name: str, due_text: str):
