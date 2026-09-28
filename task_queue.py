@@ -425,6 +425,37 @@ class TaskQueueStore:
             await db.commit()
         return bool(cursor.rowcount)
 
+    async def record_schedule_run(
+        self, schedule_id: int, scheduled_for: datetime, status: str,
+        task_id: int | None = None, error: str | None = None,
+    ) -> bool:
+        now = encode_time(utc_now())
+        db = await self._get_db()
+        async with self._lock:
+            cursor = await db.execute(
+                """INSERT OR IGNORE INTO schedule_runs
+                   (schedule_id,task_id,scheduled_for,started_at,finished_at,status,error)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (schedule_id, task_id, encode_time(scheduled_for), now,
+                 now if status in {"completed","failed","skipped"} else None, status, error),
+            )
+            await db.commit()
+        return bool(cursor.rowcount)
+
+    async def list_schedule_history(self, owner_id: str, name: str, limit: int = 20) -> list[dict[str, Any]]:
+        job = await self.get_scheduled_job(owner_id, name)
+        if job is None:
+            return []
+        db = await self._get_db()
+        async with self._lock:
+            async with db.execute(
+                """SELECT scheduled_for,started_at,finished_at,status,error,task_id
+                   FROM schedule_runs WHERE schedule_id=? ORDER BY scheduled_for DESC LIMIT ?""",
+                (job.id, max(1, min(int(limit), 100))),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
     async def enqueue_scheduled_job_now(
         self,
         owner_id: str,
