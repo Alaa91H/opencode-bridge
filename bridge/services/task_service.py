@@ -24,6 +24,8 @@ class TaskRepository(Protocol):
     async def latest_active_for_owner(self, owner_id: str) -> Any | None: ...
     async def cancel(self, task_id: int, owner_id: str) -> Any | None: ...
     async def cancel_running_for_owner(self, owner_id: str) -> Any | None: ...
+    async def list_failed(self, owner_id: str, limit: int = 20) -> list[Any]: ...
+    async def retry_failed(self, task_id: int, owner_id: str) -> Any | None: ...
 
 
 class AttachmentCleanupPort(Protocol):
@@ -99,6 +101,12 @@ class TaskApplicationService:
 
     async def latest_active(self, owner_id: str) -> Any | None:
         return await self.repository.latest_active_for_owner(owner_id)
+
+    async def failed(self, owner_id: str, limit: int = 20) -> list[Any]:
+        return await self.repository.list_failed(owner_id, limit)
+
+    async def retry_failed(self, owner_id: str, task_id: int) -> Any | None:
+        return await self.repository.retry_failed(task_id, owner_id)
 
     async def abort_running(self, owner_id: str) -> AbortResult:
         cancelled = await self.repository.cancel_running_for_owner(owner_id)
