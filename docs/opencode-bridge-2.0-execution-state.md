@@ -769,3 +769,21 @@ T21 — Workspace Isolation: workspace مستقل لكل development task، work
 
 ## الخطوة التالية غير المكتملة بالضبط
 T22 — Resource Scheduler v2: ResourceCost CPU/RAM/disk/I/O/model/media، dynamic bin-packing، current pressure، OOM/disk guards، mixed workload tests.
+
+
+## تقدم T22 — Resource Scheduler v2
+- [x] ResourceCost: CPU/RAM/disk/I/O/model/media.
+- [x] dynamic dominant-resource bin-packing.
+- [x] current CPU/RAM/disk/I/O pressure ضمن admission.
+- [x] RAM/disk safety headroom لمنع OOM/exhaustion.
+- [x] mixed workload/model/media tests.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T22
+- commit المتحقق منه: `ef856f984a60bc367bc287c6ed872a6f1b85441b`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36406595994
+- النتيجة: **success**.
+- **T22 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T23 — Priority & Fairness: low/normal/high/urgent، aging، fairness per owner، resource weighting، منع starvation، وحماية interactive tasks من schedule workloads الثقيلة.
