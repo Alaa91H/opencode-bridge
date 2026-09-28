@@ -25,23 +25,15 @@ class S3Storage(StorageBackend):
         return f"{self.prefix}/{key[:2]}/{key}" if self.prefix else f"{key[:2]}/{key}"
 
     def put_stream(self, source: BinaryIO, *, sha256: str | None = None) -> StorageObject:
-        digest = hashlib.sha256()
-        size = 0
         with tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024) as staged:
-            while True:
-                chunk = source.read(self.chunk_size)
-                if not chunk:
-                    break
-                digest.update(chunk)
-                size += len(chunk)
-                staged.write(chunk)
-            actual = digest.hexdigest()
+            result = copy_stream(source, staged, chunk_size=self.chunk_size)
+            actual = result.sha256
             if sha256 is not None and sha256.lower() != actual:
                 raise ValueError("sha256 mismatch")
             staged.seek(0)
             if not self.exists(actual):
                 self.client.upload_fileobj(staged, self.bucket, self._object_key(actual))
-        return StorageObject(actual, size, actual)
+        return StorageObject(actual, result.bytes_copied, actual)
 
     def open(self, key: str) -> BinaryIO:
         staged = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024)
