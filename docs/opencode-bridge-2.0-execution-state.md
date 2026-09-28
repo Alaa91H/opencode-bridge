@@ -988,3 +988,21 @@ T33 — Backup & Disaster Recovery: SQLite online backup، metadata/config غي�
 
 ## الخطوة التالية غير المكتملة بالضبط
 T34 — Atomic Deployment: download/verify/test/migrate/health/switch/restart/smoke/automatic rollback.
+
+
+## تقدم T34 — Atomic Deployment
+- [x] artifact verify/checksum.
+- [x] test/migrate/health callbacks.
+- [x] releases/version + atomic current symlink.
+- [x] restart + smoke.
+- [x] automatic rollback/restart.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T34
+- commit المتحقق منه: `ae66b6ab3194eb3e0762c4513d4ccca618e2b666`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36466614515
+- النتيجة: **success**.
+- **T34 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T35 — Database Migration Rollback: version/checksum، snapshot requirement، compatibility window، forward/restore strategy، self-update safety.
