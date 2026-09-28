@@ -20,6 +20,9 @@ class TaskRepository(Protocol):
         execution_mode: str | None = None,
         status_message_id: int | None = None,
     ) -> tuple[Any, int]: ...
+    async def enqueue_once(
+        self, scope: str, idempotency_key: str, owner_id: str, chat_id: int, prompt: str, **kwargs: Any
+    ) -> tuple[Any, int, bool]: ...
     async def list_active(self, owner_id: str) -> list[Any]: ...
     async def latest_active_for_owner(self, owner_id: str) -> Any | None: ...
     async def cancel(self, task_id: int, owner_id: str) -> Any | None: ...
@@ -77,6 +80,8 @@ class TaskApplicationService:
         status_message_id: int | None = None,
         execution_mode: ResearchMode | None = None,
         stored_prompt: str | None = None,
+        idempotency_scope: str | None = None,
+        idempotency_key: str | None = None,
     ) -> QueuedRequest:
         """Validate the user instruction while allowing trusted bridge context in storage.
 
@@ -87,13 +92,17 @@ class TaskApplicationService:
         """
         self.guard.ensure_allowed(prompt)
         enhanced = enhance_prompt(prompt, requested_mode=execution_mode)
-        task, position = await self.repository.enqueue(
-            owner_id,
-            chat_id,
-            stored_prompt if stored_prompt is not None else prompt,
-            execution_mode=execution_mode.value if execution_mode is not None else None,
-            status_message_id=status_message_id,
-        )
+        enqueue_kwargs = {
+            "execution_mode": execution_mode.value if execution_mode is not None else None,
+            "status_message_id": status_message_id,
+        }
+        stored = stored_prompt if stored_prompt is not None else prompt
+        if idempotency_scope and idempotency_key:
+            task, position, _created = await self.repository.enqueue_once(
+                idempotency_scope, idempotency_key, owner_id, chat_id, stored, **enqueue_kwargs
+            )
+        else:
+            task, position = await self.repository.enqueue(owner_id, chat_id, stored, **enqueue_kwargs)
         return QueuedRequest(task=task, queue_position=position, enhanced=enhanced)
 
     async def active(self, owner_id: str) -> list[Any]:
