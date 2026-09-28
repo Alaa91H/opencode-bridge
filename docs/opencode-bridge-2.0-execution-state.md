@@ -691,3 +691,24 @@ T17 — Model Router v2: capability/quality/latency/reliability/cost/context sco
 
 ## الخطوة التالية غير المكتملة بالضبط
 T18 — Context Management: budget، summarization، task-history retrieval، selective attachments، token estimation، compression، checkpoints، واختبارات تجاوز context.
+
+
+## تقدم T18 — Context Management
+- [x] context budget مع output reserve.
+- [x] conversation summarization/compression.
+- [x] retrieval من task history حسب relevance/query.
+- [x] selective attachment/context retrieval.
+- [x] dependency-free conservative token estimation.
+- [x] prompt compression مع required prompt preservation.
+- [x] reusable context checkpoints.
+- [x] overflow tests دون فقد تعليمات المهمة.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T18
+- commit المتحقق منه: `7be838160ffb22c5bc3e7d69ec1c786a446b695f`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36391942827
+- النتيجة: **success**.
+- **T18 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T19 — Execution Policy Profiles: SAFE/DEVELOPMENT/POWER/HOST_ADMIN، capability matrix، per-user/per-task selection، escalation audit، SAFE default، HOST_ADMIN allowlist، ومنع كشف الأسرار.
