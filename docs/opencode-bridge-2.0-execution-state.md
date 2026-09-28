@@ -1045,3 +1045,20 @@ T36 — Security Hardening.
 
 ## الخطوة التالية غير المكتملة بالضبط
 T37 — Secret Management.
+
+
+## تقدم T37 — Secret Management
+- [x] systemd credentials اختياري.
+- [x] SecretSource extensible لمصدر encrypted/secrets manager حقيقي.
+- [x] scoped minimal exposure.
+- [x] migration تدريجية من env/.env دون كسر deployment.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T37
+- commit المتحقق منه: `21d359b246de4518a61f7fab248607a858f74e7a`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36467046227
+- النتيجة: **success**.
+- **T37 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T38 — Supply Chain Security.
