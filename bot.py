@@ -59,7 +59,6 @@ from bridge.telegram.draft_intake import DraftIntakeAdapter
 from bridge.telegram.middleware import TelegramAccessController
 from bridge.telegram.rendering.schedules import scheduled_job_line
 from formatter import MAX_MESSAGE_LENGTH
-from free_points import FreePointsTracker, format_free_points_header
 from model_catalog import ranked_zen_general_model_ids
 from model_manager import ModelManager
 from messages import (
@@ -113,21 +112,14 @@ ATTACHMENT_MAX_COUNT = SETTINGS.telegram.attachment_max_count
 ATTACHMENT_MAX_TOTAL_BYTES = SETTINGS.telegram.attachment_max_total_bytes
 ATTACHMENT_PENDING_SECONDS = SETTINGS.telegram.attachment_pending_seconds
 MEDIA_GROUP_DEBOUNCE_SECONDS = SETTINGS.telegram.media_group_debounce_seconds
-FREE_DAILY_POINTS = SETTINGS.opencode.free_daily_points
 DAILY_TASK_COUNTER_TIMEZONE_NAME = SETTINGS.telegram.daily_task_counter_timezone
 
 store = SessionStore(BRIDGE_DIR / "sessions.db")
 task_store = TaskQueueStore(BRIDGE_DIR / "sessions.db")
-free_points_tracker = FreePointsTracker(
-    BRIDGE_DIR / "runtime" / "free-points.db",
-    daily_limit=FREE_DAILY_POINTS,
-    timezone_name=DAILY_TASK_COUNTER_TIMEZONE_NAME,
-)
 client = OpenCodeClient(
     host=OPENCODE_HOST,
     port=OPENCODE_PORT,
     password=OPENCODE_PASSWORD,
-    free_points_tracker=free_points_tracker,
 )
 audit = AuditLogger(BRIDGE_DIR / "runtime" / "audit.jsonl")
 attachment_store = AttachmentStore(
@@ -470,7 +462,6 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
         task_store,
         progress_store,
         live_reporters,
-        free_points_tracker,
         max_message_length=MAX_MESSAGE_LENGTH,
         error_message=user_error,
         logger=log,
