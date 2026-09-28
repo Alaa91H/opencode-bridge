@@ -42,6 +42,20 @@ class SelfUpdatePolicyTests(unittest.TestCase):
         self.assertIn('"merge", "--ff-only"', source)
         self.assertIn('"worktree", "add", "--detach"', source)
 
+    def test_untracked_parser_and_conflict_detection_are_exact(self) -> None:
+        self.assertEqual(
+            self_update._nul_paths("wait_for_opencode.py\0runtime/local.tmp\0"),
+            {"wait_for_opencode.py", "runtime/local.tmp"},
+        )
+        self.assertEqual(self_update._nul_paths(""), set())
+
+    def test_policy_ignores_nonconflicting_untracked_files_but_not_tracked_changes(self) -> None:
+        source = MODULE_PATH.read_text(encoding="utf-8")
+        self.assertIn('"--untracked-files=no"', source)
+        self.assertIn('"ls-files", "--others", "--exclude-standard", "-z"', source)
+        self.assertIn('"ls-tree", "-r", "--name-only", "-z"', source)
+        self.assertIn("untracked files would conflict with origin/main", source)
+
 
 if __name__ == "__main__":
     unittest.main()
