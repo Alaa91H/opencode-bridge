@@ -17,6 +17,7 @@
   "soak": {
     "completed": false,
     "duration_hours": 0,
-    "note": "T42 harness is ready; T50 remains fail-closed until a real 24-72h run completes."
+    "note": "T42 harness is ready; T50 remains fail-closed until a real 24-72h run completes.",
+    "request_id": "t50-final-20260928-a"
   }
 }
