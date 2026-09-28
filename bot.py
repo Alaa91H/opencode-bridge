@@ -112,7 +112,6 @@ ATTACHMENT_MAX_COUNT = SETTINGS.telegram.attachment_max_count
 ATTACHMENT_MAX_TOTAL_BYTES = SETTINGS.telegram.attachment_max_total_bytes
 ATTACHMENT_PENDING_SECONDS = SETTINGS.telegram.attachment_pending_seconds
 MEDIA_GROUP_DEBOUNCE_SECONDS = SETTINGS.telegram.media_group_debounce_seconds
-DAILY_TASK_COUNTER_TIMEZONE_NAME = SETTINGS.telegram.daily_task_counter_timezone
 
 store = SessionStore(BRIDGE_DIR / "sessions.db")
 task_store = TaskQueueStore(BRIDGE_DIR / "sessions.db")
