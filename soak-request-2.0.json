@@ -7,5 +7,7 @@
   "schedules": 200,
   "owners": 50,
   "logical_payload_bytes": 4294967296,
-  "slow_ms": 250
+  "slow_ms": 250,
+  "request_id": "t50-final-20260928-a",
+  "source_policy": "must-match-request-id"
 }
