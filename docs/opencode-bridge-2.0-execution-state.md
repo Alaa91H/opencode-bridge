@@ -1179,3 +1179,22 @@ T43 — Performance Targets.
 
 ## الخطوة التالية غير المكتملة بالضبط
 T44 — إزالة الحدود الداخلية القديمة.
+
+
+## تقدم T44 — إزالة الحدود الداخلية القديمة
+- [x] attachment count/bytes/pending/workers/output policies.
+- [x] 0 = unlimited by application policy.
+- [x] auto = resource-calculated.
+- [x] Resource Guard يبقى فعالًا.
+- [x] finite legacy values متوافقة.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T44
+- commit المتحقق منه: `3a61beee5ee8629aac473f7b37fd19a1f5eb5193`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468919917 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468920360 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468919850 — success.
+- **T44 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T45 — Local Telegram API كخيار Production.
