@@ -247,6 +247,8 @@ class TaskCommands:
                 prompt,
                 execution_mode=mode,
                 status_message_id=status_message_id,
+                idempotency_scope="telegram_update",
+                idempotency_key=str(update.update_id),
             )
             self.wake_tasks()
             self.audit_write(
@@ -325,6 +327,8 @@ class TaskCommands:
                 update.effective_chat.id,
                 text,
                 status_message_id=status_message_id,
+                idempotency_scope="telegram_update",
+                idempotency_key=str(update.update_id),
             )
             self.wake_tasks()
             self.audit_write(
