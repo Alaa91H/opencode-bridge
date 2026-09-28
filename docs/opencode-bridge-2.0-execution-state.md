@@ -824,3 +824,21 @@ T24 — Cancellation حقيقية: token موحد، cooperative cancellation، c
 
 ## الخطوة التالية غير المكتملة بالضبط
 T25 — Progress Protocol موحد: structured events، renderer مستقل، Telegram debounce/rate-limit، one-message principle، persisted progress بعد restart.
+
+
+## تقدم T25 — Progress Protocol موحد
+- [x] structured events للحالات التسع.
+- [x] renderer مستقل.
+- [x] Telegram debounce/rate-limit per task.
+- [x] one-message update semantics.
+- [x] persist-before-render وإعادة binding بعد restart.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T25
+- commit المتحقق منه: `41554afe36c8b57f943fddbf3da6544f3a4e71b1`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36426853440
+- النتيجة: **success**.
+- **T25 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T26 — نتائج طويلة بلا قص: summary، full artifact، pagination اختياري، output manifest، واختبارات نتائج ضخمة دون فقد المحتوى.
