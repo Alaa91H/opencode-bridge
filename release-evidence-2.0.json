@@ -1,0 +1,22 @@
+{
+  "ci": true,
+  "python_matrix": true,
+  "migration": true,
+  "backup_restore": true,
+  "crash_recovery": true,
+  "schedule_recovery": true,
+  "duplicate_delivery": true,
+  "file_streaming": true,
+  "local_bot_large_file": true,
+  "long_prompt": true,
+  "multi_workspace": true,
+  "dependency_security": true,
+  "release_rollback": true,
+  "documentation": true,
+  "high_critical_vulnerabilities_accepted_or_zero": true,
+  "soak": {
+    "completed": false,
+    "duration_hours": 0,
+    "note": "T42 harness is ready; T50 remains fail-closed until a real 24-72h run completes."
+  }
+}
