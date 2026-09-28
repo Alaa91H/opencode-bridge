@@ -163,6 +163,18 @@ class ScheduleService:
             raise ScheduleNotFound(name)
         return job
 
+    async def change_timezone(self, owner_id: str, name: str, timezone_name: str) -> Any:
+        from bridge.domain.schedules.engine import validate_timezone
+        current = await self.get(owner_id, name)
+        timezone_name = validate_timezone(timezone_name.strip())
+        due_at = current.next_run_at or (self.now() + timedelta(minutes=1))
+        job = await self.repository.update_scheduled_job_timing(
+            owner_id, name, due_at, current.repeat_seconds, timezone_name=timezone_name
+        )
+        if job is None:
+            raise ScheduleNotFound(name)
+        return job
+
     async def change_interval(self, owner_id: str, name: str, interval_text: str) -> tuple[Any, str]:
         current = await self.get(owner_id, name)
         normalized = interval_text.strip().lower()
