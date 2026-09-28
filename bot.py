@@ -484,6 +484,10 @@ async def cmd_repeat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 @authorized
+async def cmd_schedhistory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _schedule_command_adapter().history(update, context)
+
+@authorized
 async def cmd_schedshow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _schedule_command_adapter().show(update, context)
 
