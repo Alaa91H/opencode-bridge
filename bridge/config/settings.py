@@ -14,7 +14,6 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from threading import Lock
 from typing import Any, Mapping
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ENV_FILE = PROJECT_ROOT / ".env"
