@@ -22,11 +22,19 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
+      - name: Install locked runtime dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.lock -c constraints.txt
+      - name: Validate dependency graph
+        run: python -m pip check
       - name: Validate release head before endurance
+        env:
+          PYTHONWARNINGS: error::DeprecationWarning
         run: |
           python -m compileall -q .
-          python -m unittest discover -s tests -p 'test_*.py'
-          python scripts/release_readiness.py release-evidence-2.0.json || true
+          python -m unittest discover -s tests -p 'test_*.py' -v
+          python scripts/v2_baseline_probe.py --inventory-only
+          python scripts/v2_baseline_probe.py --benchmark-only
+          python -m json.tool opencode.json >/dev/null
 
   segment-1:
     needs: preflight
