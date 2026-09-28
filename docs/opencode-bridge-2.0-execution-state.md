@@ -1062,3 +1062,23 @@ T37 — Secret Management.
 
 ## الخطوة التالية غير المكتملة بالضبط
 T38 — Supply Chain Security.
+
+
+## تقدم T38 — Supply Chain Security
+- [x] pip-audit dependency vulnerability scan.
+- [x] detect-secrets repository scan مع استثناء fixtures الاختبارية المتعمدة فقط.
+- [x] Bandit static security gate عالي الخطورة مع إبقاء legacy findings ظاهرة.
+- [x] SPDX JSON SBOM.
+- [x] release SHA-256 checksums.
+- [x] GitHub/Sigstore-compatible artifact attestation عبر OIDC.
+- [x] supply-chain artifacts.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T38
+- commit المتحقق منه: `d572cd0ae891c2563a268f1193fc1bb39c75cde2`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36467656462 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36467656413 — success.
+- **T38 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T39 — Code Quality Gates.
