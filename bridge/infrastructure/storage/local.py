@@ -26,21 +26,13 @@ class LocalStorage(StorageBackend):
         return path
 
     def put_stream(self, source: BinaryIO, *, sha256: str | None = None) -> StorageObject:
-        digest = hashlib.sha256()
-        size = 0
         fd, temp_name = tempfile.mkstemp(prefix=".incoming-", dir=self.root)
         try:
             with os.fdopen(fd, "wb") as target:
-                while True:
-                    chunk = source.read(self.chunk_size)
-                    if not chunk:
-                        break
-                    digest.update(chunk)
-                    size += len(chunk)
-                    target.write(chunk)
+                result = copy_stream(source, target, chunk_size=self.chunk_size)
                 target.flush()
                 os.fsync(target.fileno())
-            actual = digest.hexdigest()
+            actual = result.sha256
             if sha256 is not None and sha256.lower() != actual:
                 raise ValueError("sha256 mismatch")
             destination = self._path(actual)
@@ -49,7 +41,7 @@ class LocalStorage(StorageBackend):
                 os.unlink(temp_name)
             else:
                 os.replace(temp_name, destination)
-            return StorageObject(key=actual, size=size, sha256=actual)
+            return StorageObject(key=actual, size=result.bytes_copied, sha256=actual)
         finally:
             if os.path.exists(temp_name):
                 os.unlink(temp_name)
