@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -19,6 +20,7 @@ class BridgeDatabase:
         self._connection: aiosqlite.Connection | None = None
         self._connect_lock = asyncio.Lock()
         self.transaction_lock = asyncio.Lock()
+        self._last_integrity_check = 0.0
 
     async def connect(self) -> aiosqlite.Connection:
         if self._connection is None:
@@ -56,6 +58,15 @@ class BridgeDatabase:
             async with db.execute(f"PRAGMA wal_checkpoint({normalized})") as cursor:
                 row = await cursor.fetchone()
         return tuple(int(value) for value in row)
+
+    async def periodic_integrity_check(self, interval_seconds: float = 86400.0) -> str | None:
+        """Run integrity_check at most once per interval; None means it was not due."""
+        now = time.monotonic()
+        if self._last_integrity_check and now - self._last_integrity_check < max(0.0, interval_seconds):
+            return None
+        result = await self.integrity_check()
+        self._last_integrity_check = now
+        return result
 
     async def integrity_check(self) -> str:
         db = await self.connect()
