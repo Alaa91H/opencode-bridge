@@ -527,6 +527,11 @@ async def cmd_schedtime(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 @authorized
+async def cmd_schedtimezone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _schedule_command_adapter().change_timezone(update, context)
+
+
+@authorized
 async def cmd_schedinterval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _schedule_command_adapter().change_interval(update, context)
 
