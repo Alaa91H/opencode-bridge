@@ -457,6 +457,14 @@ async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _task_command_adapter().tasks(update, context)
 
 @authorized
+async def cmd_failed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _task_command_adapter().failed(update, context)
+
+@authorized
+async def cmd_retry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _task_command_adapter().retry(update, context)
+
+@authorized
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _task_command_adapter().cancel(update, context)
 
