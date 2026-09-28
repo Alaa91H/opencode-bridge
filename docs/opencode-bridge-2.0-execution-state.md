@@ -510,3 +510,33 @@ T10 — إزالة قيود Telegram للملفات الكبيرة: Local Bot AP
 ## الخطوة التالية المشروطة
 
 بعد نجاح CI للرأس الحالي فقط: T11 — Attachment Storage v2. لا يبدأ T11 قبل ذلك.
+
+
+## تقدم T11 — Attachment Storage v2
+
+- [x] StorageBackend abstraction.
+- [x] LocalStorage.
+- [x] S3/MinIO optional عبر S3-compatible client دون dependency إلزامية.
+- [x] content-addressed storage حسب SHA-256.
+- [x] deduplication للـblobs المتطابقة.
+- [x] reference counting دائم ومعاملاتي.
+- [x] metadata: file_id/file_unique_id/hash/detected MIME/claimed MIME/size/owner/retention/scan state.
+- [x] cleanup policies للـexpired references والـorphan blobs.
+- [x] owner isolation عند release.
+- [x] اختبارات Local CAS وmetadata وretention وS3 contract.
+- [x] توثيق T11.
+
+### أدلة T11
+- `bridge/infrastructure/storage/backend.py`
+- `bridge/infrastructure/storage/local.py`
+- `bridge/infrastructure/storage/s3.py`
+- `bridge/infrastructure/database/migrations.py` — migration 7.
+- `bridge/infrastructure/database/attachment_store.py`
+- `bridge/services/attachment_storage_service.py`
+- `tests/test_v2_attachment_storage.py`
+- `tests/test_v2_s3_storage.py`
+- `docs/t11-attachment-storage-v2-ar.md`
+- CI Local CAS/metadata: https://github.com/Alaa91H/opencode-bridge/actions/runs/36387962628 — success.
+
+### بوابة إغلاق T11
+لا تعتبر T11 مغلقة تنفيذيًا حتى ينجح CI للرأس الذي يحتوي S3 contract + توثيق T11 + سجل الحالة على Python 3.12/3.13/3.14. لا يبدأ T12 قبل ذلك.
