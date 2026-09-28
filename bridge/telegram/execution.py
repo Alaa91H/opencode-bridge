@@ -9,7 +9,6 @@ from typing import Any
 
 from telegram.constants import ChatAction
 
-from free_points import format_free_points_header
 from messages import empty_response_message
 from progress_reporter import LiveProgressReporter
 
@@ -21,7 +20,6 @@ class TelegramExecutionDelivery:
         repository: Any,
         progress_store: Any,
         live_reporters: dict[int, LiveProgressReporter],
-        free_points_tracker: Any,
         *,
         max_message_length: int,
         error_message: Any,
@@ -31,7 +29,6 @@ class TelegramExecutionDelivery:
         self.repository = repository
         self.progress_store = progress_store
         self.live_reporters = live_reporters
-        self.free_points_tracker = free_points_tracker
         self.max_message_length = max_message_length
         self.error_message = error_message
         self.log = logger or logging.getLogger(__name__)
@@ -81,26 +78,15 @@ class TelegramExecutionDelivery:
             sent += 1
         return sent
 
-    def final_text(self, text: str, command_points: int) -> str:
-        header = format_free_points_header(
-            self.free_points_tracker.snapshot(),
-            command_points,
-        )
-        body_limit = max(
-            512,
-            self.max_message_length - len(header) - 2,
-        )
+    def final_text(self, text: str) -> str:
         body = text.strip() or empty_response_message()
-        if len(body) > body_limit:
+        if len(body) > self.max_message_length:
             suffix = "\n\n… تم اختصار الرد بسبب حد طول رسالة Telegram."
-            body = body[: max(1, body_limit - len(suffix))].rstrip() + suffix
-        return f"{header}\n\n{body}"
+            body = body[: max(1, self.max_message_length - len(suffix))].rstrip() + suffix
+        return body
 
     def error_text(self, exc: Exception, operation: str) -> str:
         return self.error_message(exc, operation)
-
-    def remaining_points(self) -> int:
-        return int(self.free_points_tracker.snapshot().remaining)
 
     async def end(self, task: Any) -> None:
         state = self._typing_tasks.pop(task.id, None)
