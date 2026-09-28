@@ -6,12 +6,12 @@ boto3-compatible client supplied by deployment code.
 
 from __future__ import annotations
 
-import hashlib
 import tempfile
 from pathlib import Path
 from typing import BinaryIO
 
 from .backend import StorageBackend, StorageObject
+from .streaming import copy_stream
 
 
 class S3Storage(StorageBackend):
