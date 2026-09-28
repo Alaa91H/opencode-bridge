@@ -1102,3 +1102,22 @@ T39 — Code Quality Gates.
 
 ## الخطوة التالية غير المكتملة بالضبط
 T40 — Test Architecture.
+
+
+## تقدم T40 — Test Architecture
+- [x] unit/integration/contract/e2e/load/fault/security/migration taxonomy.
+- [x] Bridge/OpenCode contract coverage موجودة ومصنفة.
+- [x] Telegram abstraction coverage موجودة ومصنفة.
+- [x] deterministic E2E Telegram mock → queue → OpenCode mock → output.
+- [x] stable local fixtures.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T40
+- commit المتحقق منه: `2490dd6c9eb6e2fc78541c4d0afa97576f69f374`.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468177400 — success.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468177392 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468177465 — success.
+- **T40 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T41 — Fault Injection.
