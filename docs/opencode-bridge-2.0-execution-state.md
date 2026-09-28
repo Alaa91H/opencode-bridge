@@ -4,12 +4,12 @@
 
 ## المرحلة الحالية
 
-- المرحلة المغلقة الأخيرة: **T06 — Idempotency ومنع التكرار**
+- المرحلة المغلقة الأخيرة: **T07 — Scheduler Engine v2**
 - حالة T00: **مكتملة**
 - حالة T01: **مكتملة**
 - حالة T02: **مكتملة**
-- المرحلة التالية المسموحة فقط: **T07 — Scheduler Engine v2**
-- قاعدة الانتقال: لا يجوز بدء T08 قبل إغلاق T07 بالكامل بنفس الصرامة.
+- المرحلة التالية المسموحة فقط: **T08 — واجهة إدارة الجدولة الحديثة**
+- قاعدة الانتقال: لا يجوز بدء T09 قبل إغلاق T08 بالكامل بنفس الصرامة.
 
 ## تقدم T00
 
@@ -375,3 +375,38 @@ T06 — Idempotency ومنع التكرار: idempotency record لكل Telegram 
 ## الخطوة التالية غير المكتملة بالضبط
 
 T07 — Scheduler Engine v2: once/interval/cron/daily/weekly/monthly/weekdays مع IANA timezone وDST، misfire/overlap policies، history و/schedhistory وrecovery بعد downtime واختبارات DST. لا يبدأ T08 قبل إغلاق T07 بالكامل ونجاح CI.
+
+
+## تقدم T07 — مكتملة
+
+- [x] once/interval/cron/daily/weekly/monthly/weekdays.
+- [x] user timezone عبر IANA zoneinfo مع validation.
+- [x] DST-aware wall-clock recurrence واختبارات spring-forward/fall-back.
+- [x] misfire policies: skip/run_once/catch_up/coalesce.
+- [x] overlap policies: forbid/allow/replace/queue مع قرارات domain واختبارات.
+- [x] schedule history durable.
+- [x] /schedhistory عبر service/Telegram adapter رفيع.
+- [x] recovery بعد downtime بمعاملة idempotent ومنع duplicate occurrence.
+- [x] توافق legacy scheduled_jobs مع catalog v2 دون كسر FK.
+- [x] توثيق Scheduler v2.
+
+### أدلة T07
+- `bridge/domain/schedules/engine.py`.
+- `bridge/infrastructure/database/migrations.py` — scheduler_v2 migration.
+- `task_queue.py` — recovery/history/materialization.
+- `bridge/services/schedule_service.py`.
+- `bridge/telegram/commands/schedules.py`, `bridge/telegram/app.py`, `bot.py`.
+- `tests/test_v2_scheduler_engine.py`, `tests/test_v2_scheduler_recovery.py`.
+- `docs/t07-scheduler-v2-ar.md`.
+- commits الرئيسية: `e535aa2a`, `0bb2719e`, `40a617ee`, `6991d99d`, `6b392504`, `e1f6cdee`, `94e923a3`, `7abc864c`.
+
+### CI النهائي لـT07
+- commit المتحقق منه: `7abc864c747c9949bf88f175e9665c3b6b87ddec`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36385545521
+- النتيجة: **success**
+- نجحت jobs على Python 3.12 وPython 3.13 وPython 3.14.
+- **T07 مغلقة.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T08 — واجهة إدارة الجدولة الحديثة: Inline Keyboard، pagination، تشغيل/إيقاف/استئناف، تعديل الاسم/الأمر/الوقت/timezone/recurrence، history، duplicate، delete confirmation. لا يبدأ T09 قبل إغلاق T08 بالكامل ونجاح CI.
