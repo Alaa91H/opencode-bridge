@@ -8,12 +8,10 @@ class SingleProductionPathTests(unittest.TestCase):
         canonical = json.loads(Path("opencode.json").read_text())
         self.assertEqual(canonical["server"]["hostname"], "127.0.0.1")
 
-    def test_legacy_v3_is_semantically_identical_compatibility_artifact(self):
-        canonical = json.loads(Path("opencode.json").read_text())
-        legacy = json.loads(Path("opencode-v3.json").read_text())
-        self.assertEqual(legacy, canonical)
+    def test_legacy_v3_config_is_removed(self):
+        self.assertFalse(Path("opencode-v3.json").exists())
 
     def test_ci_validates_only_canonical_config(self):
         workflow = Path(".github/workflows/ci.yml").read_text()
         self.assertIn("python -m json.tool opencode.json", workflow)
-        self.assertNotIn("python -m json.tool opencode-v3.json", workflow)
+        self.assertNotIn("opencode-v3.json", workflow)
