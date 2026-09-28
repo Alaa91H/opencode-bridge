@@ -145,6 +145,29 @@ MIGRATIONS = (
         "CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules(enabled, next_run_at)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_runs_occurrence ON schedule_runs(schedule_id, scheduled_for)",
     )),
+    Migration(6, "draft_editor", (
+        """CREATE TABLE IF NOT EXISTS drafts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'editing',
+            current_version INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(owner_id,name)
+        )""",
+        """CREATE TABLE IF NOT EXISTS draft_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            draft_id INTEGER NOT NULL REFERENCES drafts(id) ON DELETE CASCADE,
+            version INTEGER NOT NULL,
+            prompt_text TEXT NOT NULL DEFAULT '',
+            attachments_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            UNIQUE(draft_id,version)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_drafts_owner_updated ON drafts(owner_id,updated_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_draft_versions_draft ON draft_versions(draft_id,version DESC)",
+    )),
 )
 
 
