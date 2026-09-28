@@ -57,10 +57,9 @@ class V2BaselineContractTests(unittest.TestCase):
         self.assertIn("TELEGRAM_ATTACHMENT_PENDING_SECONDS=600", env)
         self.assertIn("TELEGRAM_MEDIA_GROUP_DEBOUNCE_SECONDS=1.25", env)
 
-    def test_opencode_configurations_are_currently_identical(self) -> None:
+    def test_opencode_configuration_is_canonical_and_legacy_removed(self) -> None:
         primary = json.loads((ROOT / "opencode.json").read_text(encoding="utf-8"))
-        v3 = json.loads((ROOT / "opencode-v3.json").read_text(encoding="utf-8"))
-        self.assertEqual(primary, v3)
+        self.assertFalse((ROOT / "opencode-v3.json").exists())
         self.assertEqual(primary["server"]["hostname"], "127.0.0.1")
         self.assertEqual(primary["server"]["port"], 4096)
         self.assertEqual(primary["share"], "manual")
