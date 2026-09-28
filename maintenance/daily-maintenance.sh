@@ -202,7 +202,7 @@ REPORT_TMP="$(mktemp "${RUNTIME_DIR}/.maintenance-${RUN_ID}.XXXXXX")"
     printf '\n## ملاحظات تحتاج متابعة\n\n'
     printf '%s\n' "${FAILURES[@]}"
   fi
-  printf '\n> تحديث البرنامج ذاتي وآمن: fetch من المستودع الموثوق فقط، تحقق كامل في worktree مؤقت، ثم fast-forward فقط إذا كان الفرع نظيفًا وغير متشعب. لا يوجد force/reset. تحديث النظام يستخدم APT فقط، ولا ينفّذ بناء مشاريع أو تثبيت اعتماديات تطبيقات. إعادة تشغيل النظام تمر حصريًا عبر حارس التأكيد.\n'
+  printf '\n> تحديث البرنامج ذاتي وآمن: fetch للوسوم من المستودع الموثوق فقط، اختيار أحدث release tag مستقر، تحقق كامل في worktree مؤقت، ثم تفعيل commit الإصدار بوضع detached release. التعديلات tracked أو التعارض مع ملفات untracked يوقفان التحديث، ولا يوجد force/reset/clean. تحديث النظام يستخدم APT فقط، ولا ينفّذ بناء مشاريع أو تثبيت اعتماديات تطبيقات. إعادة تشغيل النظام تمر حصريًا عبر حارس التأكيد.\n'
 } >"$REPORT_TMP"
 
 install -m 640 -o ubuntu -g ubuntu "$REPORT_TMP" "$REPORT_PATH"
