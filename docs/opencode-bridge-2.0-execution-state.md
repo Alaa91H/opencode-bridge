@@ -571,3 +571,36 @@ T10 — إزالة قيود Telegram للملفات الكبيرة: Local Bot AP
 ## الخطوة التالية غير المكتملة بالضبط
 
 T13 — Media Processing Pipeline: input → detect → validate → normalize → extract → segment → agent → compose؛ يبدأ بـtool availability detection وsafe archive manifest/extraction ثم processors للصور/PDF/video/audio. لا يبدأ T14 قبل إغلاق T13 بالكامل.
+
+
+## تقدم T13 — Media Processing Pipeline
+
+- [x] pipeline contracts: input → detect → validate → normalize → extract → segment → agent → compose.
+- [x] الصور: metadata وOCR اختياري وإعلان normalize/tiling وmulti-image capabilities.
+- [x] PDF: text/layout extraction وchunking وإعلان pages/images/table-layout capabilities.
+- [x] video: ffprobe metadata وإعلان audio/keyframes/scene/frame capabilities عند توفر ffmpeg.
+- [x] audio: normalize/segment capabilities؛ STT/timestamps/speaker segmentation لا تُعلن إلا عند توفر backend فعلي.
+- [x] archives: manifest-first وsafe extraction ومنع traversal وحدود expansion/compression ratio/file count.
+- [x] tool availability detection عبر PATH فقط.
+- [x] لا يوجد أي dependency installation تلقائي أو عشوائي.
+- [x] degraded mode واختبارات archive security موثقة.
+
+### أدلة T13
+- `bridge/domain/attachments/media_pipeline.py`
+- `bridge/infrastructure/media/tools.py`
+- `bridge/infrastructure/media/processors.py`
+- `bridge/infrastructure/media/archives.py`
+- `bridge/infrastructure/media/archive_processor.py`
+- `bridge/services/media_pipeline_service.py`
+- `tests/test_v2_media_pipeline.py`
+- `docs/t13-media-pipeline-ar.md`
+
+### CI النهائي وإغلاق T13
+- commit المتحقق منه: `681ce591e721a0d2a6401f126892d848ba4d91d8`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36389228396
+- النتيجة: **success** على مصفوفة CI.
+- **T13 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T14 — Attachment Intelligence Router: direct للصغير المدعوم، chunk/index/select للنص الكبير، وتمثيلات PDF/video/audio/archive مع context-aware selection. لا يبدأ T15 قبل إغلاق T14 بالكامل.
