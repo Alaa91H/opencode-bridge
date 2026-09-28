@@ -96,10 +96,7 @@ class FakeClient:
                 request=request,
                 response=response,
             )
-        return {
-            "parts": [{"type": "text", "text": "ok"}],
-            "_bridge_usage_points": 3,
-        }
+        return {"parts": [{"type": "text", "text": "ok"}]}
 
 
 class FakeManager:
@@ -178,8 +175,8 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
         selected = await self.service.best_model_for_inputs(model, {"image"})
         self.assertEqual(selected, "model/media")
 
-    async def test_send_prompt_uses_variant_and_reports_usage(self) -> None:
-        response, model, points = await self.service.send_prompt_with_fallback(
+    async def test_send_prompt_uses_variant(self) -> None:
+        response, model = await self.service.send_prompt_with_fallback(
             "u",
             "s-1",
             "hello",
@@ -187,14 +184,13 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
             "model/default",
         )
         self.assertEqual(model, "model/default")
-        self.assertEqual(points, 3)
         self.assertEqual(response["parts"][0]["text"], "ok")
         self.assertEqual(self.client.send_calls[0]["variant"], "high")
         self.assertEqual(self.client.send_calls[0]["agent"], "development-agent")
 
     async def test_file_transport_failure_retries_without_direct_parts(self) -> None:
         self.client.send_errors = [415]
-        response, model, points = await self.service.send_prompt_with_fallback(
+        response, model = await self.service.send_prompt_with_fallback(
             "u",
             "s-1",
             "hello",
@@ -202,7 +198,6 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
             "model/default",
         )
         self.assertEqual(response["parts"][0]["text"], "ok")
-        self.assertEqual(points, 3)
         self.assertEqual(len(self.client.send_calls), 2)
         self.assertTrue(self.client.send_calls[0]["parts"])
         self.assertEqual(self.client.send_calls[1]["parts"], [])
@@ -210,7 +205,7 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_unavailable_model_falls_back_after_variant_retry(self) -> None:
         self.manager.fallback_model = "model/fallback"
         self.client.send_errors = [404, 404]
-        _, model, points = await self.service.send_prompt_with_fallback(
+        _, model = await self.service.send_prompt_with_fallback(
             "u",
             "s-1",
             "hello",
@@ -218,7 +213,6 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
             "model/default",
         )
         self.assertEqual(model, "model/fallback")
-        self.assertEqual(points, 3)
         self.assertEqual(len(self.client.send_calls), 3)
         self.assertEqual(self.client.send_calls[-1]["model"], "model/fallback")
 
