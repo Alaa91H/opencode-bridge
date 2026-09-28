@@ -123,6 +123,18 @@ MIGRATIONS = (
         "CREATE INDEX IF NOT EXISTS idx_agent_tasks_claimable ON agent_tasks(status, next_attempt_at, priority DESC, created_at, id)",
         "CREATE INDEX IF NOT EXISTS idx_agent_tasks_lease_expiry ON agent_tasks(status, lease_expires_at)",
     )),
+    Migration(4, "input_idempotency", (
+        """CREATE TABLE IF NOT EXISTS idempotency_records (
+            scope TEXT NOT NULL, idempotency_key TEXT NOT NULL,
+            owner_id TEXT, task_id INTEGER, status TEXT NOT NULL,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            PRIMARY KEY(scope, idempotency_key))""",
+        """CREATE TABLE IF NOT EXISTS schedule_occurrences (
+            schedule_key TEXT NOT NULL, occurrence_key TEXT NOT NULL,
+            task_id INTEGER, created_at TEXT NOT NULL,
+            PRIMARY KEY(schedule_key, occurrence_key))""",
+        "CREATE INDEX IF NOT EXISTS idx_idempotency_task ON idempotency_records(task_id)",
+    )),
 )
 
 
