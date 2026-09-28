@@ -1235,3 +1235,25 @@ T46 — إزالة ازدواجية Legacy/V3.
 
 ## الخطوة التالية غير المكتملة بالضبط
 T47 — Documentation.
+
+
+## تقدم T47 — Documentation as Code
+- [x] architecture.
+- [x] DB schema/state machine.
+- [x] scheduler/failure semantics.
+- [x] attachment pipeline.
+- [x] security profiles.
+- [x] deployment/disaster recovery.
+- [x] troubleshooting.
+- [x] documentation-in-same-change policy.
+- [x] CI tests للروابط والتغطية.
+
+### CI النهائي وإغلاق T47
+- commit المتحقق منه: `bc7d255a5fe2b69b2206417138b5c6b191a528a3`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471213192 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471213273 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471212887 — success.
+- **T47 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T48 — Migration من v1.8 إلى 2.0.
