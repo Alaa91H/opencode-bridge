@@ -4,12 +4,12 @@
 
 ## المرحلة الحالية
 
-- المرحلة المغلقة الأخيرة: **T02 — تفكيك bot.py وإعادة بناء Architecture**
+- المرحلة المغلقة الأخيرة: **T03 — نظام Configuration مركزي**
 - حالة T00: **مكتملة**
 - حالة T01: **مكتملة**
 - حالة T02: **مكتملة**
-- المرحلة التالية المسموحة فقط: **T03 — نظام Configuration مركزي**
-- قاعدة الانتقال: لا يجوز بدء T04 قبل إغلاق T03 بالكامل بنفس الصرامة.
+- المرحلة التالية المسموحة فقط: **T04 — Database Layer v2**
+- قاعدة الانتقال: لا يجوز بدء T05 قبل إغلاق T04 بالكامل بنفس الصرامة.
 
 ## تقدم T00
 
@@ -242,7 +242,7 @@
 
 
 
-## تقدم T03 — قيد التنفيذ
+## تقدم T03 — مكتملة
 
 - [x] BridgeSettings typed والتحقق عند التشغيل.
 - [x] env + config file + defaults + per-user policy + per-task override + feature flags.
@@ -251,7 +251,7 @@
 - [x] /limits لعرض الحدود الفعلية.
 - [x] validation وprecedence tests في tests/test_v3_settings.py.
 - [x] توثيق BRIDGE_CONFIG_FILE في .env.example.
-- [ ] نجاح CI النهائي وتسجيل رابط التشغيل.
+- [x] نجاح CI النهائي وتسجيل رابط التشغيل.
 
 ### أدلة T03
 - bridge/config/settings.py
@@ -265,6 +265,13 @@
 - commit help: e50b7edcdfa0ee136ef998ff71249228ff038813
 - commit توثيق BRIDGE_CONFIG_FILE: 04bb94fa9ccf50340b438e15a9d81d16e340b700
 
+### CI النهائي وإغلاق T03
+- commit المتحقق منه: `0df11ec2f8f0d3e696508dc3776593cd4b58faf7`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36360198610
+- النتيجة: **success**
+- نجحت jobs: Python 3.12 وPython 3.13 وPython 3.14، وكل خطوات locked install وdependency graph وsyntax وunit tests وbaseline probe/benchmark وshell/OpenCode/version validation.
+- **T03 مغلقة.**
+
 ## الخطوة التالية غير المكتملة بالضبط
 
-T03 Acceptance: التحقق من نجاح كامل CI على Python 3.12 و3.13 و3.14 على commit إغلاق T03، ثم تسجيل SHA ورابط GitHub Actions والنتيجة هنا. لا يبدأ T04 قبل ذلك.
+T04 — Database Layer v2: **توحيد SessionStore وTaskQueueStore خلف طبقة DB واحدة**. لا يبدأ أي جزء من T05 قبل استكمال جميع بنود T04 واختباراتها وخطة rollback ونجاح CI.
