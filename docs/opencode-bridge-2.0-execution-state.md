@@ -1257,3 +1257,25 @@ T47 — Documentation.
 
 ## الخطوة التالية غير المكتملة بالضبط
 T48 — Migration من v1.8 إلى 2.0.
+
+
+## تقدم T48 — Migration من v1.8 إلى 2.0
+- [x] backup-first requirement.
+- [x] sessions migration.
+- [x] schedules migration بمفتاح legacy ثابت/idempotent.
+- [x] pending attachments migration.
+- [x] user/owner IDs report.
+- [x] dry-run + migration report.
+- [x] rollback source/test.
+- [x] idempotent repeated migration test.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T48
+- commit المتحقق منه: `1691fdaa8ae40b7936f7e0d385d05c6861e371a0`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471662833 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471662843 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471662937 — success.
+- **T48 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T49 — Canary: shadow، scheduler comparison، نسبة صغيرة من المهام، metrics، توسعة تدريجية، rollback thresholds.
