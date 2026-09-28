@@ -712,3 +712,22 @@ T18 — Context Management: budget، summarization، task-history retrieval، se
 
 ## الخطوة التالية غير المكتملة بالضبط
 T19 — Execution Policy Profiles: SAFE/DEVELOPMENT/POWER/HOST_ADMIN، capability matrix، per-user/per-task selection، escalation audit، SAFE default، HOST_ADMIN allowlist، ومنع كشف الأسرار.
+
+
+## تقدم T19 — Execution Policy Profiles
+- [x] SAFE/DEVELOPMENT/POWER/HOST_ADMIN capability matrix.
+- [x] per-user/per-task selection مع task precedence.
+- [x] audit لكل escalation مسموح أو مرفوض.
+- [x] SAFE default.
+- [x] HOST_ADMIN allowlist.
+- [x] secret-bearing environment keys لا تمر إلى execution environment.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T19
+- commit المتحقق منه: `3a557e23ee5e367fbf51de8c5d8fbab384a3654e`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36395315476
+- النتيجة: **success**.
+- **T19 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T20 — Build Sandbox: اختيار backend موثوق حسب البيئة، resource/network/process/time limits، dependency install/build داخل sandbox فقط، build profiles، cleanup، واختبارات breakout/security.
