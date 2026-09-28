@@ -153,6 +153,9 @@ _ALLOWED_SECTION_KEYS: dict[str, set[str]] = {
         "allowed_users",
         "allowed_chat_ids",
         "proxy_url",
+        "api_mode",
+        "local_api_base_url",
+        "local_file_base_url",
         "attachment_max_bytes",
         "attachment_max_count",
         "attachment_max_total_bytes",
@@ -229,6 +232,9 @@ class TelegramSettings:
     allowed_users: frozenset[int] = frozenset()
     allowed_chat_ids: frozenset[int] = frozenset()
     proxy_url: str | None = None
+    api_mode: str = "cloud"
+    local_api_base_url: str = "http://127.0.0.1:8081/bot"
+    local_file_base_url: str = "http://127.0.0.1:8081/file/bot"
     attachment_max_bytes: int = 20 * 1024 * 1024
     attachment_max_count: int = 10
     attachment_max_total_bytes: int = 50 * 1024 * 1024
@@ -356,6 +362,17 @@ class BridgeSettings:
                 )).strip()
                 or None
             ),
+            api_mode=str(_source_value(
+                merged_env, config, "TELEGRAM_API_MODE", "telegram.api_mode", "cloud"
+            )).strip().lower(),
+            local_api_base_url=str(_source_value(
+                merged_env, config, "TELEGRAM_LOCAL_API_BASE_URL",
+                "telegram.local_api_base_url", "http://127.0.0.1:8081/bot"
+            )).strip().rstrip("/") + "/",
+            local_file_base_url=str(_source_value(
+                merged_env, config, "TELEGRAM_LOCAL_FILE_BASE_URL",
+                "telegram.local_file_base_url", "http://127.0.0.1:8081/file/bot"
+            )).strip().rstrip("/") + "/",
             attachment_max_bytes=_parse_int(
                 _source_value(
                     merged_env, config, "TELEGRAM_ATTACHMENT_MAX_BYTES",
@@ -402,6 +419,14 @@ class BridgeSettings:
                 "telegram.daily_task_counter_timezone", "Etc/GMT-2"
             )).strip(),
         )
+
+        if telegram.api_mode not in {"cloud", "local"}:
+            raise SettingsError("TELEGRAM_API_MODE must be cloud or local")
+        if telegram.api_mode == "local" and (
+            not telegram.local_api_base_url.startswith(("http://", "https://"))
+            or not telegram.local_file_base_url.startswith(("http://", "https://"))
+        ):
+            raise SettingsError("local Telegram API URLs must be HTTP(S) URLs")
 
         default_model = str(_source_value(
             merged_env, config, "OPENCODE_DEFAULT_MODEL",
