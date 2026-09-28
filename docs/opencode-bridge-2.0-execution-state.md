@@ -880,3 +880,21 @@ T27 — Telegram UX v2: pagination/inline keyboard/breadcrumbs/confirmations/tas
 
 ## الخطوة التالية غير المكتملة بالضبط
 T28 — User Preferences: timezone/language/notification/default workspace/default execution profile/model preference/output style/retention/schedule defaults.
+
+
+## تقدم T28 — User Preferences
+- [x] timezone/language/notification level.
+- [x] default workspace/execution profile/model preference.
+- [x] output style/retention/schedule defaults.
+- [x] owner-scoped persistence في user_settings.
+- [x] validation وrestart persistence واختبارات العزل.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T28
+- commit المتحقق منه: `ffe57fa09741854b565c224d976f64e4aae7e25e`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36457086659
+- النتيجة: **success**.
+- **T28 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T29 — Observability كاملة: queue/task/retry/failure/DB/resource/attachment/worker/schedule metrics وPrometheus endpoint اختياري.
