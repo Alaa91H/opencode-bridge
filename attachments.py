@@ -8,7 +8,7 @@ import re
 import shutil
 import uuid
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path\n\nfrom bridge.infrastructure.storage.streaming import copy_stream
 from typing import Any, Iterable
 
 
@@ -223,7 +223,7 @@ class AttachmentStore:
             # Local Bot API exposes a server-local path: stream-copy it rather than
             # asking Telegram to materialize the whole payload through HTTP.
             with local_source.open("rb") as source, destination.open("wb") as target:
-                shutil.copyfileobj(source, target, length=1024 * 1024)
+                copy_stream(source, target, chunk_size=1024 * 1024)
         else:
             # PTB download_to_drive streams to disk; it does not require a bytes buffer.
             await remote_file.download_to_drive(custom_path=destination)
