@@ -14,6 +14,12 @@ def _run(argv: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[
     return subprocess.run(argv, check=True, capture_output=True, text=True, timeout=timeout)
 
 
+def _ffmpeg(tools: MediaToolCapabilities, argv: list[str]) -> None:
+    if not tools.ffmpeg:
+        raise RuntimeError("ffmpeg capability unavailable")
+    _run([tools.ffmpeg, "-y", *argv])
+
+
 class ImageProcessor:
     def __init__(self, tools: MediaToolCapabilities) -> None:
         self.tools = tools
@@ -33,6 +39,8 @@ class ImageProcessor:
             ocr = _run([self.tools.tesseract, str(media.path), "stdout"])
             if ocr.stdout.strip():
                 artifacts.append(MediaArtifact(kind="ocr", text=ocr.stdout))
+        metadata["tiling_supported"] = bool(self.tools.ffmpeg)
+        metadata["multi_image_supported"] = True
         return MediaAnalysis("image", detected_mime, tuple(artifacts), metadata)
 
 
@@ -70,6 +78,11 @@ class VideoProcessor:
             result = _run([self.tools.ffprobe, "-v", "quiet", "-print_format", "json",
                            "-show_format", "-show_streams", str(media.path)])
             metadata["probe"] = json.loads(result.stdout or "{}")
+        metadata.update({"audio_extraction_available": bool(self.tools.ffmpeg),
+                         "keyframes_available": bool(self.tools.ffmpeg),
+                         "scene_detection_available": bool(self.tools.ffmpeg),
+                         "frame_extraction_available": bool(self.tools.ffmpeg),
+                         "transcript_available": False})
         return MediaAnalysis("video", detected_mime, metadata=metadata)
 
 
@@ -85,7 +98,8 @@ class AudioProcessor:
                                       "normalization_available": bool(self.tools.ffmpeg),
                                       "segmentation_available": bool(self.tools.ffmpeg),
                                       "stt_available": False,
-                                      "speaker_segmentation_available": False}
+                                      "speaker_segmentation_available": False,
+                                      "timestamps_supported": False}
         if self.tools.ffprobe:
             result = _run([self.tools.ffprobe, "-v", "quiet", "-print_format", "json",
                            "-show_format", "-show_streams", str(media.path)])
