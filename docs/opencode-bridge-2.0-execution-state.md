@@ -604,3 +604,32 @@ T13 — Media Processing Pipeline: input → detect → validate → normalize �
 ## الخطوة التالية غير المكتملة بالضبط
 
 T14 — Attachment Intelligence Router: direct للصغير المدعوم، chunk/index/select للنص الكبير، وتمثيلات PDF/video/audio/archive مع context-aware selection. لا يبدأ T15 قبل إغلاق T14 بالكامل.
+
+
+## تقدم T14 — Attachment Intelligence Router
+
+- [x] small supported → direct attachment.
+- [x] large text → chunk/index/select.
+- [x] PDF → text/pages/images/selected chunks.
+- [x] video → frames/transcript/metadata representation.
+- [x] audio → transcript/timestamps/metadata representation.
+- [x] archive → manifest + selected files.
+- [x] context-aware deterministic text chunk selection.
+- [x] unsupported binary → metadata فقط بدل direct context.
+- [x] اختبارات وتوثيق.
+
+### أدلة T14
+- `bridge/domain/attachments/intelligence.py`
+- `bridge/services/attachment_intelligence_service.py`
+- `tests/test_v2_attachment_intelligence.py`
+- `docs/t14-attachment-intelligence-ar.md`
+
+### CI النهائي وإغلاق T14
+- commit المتحقق منه: `aa7d26aef0a8e682a783b7860d65b31774bc19d3`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36389344821
+- النتيجة: **success**.
+- **T14 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T15 — OpenCode Client v2: typed models/contracts، HTTP config/retry/timeouts، correlation IDs/metrics، streaming reconnect، contract tests وتقييم OpenAPI. لا يبدأ T16 قبل إغلاق T15 بالكامل.
