@@ -4,12 +4,12 @@
 
 ## المرحلة الحالية
 
-- المرحلة المغلقة الأخيرة: **T03 — نظام Configuration مركزي**
+- المرحلة المغلقة الأخيرة: **T04 — Database Layer v2**
 - حالة T00: **مكتملة**
 - حالة T01: **مكتملة**
 - حالة T02: **مكتملة**
-- المرحلة التالية المسموحة فقط: **T04 — Database Layer v2**
-- قاعدة الانتقال: لا يجوز بدء T05 قبل إغلاق T04 بالكامل بنفس الصرامة.
+- المرحلة التالية المسموحة فقط: **T05 — Durable Queue v2**
+- قاعدة الانتقال: لا يجوز بدء T06 قبل إغلاق T05 بالكامل بنفس الصرامة.
 
 ## تقدم T00
 
@@ -275,3 +275,38 @@
 ## الخطوة التالية غير المكتملة بالضبط
 
 T04 — Database Layer v2: **توحيد SessionStore وTaskQueueStore خلف طبقة DB واحدة**. لا يبدأ أي جزء من T05 قبل استكمال جميع بنود T04 واختباراتها وخطة rollback ونجاح CI.
+
+
+## تقدم T04 — مكتملة
+
+- [x] توحيد SessionStore وTaskQueueStore خلف BridgeDatabase واحدة مع دعم حقن connection lifecycle مشترك.
+- [x] WAL وbusy_timeout وforeign_keys وsynchronous policy مركزية.
+- [x] transaction boundaries مع BEGIN/BEGIN IMMEDIATE وcommit/rollback.
+- [x] indexes مثبتة باختبارات EXPLAIN QUERY PLAN للمسارات الحرجة.
+- [x] checkpoint management: PASSIVE/FULL/RESTART/TRUNCATE.
+- [x] periodic integrity check بفاصل افتراضي 24 ساعة.
+- [x] schema_migrations مع version/name/checksum/applied_at.
+- [x] migrations صريحة بدل ALTER المبعثر داخل TaskQueueStore.init.
+- [x] الجداول المستقلة المطلوبة: task_attempts, task_events, attachments, task_outputs, schedules, schedule_runs, agent_sessions, user_settings, resource_snapshots, failure_records.
+- [x] migration/idempotency/transaction rollback tests وخطة rollback موثقة.
+
+### أدلة T04
+- `bridge/infrastructure/database/sqlite.py`
+- `bridge/infrastructure/database/migrations.py`
+- `session_store.py`, `task_queue.py`, `workspace_store.py`
+- `tests/test_v2_database_layer.py`
+- `tests/test_v2_database_migrations.py`
+- `tests/test_v2_database_query_plans.py`
+- `docs/t04-database-layer-ar.md`
+- إصلاح regression لعقد baseline بعد نقل schema إلى migrations: commit `2975c7df853f89168c46333479b852394a822397`.
+
+### CI النهائي لـT04
+- commit المتحقق منه: `2975c7df853f89168c46333479b852394a822397`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36384440768
+- النتيجة: **success**
+- نجحت jobs: Python 3.12 وPython 3.13 وPython 3.14.
+- **T04 مغلقة.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T05 — Durable Queue v2: إضافة UUID عام وidempotency key وlease وheartbeat وattempt/priority/checkpoint والحالات الجديدة، ثم recovery/retry/DLQ وأوامر /failed و/retry واختبارات crash/restart. لا يبدأ T06 قبل إغلاق T05 بالكامل ونجاح CI.
