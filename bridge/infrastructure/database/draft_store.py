@@ -41,7 +41,7 @@ class DraftStore:
         return await self.get(owner_id, name)
 
     async def get(self, owner_id: str, name: str) -> Draft | None:
-        db = await self.database.connection()
+        db = await self.database.connect()
         async with db.execute(
             """SELECT d.id,d.owner_id,d.name,d.status,d.current_version,v.prompt_text,v.attachments_json
                FROM drafts d JOIN draft_versions v ON v.draft_id=d.id AND v.version=d.current_version
