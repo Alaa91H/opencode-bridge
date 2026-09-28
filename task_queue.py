@@ -648,10 +648,12 @@ class TaskQueueStore:
                     existing = await cursor.fetchone()
                 if existing and existing["task_id"] is not None:
                     task_id = int(existing["task_id"])
+                    async with db.execute("SELECT * FROM agent_tasks WHERE id=?", (task_id,)) as task_cursor:
+                        task_row = await task_cursor.fetchone()
                     await db.commit()
-                    task = await self.get(task_id)
-                    if task is None:
+                    if task_row is None:
                         raise RuntimeError("Idempotency record points to a missing task")
+                    task = self._from_row(task_row)
                     return task, task.sequence, False
                 async with db.execute(
                     "SELECT COALESCE(MAX(sequence),0)+1 AS n FROM agent_tasks WHERE owner_id=? AND status IN ('queued','leased','running','retrying')",
