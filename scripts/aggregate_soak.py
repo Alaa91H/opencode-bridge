@@ -18,6 +18,10 @@ def aggregate(root: Path) -> dict[str, object]:
     if len(request_ids) != 1 or "" in request_ids:
         raise RuntimeError(f"invalid/mixed soak request ids: {sorted(request_ids)}")
     request_id = next(iter(request_ids))
+    source_shas = {str(item.get("source_sha", "")) for item in segments}
+    if len(source_shas) != 1 or "" in source_shas:
+        raise RuntimeError(f"invalid/mixed soak source SHAs: {sorted(source_shas)}")
+    source_sha = next(iter(source_shas))
     if not all(item.get("completed") is True for item in segments):
         raise RuntimeError("one or more soak segments are incomplete")
     elapsed = sum(float(item["elapsed_seconds"]) for item in segments)
@@ -27,6 +31,7 @@ def aggregate(root: Path) -> dict[str, object]:
     max_peak = max(int(item["peak_memory_bytes"]) for item in segments)
     return {
         "request_id": request_id,
+        "source_sha": source_sha,
         "completed": True,
         "duration_hours": hours,
         "active_seconds": elapsed,
