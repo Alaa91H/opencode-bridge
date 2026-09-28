@@ -133,6 +133,24 @@ class ScheduleCommands:
             self.log.exception("فشل إنشاء الجدولة المتكررة")
             await self.reply(update.message, self.error_message(exc, "إنشاء الجدولة المتكررة"))
 
+    async def history(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        name = " ".join(context.args).strip()
+        if not name:
+            await self.reply(update.message, "الصيغة: /schedhistory الاسم")
+            return
+        try:
+            runs = await self.service.history(self._owner(update), name)
+        except ScheduleNotFound:
+            await self.reply(update.message, "لم أجد مهمة مجدولة بهذا الاسم.")
+            return
+        if not runs:
+            await self.reply(update.message, "لا يوجد سجل تشغيل لهذه الجدولة بعد.")
+            return
+        lines = [f"سجل «{name}»:"]
+        for run in runs:
+            lines.append(f"• {run['scheduled_for']} — {run['status']}" + (f" — {run['error']}" if run.get('error') else ""))
+        await self.reply(update.message, "\n".join(lines)[: self.max_message_length])
+
     async def show(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         name = " ".join(context.args).strip()
         if not name:
