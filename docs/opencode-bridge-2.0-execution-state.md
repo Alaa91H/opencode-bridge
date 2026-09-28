@@ -787,3 +787,22 @@ T22 — Resource Scheduler v2: ResourceCost CPU/RAM/disk/I/O/model/media، dynam
 
 ## الخطوة التالية غير المكتملة بالضبط
 T23 — Priority & Fairness: low/normal/high/urgent، aging، fairness per owner، resource weighting، منع starvation، وحماية interactive tasks من schedule workloads الثقيلة.
+
+
+## تقدم T23 — Priority & Fairness
+- [x] low/normal/high/urgent.
+- [x] unbounded aging لمنع starvation.
+- [x] fairness per owner عبر running-work penalty.
+- [x] resource weighting.
+- [x] interactive boost أمام scheduled heavy work.
+- [x] deterministic ordering واختبارات.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T23
+- commit المتحقق منه: `8795cb88d11eff7faad4d48b9081abda84d6659a`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36414872706
+- النتيجة: **success**.
+- **T23 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T24 — Cancellation حقيقية: token موحد، cooperative cancellation، cleanup، subprocess kill escalation، no zombies، واختبارات الإلغاء عبر المراحل.
