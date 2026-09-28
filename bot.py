@@ -635,11 +635,23 @@ async def cmd_discard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 @authorized
 async def handle_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    active = context.user_data.get("active_draft")
+    if active and update.message and update.effective_user:
+        attachment = await attachment_store.download_from_message(update.message, context.bot, str(update.effective_user.id))
+        await _draft_service.append(
+            str(update.effective_user.id), active,
+            text=(update.message.caption or "").strip(),
+            attachments=[attachment.to_record()],
+        )
+        await _safe_reply(update.message, f"أضيف المرفق إلى Draft «{active}».")
+        return
     await _media_adapter().handle_attachment(update, context)
 
 
 @authorized
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if await _draft_command_adapter().capture_text(update, context):
+        return
     await _task_command_adapter().text(update, context)
 
 async def post_init(app: Application) -> None:
