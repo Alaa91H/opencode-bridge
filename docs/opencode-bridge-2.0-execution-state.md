@@ -4,12 +4,12 @@
 
 ## المرحلة الحالية
 
-- المرحلة المغلقة الأخيرة: **T05 — Durable Queue v2**
+- المرحلة المغلقة الأخيرة: **T06 — Idempotency ومنع التكرار**
 - حالة T00: **مكتملة**
 - حالة T01: **مكتملة**
 - حالة T02: **مكتملة**
-- المرحلة التالية المسموحة فقط: **T06 — Idempotency ومنع التكرار**
-- قاعدة الانتقال: لا يجوز بدء T07 قبل إغلاق T06 بالكامل بنفس الصرامة.
+- المرحلة التالية المسموحة فقط: **T07 — Scheduler Engine v2**
+- قاعدة الانتقال: لا يجوز بدء T08 قبل إغلاق T07 بالكامل بنفس الصرامة.
 
 ## تقدم T00
 
@@ -344,3 +344,34 @@ T05 — Durable Queue v2: إضافة UUID عام وidempotency key وlease وhea
 ## الخطوة التالية غير المكتملة بالضبط
 
 T06 — Idempotency ومنع التكرار: idempotency record لكل Telegram update، at-least-once input مع effectively-once task creation، منع duplicate schedule occurrence وduplicate enqueue بعد restart، واختبارات update/tick مكررة. لا يبدأ T07 قبل إغلاق T06 بالكامل ونجاح CI.
+
+
+## تقدم T06 — مكتملة
+
+- [x] idempotency record دائم لكل Telegram update عبر scope + update_id.
+- [x] at-least-once input مع effectively-once task creation بمعاملة SQLite ذرية.
+- [x] منع duplicate schedule occurrence عبر primary key مركب وINSERT OR IGNORE.
+- [x] منع duplicate enqueue بعد restart.
+- [x] اختبارات Telegram update مكرر وschedule tick مكرر قبل/بعد restart.
+- [x] إصلاح lock re-entry في مسار duplicate delivery.
+- [x] توثيق semantics والatomicity وحدود المرحلة.
+
+### أدلة T06
+- `bridge/infrastructure/database/migrations.py` — idempotency_records وschedule_occurrences.
+- `task_queue.py` — enqueue_once وclaim_schedule_occurrence.
+- `bridge/services/task_service.py` — تمرير idempotency إلى repository.
+- `bridge/telegram/commands/tasks.py` — update.update_id كمفتاح Telegram.
+- `tests/test_v2_idempotency.py`.
+- `docs/t06-idempotency-ar.md`.
+- commits: `e493391e84c0a43a958c99ff236eec8d1b579191`, `f724688ddbac641497f92b6c39cac400b14c4ecf`, `229ae8adea092b91a4eec4485d1b88eff0835cfb`, `6b653a779dedf73d7e9472d295b0db99725ddd29`, `227a374412b6d1dcf685e512090c3dc69e2b6357`, `75f75a468057c5b898c22b334c987b729cfc8e63`.
+
+### CI النهائي لـT06
+- commit المتحقق منه: `75f75a468057c5b898c22b334c987b729cfc8e63`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36385053502
+- النتيجة: **success**
+- نجحت jobs: Python 3.12 وPython 3.13 وPython 3.14.
+- **T06 مغلقة.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T07 — Scheduler Engine v2: once/interval/cron/daily/weekly/monthly/weekdays مع IANA timezone وDST، misfire/overlap policies، history و/schedhistory وrecovery بعد downtime واختبارات DST. لا يبدأ T08 قبل إغلاق T07 بالكامل ونجاح CI.
