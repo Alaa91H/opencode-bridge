@@ -127,10 +127,19 @@ def build_application(
     updates_request: Any,
     post_init: Any,
     post_shutdown: Any,
+    base_url: str | None = None,
+    base_file_url: str | None = None,
+    local_mode: bool = False,
 ) -> Application:
+    builder = Application.builder().token(token)
+    if base_url:
+        builder = builder.base_url(base_url)
+    if base_file_url:
+        builder = builder.base_file_url(base_file_url)
+    if local_mode:
+        builder = builder.local_mode(True)
     return (
-        Application.builder()
-        .token(token)
+        builder
         .request(request)
         .get_updates_request(updates_request)
         .post_init(post_init)
