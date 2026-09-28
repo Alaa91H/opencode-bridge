@@ -168,6 +168,33 @@ MIGRATIONS = (
         "CREATE INDEX IF NOT EXISTS idx_drafts_owner_updated ON drafts(owner_id,updated_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_draft_versions_draft ON draft_versions(draft_id,version DESC)",
     )),
+    Migration(7, "attachment_storage_v2", (
+        """CREATE TABLE IF NOT EXISTS storage_blobs (
+            sha256 TEXT PRIMARY KEY,
+            storage_key TEXT NOT NULL UNIQUE,
+            size_bytes INTEGER NOT NULL,
+            reference_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            last_referenced_at TEXT NOT NULL
+        )""",
+        """CREATE TABLE IF NOT EXISTS attachment_refs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            blob_sha256 TEXT NOT NULL REFERENCES storage_blobs(sha256) ON DELETE RESTRICT,
+            owner_id TEXT NOT NULL,
+            task_id INTEGER,
+            file_id TEXT,
+            file_unique_id TEXT,
+            claimed_mime TEXT,
+            detected_mime TEXT,
+            size_bytes INTEGER NOT NULL,
+            retention_until TEXT,
+            scan_state TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_attachment_refs_owner ON attachment_refs(owner_id,created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_attachment_refs_blob ON attachment_refs(blob_sha256)",
+        "CREATE INDEX IF NOT EXISTS idx_attachment_refs_retention ON attachment_refs(retention_until)",
+    )),
 )
 
 
