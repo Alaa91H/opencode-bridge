@@ -540,3 +540,34 @@ T10 — إزالة قيود Telegram للملفات الكبيرة: Local Bot AP
 
 ### بوابة إغلاق T11
 لا تعتبر T11 مغلقة تنفيذيًا حتى ينجح CI للرأس الذي يحتوي S3 contract + توثيق T11 + سجل الحالة على Python 3.12/3.13/3.14. لا يبدأ T12 قبل ذلك.
+
+
+## تقدم T12 — Streaming وليس Buffering
+
+- [x] download/upload/hash/copy/archive/media على chunks.
+- [x] قياس RAM مع ملف افتراضي 3 GiB دون تخصيص payload كامل.
+- [x] backpressure عبر bounded asyncio queue.
+- [x] cooperative cancellation بين chunks مع تنظيف partial media/archive output.
+- [x] اختبارات multi-GB دون RAM proportional growth.
+- [x] توحيد LocalStorage وS3 وTelegram local-copy على streaming primitive.
+- [x] توثيق T12.
+
+### أدلة T12
+- `bridge/infrastructure/storage/streaming.py`
+- `bridge/infrastructure/storage/local.py`
+- `bridge/infrastructure/storage/s3.py`
+- `bridge/services/streaming_media_service.py`
+- `attachments.py`
+- `tests/test_v2_streaming.py`
+- `tests/test_v2_streaming_media.py`
+- `docs/t12-streaming-ar.md`
+
+### CI النهائي وإغلاق T12
+- commit المتحقق منه: `453f51a43c423011a566c19af2dc9ebfe7f8099b`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36388643897
+- النتيجة: **success** على Python 3.12/3.13/3.14.
+- **T12 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T13 — Media Processing Pipeline: input → detect → validate → normalize → extract → segment → agent → compose؛ يبدأ بـtool availability detection وsafe archive manifest/extraction ثم processors للصور/PDF/video/audio. لا يبدأ T14 قبل إغلاق T13 بالكامل.
