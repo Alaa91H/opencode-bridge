@@ -57,8 +57,5 @@ jobs:
       - name: Validate OpenCode configuration
         run: python -m json.tool opencode.json >/dev/null
 
-      - name: Validate V3 OpenCode configuration
-        run: python -m json.tool opencode-v3.json >/dev/null
-
       - name: Validate version
         run: python -c "import pathlib; parts=pathlib.Path('VERSION').read_text().strip().split('.'); assert len(parts)==3 and all(p.isdigit() for p in parts); print('.'.join(parts))"
