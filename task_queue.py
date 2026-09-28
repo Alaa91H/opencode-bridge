@@ -941,6 +941,22 @@ class TaskQueueStore:
                     due_rows = await cursor.fetchall()
                 for row in due_rows:
                     job = self._scheduled_from_row(row)
+                    # Mirror the legacy definition into the v2 schedule catalog so history keeps FK integrity.
+                    await db.execute(
+                        """INSERT INTO schedules(owner_id,name,definition_json,enabled,created_at,updated_at)
+                           VALUES (?,?,?,1,?,?)
+                           ON CONFLICT(owner_id,name) DO UPDATE SET definition_json=excluded.definition_json,
+                               enabled=excluded.enabled,updated_at=excluded.updated_at""",
+                        (job.owner_id, job.name, json.dumps({
+                            "legacy_job_id": job.id, "kind": "interval" if job.repeat_seconds else "once",
+                            "repeat_seconds": job.repeat_seconds,
+                        }, separators=(",", ":")), now, now),
+                    )
+                    async with db.execute(
+                        "SELECT id FROM schedules WHERE owner_id=? AND name=?",
+                        (job.owner_id, job.name),
+                    ) as cursor:
+                        v2_schedule_id = int((await cursor.fetchone())["id"])
                     occurrence = job.next_run_at or now_dt
                     occurrence_key = encode_time(occurrence)
                     async with db.execute(
@@ -980,7 +996,7 @@ class TaskQueueStore:
                             """INSERT OR IGNORE INTO schedule_runs
                                (schedule_id,task_id,scheduled_for,started_at,status)
                                VALUES (?,?,?,?, 'queued')""",
-                            (job.id, task_id, occurrence_key, now),
+                            (v2_schedule_id, task_id, occurrence_key, now),
                         )
                         promoted += 1
                     else:
@@ -992,7 +1008,7 @@ class TaskQueueStore:
                             """INSERT OR IGNORE INTO schedule_runs
                                (schedule_id,task_id,scheduled_for,started_at,finished_at,status,error)
                                VALUES (?,?,?,?,?,'skipped','overlap forbidden')""",
-                            (job.id, int(active["id"]), occurrence_key, now, now),
+                            (v2_schedule_id, int(active["id"]), occurrence_key, now, now),
                         )
                     if job.repeat_seconds:
                         next_due = occurrence
