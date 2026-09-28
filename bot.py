@@ -738,6 +738,9 @@ async def main() -> None:
         updates_request=updates_request,
         post_init=post_init,
         post_shutdown=post_shutdown,
+        base_url=SETTINGS.telegram.local_api_base_url if SETTINGS.telegram.api_mode == "local" else None,
+        base_file_url=SETTINGS.telegram.local_file_base_url if SETTINGS.telegram.api_mode == "local" else None,
+        local_mode=SETTINGS.telegram.api_mode == "local",
     )
     register_core_handlers(
         app,
