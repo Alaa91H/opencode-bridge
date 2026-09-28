@@ -14,7 +14,7 @@ class DraftPersistenceTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 path = Path(tmp) / "bridge.db"
                 db = BridgeDatabase(path)
-                await MigrationRunner(db).apply()
+                await MigrationRunner(db).migrate()
                 store = DraftStore(db)
                 draft = await store.create("owner", "large")
                 self.assertEqual(draft.version, 1)
