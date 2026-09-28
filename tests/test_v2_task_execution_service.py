@@ -90,15 +90,12 @@ class FakeDelivery:
         self.sent.append((task.id, list(paths)))
         return len(paths)
 
-    def final_text(self, text, command_points):
-        self.formatted.append((text, command_points))
-        return f"points={command_points}\n{text}"
+    def final_text(self, text):
+        self.formatted.append(text)
+        return text
 
     def error_text(self, exc, operation):
         return f"{operation}: {type(exc).__name__}"
-
-    def remaining_points(self):
-        return 123
 
     async def end(self, task):
         self.ended.append(task.id)
@@ -136,7 +133,7 @@ class FakeAgentService:
             }
         )
         response = self.responses.pop(0)
-        return response, selected_model, 2
+        return response, selected_model
 
 
 def make_task():
