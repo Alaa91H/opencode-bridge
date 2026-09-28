@@ -913,24 +913,33 @@ class TaskQueueStore:
         return promoted
 
 
-    async def claim_next(self) -> QueuedTask | None:
-        """Claim one queued task if its owner has no other running task."""
-        now = encode_time(utc_now())
+    async def claim_next(self, worker_id: str = "legacy-worker", lease_seconds: int = 120) -> QueuedTask | None:
+        """Lease one claimable task atomically, recovering expired leases first."""
+        now_dt = utc_now()
+        now = encode_time(now_dt)
+        lease_until = encode_time(now_dt + timedelta(seconds=max(10, int(lease_seconds))))
         db = await self._get_db()
         async with self._lock:
             await db.execute("BEGIN IMMEDIATE")
             try:
+                await db.execute(
+                    """UPDATE agent_tasks
+                       SET status='queued', lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL,
+                           updated_at=?, last_error='worker lease expired'
+                       WHERE status IN ('leased','running') AND lease_expires_at IS NOT NULL
+                         AND lease_expires_at <= ?""",
+                    (now, now),
+                )
                 async with db.execute(
-                    """
-                    SELECT q.* FROM agent_tasks q
-                    WHERE q.status = 'queued'
-                      AND NOT EXISTS (
-                          SELECT 1 FROM agent_tasks r
-                          WHERE r.owner_id = q.owner_id AND r.status = 'running'
-                      )
-                    ORDER BY q.created_at, q.id
-                    LIMIT 1
-                    """
+                    """SELECT q.id FROM agent_tasks q
+                       WHERE q.status IN ('queued','retrying')
+                         AND (q.next_attempt_at IS NULL OR q.next_attempt_at <= ?)
+                         AND NOT EXISTS (
+                           SELECT 1 FROM agent_tasks r
+                           WHERE r.owner_id=q.owner_id AND r.status IN ('leased','running')
+                             AND (r.lease_expires_at IS NULL OR r.lease_expires_at > ?))
+                       ORDER BY q.priority DESC, q.created_at, q.id LIMIT 1""",
+                    (now, now),
                 ) as cursor:
                     row = await cursor.fetchone()
                 if not row:
@@ -938,14 +947,92 @@ class TaskQueueStore:
                     return None
                 task_id = int(row["id"])
                 await db.execute(
-                    "UPDATE agent_tasks SET status = 'running', started_at = ?, updated_at = ? WHERE id = ? AND status = 'queued'",
-                    (now, now, task_id),
+                    """UPDATE agent_tasks SET status='leased', lease_owner=?, lease_expires_at=?,
+                       heartbeat_at=?, attempt=attempt+1, started_at=COALESCE(started_at, ?), updated_at=?
+                       WHERE id=? AND status IN ('queued','retrying')""",
+                    (worker_id, lease_until, now, now, now, task_id),
                 )
                 await db.commit()
             except Exception:
                 await db.rollback()
                 raise
         return await self.get(task_id)
+
+    async def mark_running(self, task_id: int, worker_id: str) -> QueuedTask | None:
+        now = encode_time(utc_now())
+        db = await self._get_db()
+        async with self._lock:
+            cursor = await db.execute(
+                """UPDATE agent_tasks SET status='running', heartbeat_at=?, updated_at=?
+                   WHERE id=? AND status='leased' AND lease_owner=?""",
+                (now, now, task_id, worker_id),
+            )
+            await db.commit()
+        return await self.get(task_id) if cursor.rowcount else None
+
+    async def heartbeat(self, task_id: int, worker_id: str, lease_seconds: int = 120) -> bool:
+        now_dt = utc_now()
+        db = await self._get_db()
+        async with self._lock:
+            cursor = await db.execute(
+                """UPDATE agent_tasks SET heartbeat_at=?, lease_expires_at=?, updated_at=?
+                   WHERE id=? AND lease_owner=? AND status IN ('leased','running')""",
+                (encode_time(now_dt), encode_time(now_dt + timedelta(seconds=max(10, int(lease_seconds)))),
+                 encode_time(now_dt), task_id, worker_id),
+            )
+            await db.commit()
+        return bool(cursor.rowcount)
+
+    async def retry_or_dead_letter(
+        self, task_id: int, error: str, *, retryable: bool, max_attempts: int = 5,
+        retry_after: float | None = None,
+    ) -> QueuedTask | None:
+        task = await self.get(task_id)
+        if task is None or task.status == "cancelled":
+            return task
+        now_dt = utc_now()
+        terminal = (not retryable) or task.attempt >= max(1, int(max_attempts))
+        if terminal:
+            status, next_attempt = "dead_letter", None
+        else:
+            base = max(float(retry_after or 0), min(300.0, 2.0 ** max(0, task.attempt - 1)))
+            delay = base + random.uniform(0.0, max(0.1, base * 0.2))
+            status, next_attempt = "retrying", encode_time(now_dt + timedelta(seconds=delay))
+        db = await self._get_db()
+        async with self._lock:
+            await db.execute(
+                """UPDATE agent_tasks SET status=?, next_attempt_at=?, retry_after_seconds=?,
+                   lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL,
+                   updated_at=?, completed_at=?, last_error=? WHERE id=?""",
+                (status, next_attempt, retry_after, encode_time(now_dt),
+                 encode_time(now_dt) if terminal else None, error, task_id),
+            )
+            await db.commit()
+        return await self.get(task_id)
+
+    async def list_failed(self, owner_id: str, limit: int = 20) -> list[QueuedTask]:
+        db = await self._get_db()
+        async with self._lock:
+            async with db.execute(
+                """SELECT * FROM agent_tasks WHERE owner_id=? AND status IN ('failed','dead_letter')
+                   ORDER BY updated_at DESC, id DESC LIMIT ?""",
+                (owner_id, max(1, min(int(limit), 100))),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [self._from_row(row) for row in rows]
+
+    async def retry_failed(self, task_id: int, owner_id: str) -> QueuedTask | None:
+        now = encode_time(utc_now())
+        db = await self._get_db()
+        async with self._lock:
+            cursor = await db.execute(
+                """UPDATE agent_tasks SET status='queued', next_attempt_at=NULL, completed_at=NULL,
+                   lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL, last_error=NULL, updated_at=?
+                   WHERE id=? AND owner_id=? AND status IN ('failed','dead_letter')""",
+                (now, task_id, owner_id),
+            )
+            await db.commit()
+        return await self.get(task_id) if cursor.rowcount else None
 
     async def finish(self, task_id: int, success: bool, error: str | None = None) -> QueuedTask | None:
         task = await self.get(task_id)
