@@ -27,6 +27,7 @@ class OverlapPolicy(str, Enum):
 @dataclass(frozen=True)
 class Recurrence:
     kind: str
+    cron: str | None = None
     timezone_name: str = "UTC"
     interval_seconds: int | None = None
     hour: int | None = None
@@ -45,6 +46,26 @@ class Recurrence:
             return None
         if after.tzinfo is None:
             after = after.replace(tzinfo=UTC)
+        if self.kind == "cron":
+            fields = (self.cron or "").split()
+            if len(fields) != 5:
+                raise ValueError("cron requires five fields")
+            minute_f, hour_f, dom_f, month_f, dow_f = fields
+            def matches(value: int, field: str) -> bool:
+                if field == "*":
+                    return True
+                return value in {int(v) for v in field.split(",")}
+            zone = self.timezone()
+            cursor = after.astimezone(UTC).replace(second=0, microsecond=0) + timedelta(minutes=1)
+            for _ in range(60 * 24 * 366):
+                local = cursor.astimezone(zone)
+                cron_dow = (local.weekday() + 1) % 7
+                if (matches(local.minute, minute_f) and matches(local.hour, hour_f)
+                    and matches(local.day, dom_f) and matches(local.month, month_f)
+                    and matches(cron_dow, dow_f)):
+                    return cursor
+                cursor += timedelta(minutes=1)
+            raise ValueError("No cron occurrence within one year")
         if self.kind == "interval":
             if not self.interval_seconds or self.interval_seconds <= 0:
                 raise ValueError("interval_seconds must be positive")
