@@ -1,11 +1,11 @@
 import aiosqlite
-import asyncio
 import logging
-import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+from bridge.infrastructure.database.sqlite import BridgeDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -23,16 +23,14 @@ class UserSession:
 
 
 class SessionStore:
-    def __init__(self, db_path: Optional[Path] = None):
-        self.db_path = db_path or DB_PATH
-        self._lock = asyncio.Lock()
-        self._db: Optional[aiosqlite.Connection] = None
+    def __init__(self, db_path: Optional[Path] = None, database: BridgeDatabase | None = None):
+        self.db_path = Path(db_path or DB_PATH)
+        self.database = database or BridgeDatabase(self.db_path)
+        self._owns_database = database is None
+        self._lock = self.database.transaction_lock
 
     async def _get_db(self) -> aiosqlite.Connection:
-        if self._db is None:
-            self._db = await aiosqlite.connect(str(self.db_path))
-            self._db.row_factory = aiosqlite.Row
-        return self._db
+        return await self.database.connect()
 
     async def init(self) -> None:
         db = await self._get_db()
@@ -155,6 +153,5 @@ class SessionStore:
             return cursor.rowcount > 0
 
     async def close(self) -> None:
-        if self._db:
-            await self._db.close()
-            self._db = None
+        if self._owns_database:
+            await self.database.close()
