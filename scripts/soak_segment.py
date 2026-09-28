@@ -32,6 +32,7 @@ async def execute(args: argparse.Namespace) -> dict[str, object]:
         )
     return {
         "request_id": args.request_id,
+        "source_sha": args.source_sha,
         "segment": args.segment,
         "started_at": started.isoformat(),
         "finished_at": finished.isoformat(),
@@ -51,6 +52,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--segment", type=int, required=True)
     parser.add_argument("--request-id", required=True)
+    parser.add_argument("--source-sha", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--duration-seconds", type=float, default=14700)
     parser.add_argument("--tasks", type=int, default=2000)
