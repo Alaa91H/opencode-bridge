@@ -218,7 +218,15 @@ class AttachmentStore:
             raise AttachmentError("لم يقدّم تيليغرام معرّفًا صالحًا للمرفق")
         destination = self.incoming_directory(str(owner_id)) / _safe_filename(proposed_name, "attachment.bin")
         remote_file = await bot.get_file(file_id)
-        await remote_file.download_to_drive(custom_path=destination)
+        local_source = Path(str(getattr(remote_file, "file_path", "")))
+        if bool(getattr(bot, "local_mode", False)) and local_source.is_file():
+            # Local Bot API exposes a server-local path: stream-copy it rather than
+            # asking Telegram to materialize the whole payload through HTTP.
+            with local_source.open("rb") as source, destination.open("wb") as target:
+                shutil.copyfileobj(source, target, length=1024 * 1024)
+        else:
+            # PTB download_to_drive streams to disk; it does not require a bytes buffer.
+            await remote_file.download_to_drive(custom_path=destination)
         actual_size = destination.stat().st_size
         if actual_size > self.max_bytes:
             destination.unlink(missing_ok=True)
