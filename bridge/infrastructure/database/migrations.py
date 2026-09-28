@@ -135,6 +135,16 @@ MIGRATIONS = (
             PRIMARY KEY(schedule_key, occurrence_key))""",
         "CREATE INDEX IF NOT EXISTS idx_idempotency_task ON idempotency_records(task_id)",
     )),
+    Migration(5, "scheduler_v2", (
+        "ALTER TABLE schedules ADD COLUMN next_run_at TEXT",
+        "ALTER TABLE schedules ADD COLUMN timezone_name TEXT NOT NULL DEFAULT 'UTC'",
+        "ALTER TABLE schedules ADD COLUMN misfire_policy TEXT NOT NULL DEFAULT 'run_once'",
+        "ALTER TABLE schedules ADD COLUMN overlap_policy TEXT NOT NULL DEFAULT 'forbid'",
+        "ALTER TABLE schedules ADD COLUMN last_run_at TEXT",
+        "ALTER TABLE schedules ADD COLUMN running_task_id INTEGER",
+        "CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules(enabled, next_run_at)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_runs_occurrence ON schedule_runs(schedule_id, scheduled_for)",
+    )),
 )
 
 
