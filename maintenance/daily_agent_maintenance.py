@@ -18,7 +18,6 @@ sys.path.insert(0, str(BRIDGE_DIR))
 
 from audit_log import AuditLogger
 from bridge.config import get_settings
-from free_points import FreePointsTracker
 from model_manager import ModelManager
 from opencode_client import OpenCodeClient, extract_text_response
 from session_store import SessionStore
@@ -36,16 +35,10 @@ async def run() -> dict[str, Any]:
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     store = SessionStore(BRIDGE_DIR / "sessions.db")
     await store.init()
-    free_points_tracker = FreePointsTracker(
-        RUNTIME_DIR / "free-points.db",
-        daily_limit=SETTINGS.opencode.free_daily_points,
-        timezone_name=SETTINGS.telegram.daily_task_counter_timezone,
-    )
     client = OpenCodeClient(
         host=SETTINGS.opencode.host,
         port=SETTINGS.opencode.port,
         password=SETTINGS.effective_opencode_password,
-        free_points_tracker=free_points_tracker,
     )
     audit = AuditLogger(RUNTIME_DIR / "audit.jsonl")
     manager = ModelManager(
@@ -126,7 +119,6 @@ async def run() -> dict[str, Any]:
             "selected_variant": variant,
             "selected_agent": agent,
             "selection_method": selection.get("selection_method") if isinstance(selection, dict) else "catalog_fallback",
-            "free_points_remaining": free_points_tracker.snapshot().remaining,
         }
         STATE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         os.chmod(STATE_PATH, 0o640)
