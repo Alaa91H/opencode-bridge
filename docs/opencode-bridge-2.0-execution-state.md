@@ -806,3 +806,21 @@ T23 — Priority & Fairness: low/normal/high/urgent، aging، fairness per owner
 
 ## الخطوة التالية غير المكتملة بالضبط
 T24 — Cancellation حقيقية: token موحد، cooperative cancellation، cleanup، subprocess kill escalation، no zombies، واختبارات الإلغاء عبر المراحل.
+
+
+## تقدم T24 — Cancellation حقيقية
+- [x] CancellationToken موحد مع cooperative checkpoints.
+- [x] cleanup callbacks idempotent بترتيب LIFO.
+- [x] subprocess TERM → grace → KILL escalation.
+- [x] process.wait/reap لمنع zombies.
+- [x] اختبارات cancel لمراحل Telegram/TaskService/OpenCode/subprocess/media/upload.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T24
+- commit المتحقق منه: `77807d34ac4b787e4a921f6af0e3aa18f6bb4f58`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36422856064
+- النتيجة: **success**.
+- **T24 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T25 — Progress Protocol موحد: structured events، renderer مستقل، Telegram debounce/rate-limit، one-message principle، persisted progress بعد restart.
