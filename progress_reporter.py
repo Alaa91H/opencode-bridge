@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from opencode_client import OpenCodeClient
@@ -13,6 +16,27 @@ from task_queue import QueuedTask, TaskQueueStore
 
 log = logging.getLogger("opencode_bridge.progress")
 UPDATE_INTERVAL_SECONDS = 2.5
+
+
+@dataclass(frozen=True)
+class DisplayPreferences:
+    """The owner's live display choices, read once per render.
+
+    ``notification_level`` decides whether live progress is edited into the
+    status message and ``output_style`` decides how much detail it carries. The
+    phase-aware decision lives in ``LiveProgressReporter._show_progress``; this
+    object only carries the values.
+    """
+
+    notification_level: str = "normal"
+    output_style: str = "summary"
+
+    @property
+    def detail(self) -> bool:
+        return self.output_style == "full"
+
+
+DEFAULT_DISPLAY = DisplayPreferences()
 
 
 class LiveProgressReporter:
@@ -24,18 +48,44 @@ class LiveProgressReporter:
         bot: Any,
         queue: TaskQueueStore,
         progress_store: ProgressStore,
+        display_preferences: Callable[[], "DisplayPreferences"] | None = None,
     ) -> None:
         self.task = task
         self.bot = bot
         self.queue = queue
         self.progress_store = progress_store
         self.progress = progress_store.start(task.id, task.owner_id, task.chat_id)
+        self._display = display_preferences
         self._last_rendered = 0.0
         self._last_message = ""
 
+    async def _preferences(self) -> DisplayPreferences:
+        if self._display is None:
+            return DEFAULT_DISPLAY
+        try:
+            value = self._display()
+            if inspect.isawaitable(value):
+                value = await value
+        except Exception as exc:
+            log.info("تعذر قراءة تفضيلات العرض: %s", type(exc).__name__)
+            return DEFAULT_DISPLAY
+        return value if isinstance(value, DisplayPreferences) else DEFAULT_DISPLAY
+
+    async def _show_progress(self, phase: str | None = None) -> bool:
+        """Honor the owner's notification level for live progress updates."""
+        level = (await self._preferences()).notification_level
+        if level == "silent":
+            return False
+        if level == "errors":
+            return (phase or self.progress.phase) == "failed"
+        return True
+
+    async def _detail(self) -> bool:
+        return (await self._preferences()).detail
+
     async def start(self) -> None:
         await self._persist()
-        text = render_progress(self.progress)
+        text = render_progress(self.progress, detail=await self._detail())
         try:
             if self.task.status_message_id is not None:
                 self.progress_store.set_message_id(self.task.id, int(self.task.status_message_id))
@@ -85,10 +135,12 @@ class LiveProgressReporter:
     async def refresh(self, force: bool = False, detail: bool = False, final: bool = False) -> None:
         if self.progress.message_id is None:
             return
+        if not final and not await self._show_progress():
+            return
         now = time.monotonic()
         if not force and now - self._last_rendered < UPDATE_INTERVAL_SECONDS:
             return
-        text = render_progress(self.progress, detail=detail)
+        text = render_progress(self.progress, detail=detail or await self._detail())
         if text == self._last_message and not force:
             return
         try:

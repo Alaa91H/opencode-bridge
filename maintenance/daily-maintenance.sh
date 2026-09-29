@@ -13,7 +13,10 @@ readonly RUNTIME_DIR="${BRIDGE_DIR}/runtime"
 readonly REPORT_PATH="${RUNTIME_DIR}/maintenance-latest.md"
 readonly HISTORY_DIR="${RUNTIME_DIR}/maintenance-history"
 readonly ATTACHMENT_ROOT="${RUNTIME_DIR}/attachments"
-readonly ATTACHMENT_RETENTION_MINUTES=10080
+# Retention window is published by the bridge from the owner's stored preference.
+# The constant below is only the fallback when that file is missing or invalid.
+readonly ATTACHMENT_RETENTION_DEFAULT_DAYS=7
+readonly ATTACHMENT_RETENTION_DAYS_FILE="${RUNTIME_DIR}/retention-days"
 readonly LOG_PATH="/var/log/opencode-bridge-maintenance.log"
 readonly LOCK_PATH="/run/lock/opencode-bridge-maintenance.lock"
 readonly APT_OPTIONS=(
@@ -152,14 +155,34 @@ cleanup_journal() {
   journalctl --vacuum-time=14d
 }
 
+resolve_retention_minutes() {
+  local days="${ATTACHMENT_RETENTION_DEFAULT_DAYS}"
+  if [[ -r "$ATTACHMENT_RETENTION_DAYS_FILE" ]]; then
+    local raw
+    # Strip surrounding whitespace only. A malformed value must fall back to the
+    # default instead of being sanitized into a different, unexpected window.
+    raw="$(tr -d '[:space:]' <"$ATTACHMENT_RETENTION_DAYS_FILE" 2>/dev/null || true)"
+    if [[ "$raw" =~ ^[0-9]+$ ]] && (( raw >= 1 && raw <= 365 )); then
+      days="$raw"
+    else
+      echo "قيمة مدة الاحتفاظ غير صالحة (${raw:-فارغة})؛ استخدام الافتراضي ${ATTACHMENT_RETENTION_DEFAULT_DAYS} يوم." >&2
+    fi
+  fi
+  echo $(( days * 24 * 60 ))
+}
+
 cleanup_managed_attachments() {
+  local retention_minutes
+  retention_minutes="$(resolve_retention_minutes)"
+  ATTACHMENT_RETENTION_MINUTES="$retention_minutes"
+  ATTACHMENT_RETENTION_SUMMARY="أقدم من $(( retention_minutes / 1440 )) يوم"
   ATTACHMENT_CLEANUP_SUMMARY="0 ملف (0B)"
   [[ -d "$ATTACHMENT_ROOT" ]] || return 0
   local stale_files stale_bytes
-  stale_files="$(find "$ATTACHMENT_ROOT" -xdev -type f -mmin +"$ATTACHMENT_RETENTION_MINUTES" -printf '.' 2>/dev/null | wc -c | tr -d ' ')"
-  stale_bytes="$(find "$ATTACHMENT_ROOT" -xdev -type f -mmin +"$ATTACHMENT_RETENTION_MINUTES" -printf '%s\n' 2>/dev/null | awk '{total += $1} END {print total + 0}')"
-  find "$ATTACHMENT_ROOT" -xdev -depth -type f -mmin +"$ATTACHMENT_RETENTION_MINUTES" -delete
-  find "$ATTACHMENT_ROOT" -xdev -depth -mindepth 2 -type d -empty -mmin +"$ATTACHMENT_RETENTION_MINUTES" -delete
+  stale_files="$(find "$ATTACHMENT_ROOT" -xdev -type f -mmin +"$retention_minutes" -printf '.' 2>/dev/null | wc -c | tr -d ' ')"
+  stale_bytes="$(find "$ATTACHMENT_ROOT" -xdev -type f -mmin +"$retention_minutes" -printf '%s\n' 2>/dev/null | awk '{total += $1} END {print total + 0}')"
+  find "$ATTACHMENT_ROOT" -xdev -depth -type f -mmin +"$retention_minutes" -delete
+  find "$ATTACHMENT_ROOT" -xdev -depth -mindepth 2 -type d -empty -mmin +"$retention_minutes" -delete
   ATTACHMENT_CLEANUP_SUMMARY="${stale_files} ملف (${stale_bytes}B)"
 }
 
@@ -169,7 +192,7 @@ record_step "إزالة الحزم غير المطلوبة" apt_autoremove
 record_step "تنظيف ذاكرة حزم APT" apt_clean
 record_step "تنظيف الملفات المؤقتة وفق سياسة النظام" cleanup_temporary_files
 record_step "الاحتفاظ بسجل النظام لآخر 14 يومًا" cleanup_journal
-record_step "حذف مرفقات البوت المدارة الأقدم من 7 أيام" cleanup_managed_attachments
+record_step "حذف مرفقات البوت المدارة وفق مدة الاحتفاظ المختارة" cleanup_managed_attachments
 record_step "فحص GitHub وتطبيق تحديث OpenCode Bridge الموثق" bridge_self_update
 record_step "مزامنة ملفات systemd والصيانة من النسخة الحالية" refresh_deployment_assets
 record_step "إعادة تشغيل OpenCode بعد تحديث الكود فقط" restart_opencode_after_update

@@ -23,6 +23,7 @@ class TelegramExecutionDelivery:
         *,
         max_message_length: int,
         error_message: Any,
+        display_preferences: Any = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self.bot = bot
@@ -31,6 +32,7 @@ class TelegramExecutionDelivery:
         self.live_reporters = live_reporters
         self.max_message_length = max_message_length
         self.error_message = error_message
+        self.display_preferences = display_preferences
         self.log = logger or logging.getLogger(__name__)
         self._typing_tasks: dict[int, tuple[asyncio.Event, asyncio.Task[None]]] = {}
 
@@ -50,11 +52,15 @@ class TelegramExecutionDelivery:
             self.log.debug("تعذر تحديث مؤشر الكتابة: %s", exc)
 
     async def begin(self, task: Any) -> LiveProgressReporter:
+        owner_id = str(getattr(task, "owner_id", ""))
         reporter = LiveProgressReporter(
             task,
             self.bot,
             self.repository,
             self.progress_store,
+            display_preferences=(
+                (lambda: self.display_preferences(owner_id)) if self.display_preferences else None
+            ),
         )
         self.live_reporters[task.id] = reporter
         await reporter.start()

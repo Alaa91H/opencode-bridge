@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import shutil
 import signal
@@ -45,6 +46,7 @@ from bridge.services.model_selection_service import ModelSelectionService
 from bridge.services.user_preferences_service import UserPreferencesService
 from bridge.telegram.callbacks.model_picker import ModelPickerCallbackAdapter
 from bridge.telegram.panels import (
+    ACT,
     MENU,
     PATTERN as PANEL_PATTERN,
     PanelContext,
@@ -262,6 +264,19 @@ def _user_preferences() -> UserPreferencesService:
     return _user_preferences_service
 
 
+async def _display_preferences(owner_id: str) -> DisplayPreferences:
+    """Read the owner's live display choices; fall back to defaults on any error."""
+    try:
+        preferences = await _user_preferences().get(owner_id)
+    except Exception as exc:
+        log.info("تعذر قراءة تفضيلات العرض للمالك %s: %s", owner_id, type(exc).__name__)
+        return DisplayPreferences()
+    return DisplayPreferences(
+        notification_level=preferences.notification_level,
+        output_style=preferences.output_style,
+    )
+
+
 async def _apply_model_to_owner_session(owner_id: str, session_id: str, model_id: str) -> None:
     await client.update_session(session_id, model=model_id)
     await store.update_session(owner_id, model=model_id)
@@ -406,6 +421,22 @@ def _panel_actions() -> dict[tuple[str, str], Any]:
         if job is not None:
             await task_store.delete_scheduled_job(context.owner_id, job.name)
 
+    async def set_preference(context: PanelContext, arg: str) -> None:
+        field, _, raw = arg.partition("=")
+        if field not in _EDITABLE_PREFERENCES:
+            raise ValueError(f"preference is not editable: {field}")
+        value: object = raw
+        if field == "retention_days":
+            days = int(raw)
+            if days not in (1, 7, 30, 90):
+                raise ValueError("unsupported retention window")
+            value = days
+        preferences = await _user_preferences().update(context.owner_id, **{field: value})
+        _write_retention_window(preferences.retention_days)
+        log.info(
+            "تم تحديث تفضيل %s للمالك %s", field, context.owner_id
+        )
+
     return {
         ("system", "refresh"): noop,
         ("tasks", "refresh"): noop,
@@ -414,7 +445,26 @@ def _panel_actions() -> dict[tuple[str, str], Any]:
         ("tasks", "retry"): retry_task,
         ("schedules", "toggle_schedule"): toggle_schedule,
         ("schedules", "delete_schedule"): delete_schedule,
+        ("settings.notification", ACT): set_preference,
+        ("settings.output", ACT): set_preference,
+        ("settings.retention", ACT): set_preference,
     }
+
+
+_EDITABLE_PREFERENCES = frozenset({"notification_level", "output_style", "retention_days"})
+RETENTION_FILE = BRIDGE_DIR / "runtime" / "retention-days"
+
+
+def _write_retention_window(days: int) -> None:
+    """Publish the owner's retention window for the root maintenance job."""
+    try:
+        RETENTION_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temporary = RETENTION_FILE.with_suffix(".tmp")
+        temporary.write_text(f"{int(days)}\n", encoding="utf-8")
+        os.replace(temporary, RETENTION_FILE)
+        os.chmod(RETENTION_FILE, 0o644)
+    except OSError as exc:
+        log.warning("تعذر نشر مدة الاحتفاظ: %s", exc)
 
 
 def _panel_router() -> PanelRouter:
@@ -661,6 +711,7 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
         progress_store,
         live_reporters,
         max_message_length=MAX_MESSAGE_LENGTH,
+        display_preferences=lambda owner_id: _display_preferences(owner_id),
         error_message=user_error,
         logger=log,
     )

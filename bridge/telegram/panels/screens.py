@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from bridge.telegram.panels.registry import (
+    ACT,
     MENU,
     NAVIGATE,
     Panel,
@@ -92,29 +93,52 @@ async def settings_screen(context: Any, data: dict[str, Any]) -> PanelView:
     model = getattr(preferences, "model_preference", None) or "تلقائي"
     variant = getattr(preferences, "model_variant", None) or "تلقائي"
     pinned = bool(getattr(preferences, "model_pinned", False))
+    level = getattr(preferences, "notification_level", "normal")
+    style = getattr(preferences, "output_style", "summary")
+    retention = getattr(preferences, "retention_days", 30)
     lines = [
         "⚙️ <b>الإعدادات</b>",
-        "",
-        "🔧 <b>الإعدادات الفعلية (غير سرّية)</b>",
-    ]
-    if config:
-        for key, value in sorted(config.items()):
-            lines.append(f"• {key}: {value}")
-    else:
-        lines.append("• لا توجد إعدادات معروضة")
-    lines += [
         "",
         f"🤖 النموذج: {model}",
         f"🎚 مستوى الاستدلال: {variant}",
         f"📌 التثبيت اليدوي: {'مفعّل' if pinned else 'معطّل'}",
     ]
-    return PanelView(
-        text="\n".join(lines),
-        rows=(
-            _row(_nav("🤖 تغيير النموذج والمستوى", "model")),
-            _row(_nav("📏 عرض الحدود", "system")),
+    rows: list[tuple[PanelAction, ...]] = [
+        _row(_nav("🤖 تغيير النموذج والمستوى", "model")),
+        _row(
+            _option("🔔 التقدّم", "notification"),
+            _option("📄 أسلوب العرض", "output"),
         ),
-    )
+        _row(
+            _option("🗑 مدة الاحتفاظ", "retention"),
+        ),
+    ]
+    lines += ["", "🔧 <b>الإعدادات الفعلية (غير سرّية)</b>"]
+    if config:
+        for key, value in sorted(config.items()):
+            lines.append(f"• {key}: {value}")
+    else:
+        lines.append("• لا توجد إعدادات معروضة")
+    return PanelView(text="\n".join(lines), rows=tuple(rows) + (_row(_nav("📏 عرض الحدود", "system")),))
+
+
+NOTIFICATION_CHOICES = (
+    ("silent", "🔇 صامت"),
+    ("errors", "⚠️ أخطاء فقط"),
+    ("normal", "🔔 عادي"),
+    ("verbose", "🔊 مفصّل"),
+)
+OUTPUT_CHOICES = (
+    ("summary", "📝 ملخّص"),
+    ("full", "📚 تفصيلي"),
+    ("compact", "⚡ مختصر"),
+)
+RETENTION_CHOICES = (("1", "يوم"), ("7", "٧ أيام"), ("30", "٣٠ يوم"), ("90", "٩٠ يوم"))
+
+
+def _option(label: str, name: str) -> PanelAction:
+    """A button that opens the choice sub-screen for one preference field."""
+    return PanelAction(label=label, verb=NAVIGATE, arg=f"settings.{name}")
 
 
 # --------------------------------------------------------------------- tasks
@@ -271,9 +295,33 @@ _SESSION_COMMANDS = {"start", "new", "reset", "abort", "stop", "model", "status"
 _TASK_COMMANDS = {"tasks", "failed", "retry", "progress", "trace", "cancel", "discard"}
 _SCHEDULE_COMMANDS = {"schedule", "repeat", "schedules", "schedshow", "schedrun"}
 
+# Preference fields the runtime genuinely consumes. Each entry drives one
+# choice sub-screen: title, the (value, arabic label) pairs, how to read the
+# current value, and the UserPreferences field an action writes.
+_OPTION_FIELDS = {
+    "notification": (
+        "🔔 مستوى إشعارات التقدّم",
+        NOTIFICATION_CHOICES,
+        lambda preferences: preferences.notification_level,
+        "notification_level",
+    ),
+    "output": (
+        "📄 أسلوب عرض التقدّم",
+        OUTPUT_CHOICES,
+        lambda preferences: preferences.output_style,
+        "output_style",
+    ),
+    "retention": (
+        "🗑 مدة الاحتفاظ بالمرفقات",
+        RETENTION_CHOICES,
+        lambda preferences: str(preferences.retention_days),
+        "retention_days",
+    ),
+}
+
 
 def build_panels() -> dict[str, Panel]:
-    return {
+    panels = {
         MENU: Panel(name=MENU, title="القائمة الرئيسية", render=menu_screen, needs=()),
         "system": Panel(name="system", title="حالة النظام", render=system_screen, needs=("health", "limits")),
         "settings": Panel(
@@ -290,3 +338,34 @@ def build_panels() -> dict[str, Panel]:
         "model": Panel(name="model", title="النموذج", render=model_screen, needs=()),
         "help": Panel(name="help", title="المساعدة", render=help_screen, needs=("commands",)),
     }
+    for name, (title, choices, current_of, apply_field) in _OPTION_FIELDS.items():
+        panels[f"settings.{name}"] = Panel(
+            name=f"settings.{name}",
+            title=title,
+            render=_option_renderer(current_of, apply_field, choices),
+            needs=("preferences",),
+        )
+    return panels
+
+
+def _option_renderer(
+    current_of: Any, apply_field: str, choices: tuple[tuple[str, str], ...]
+):
+    """Build the renderer for one preference-choice screen."""
+
+    async def render(context: Any, data: dict[str, Any]) -> PanelView:
+        del context
+        current = current_of(data["preferences"])
+        rows = [
+            _row(
+                PanelAction(
+                    label=f"{'✅ ' if value == current else ''}{label}",
+                    verb=ACT,
+                    arg=f"{apply_field}={value}",
+                )
+            )
+            for value, label in choices
+        ]
+        return PanelView(text="اختر القيمة التي تناسبك:", rows=tuple(rows))
+
+    return render

@@ -1,3 +1,26 @@
+## [2.0.0-rc.4] - 2026-09-29
+
+### User preferences now do something
+
+- `notification_level` reaches `LiveProgressReporter`: `silent` suppresses live progress edits, `errors` shows only failures, and the final result is always delivered regardless of level.
+- `output_style` reaches `render_progress(detail=...)`, so `full` renders the event log and `summary`/`compact` stay on the compact form.
+- `retention_days` is published atomically to `runtime/retention-days` and read by the root maintenance script, so the attachment deletion window is owner-controlled instead of a hardcoded 7 days.
+
+### Safety fix in the maintenance script
+
+- The retention window was validated with `tr -dc '0-9'`, which sanitizes a malformed value instead of rejecting it: `14d` would have silently become 14 days in a root script that deletes files. Validation now strips whitespace only and requires the whole string to be digits, falling back to the default with a warning.
+- Values outside `1..365` and any non-numeric content are rejected and covered by tests that execute the resolver with real bash.
+
+### Settings UI
+
+- Added three real choice sub-screens under the settings panel, registered automatically from `_OPTION_FIELDS`.
+- The write path goes through an explicit allowlist, so an unknown field or an out-of-range retention is refused by the service.
+- The settings panel still reports, and does not offer toggles for, the fields the runtime does not read.
+
+### Verification
+
+- 13 new end-to-end tests on a real database prove each preference has a real effect, that a missing, throwing, wrongly typed, or async provider falls back correctly, that the final render is always allowed, and that values survive a restart.
+- Total suite: 476 tests.
 ## [2.0.0-rc.3] - 2026-09-29
 
 ### Telegram UX

@@ -22,9 +22,61 @@ class MaintenanceAssetTests(unittest.TestCase):
         self.assertNotIn("rm -rf", content)
         self.assertIn("maintenance-latest.md", content)
         self.assertIn('ATTACHMENT_ROOT="${RUNTIME_DIR}/attachments"', content)
-        self.assertIn("ATTACHMENT_RETENTION_MINUTES=10080", content)
-        self.assertIn('find "$ATTACHMENT_ROOT" -xdev -depth -type f -mmin +"$ATTACHMENT_RETENTION_MINUTES" -delete', content)
+        # The retention window comes from the owner's stored preference; the
+        # constant is only the fallback and must stay at the documented 7 days.
+        self.assertIn("ATTACHMENT_RETENTION_DEFAULT_DAYS=7", content)
+        self.assertIn('ATTACHMENT_RETENTION_DAYS_FILE="${RUNTIME_DIR}/retention-days"', content)
+        self.assertIn("resolve_retention_minutes", content)
+        self.assertIn("raw >= 1 && raw <= 365", content)
+        self.assertNotIn("ATTACHMENT_RETENTION_MINUTES=10080", content)
+        self.assertIn('find "$ATTACHMENT_ROOT" -xdev -depth -type f -mmin +"$retention_minutes" -delete', content)
         self.assertIn("systemctl start --no-block opencode-bridge-reboot-guard.service", content)
+
+    def test_retention_resolution_accepts_a_valid_window_and_rejects_junk(self) -> None:
+        import subprocess
+        import tempfile
+
+        content = SCRIPT.read_text(encoding="utf-8")
+        start = content.index("resolve_retention_minutes()")
+        end = content.index("cleanup_managed_attachments()")
+        function = content[start:end]
+        function = function.replace('readonly ATTACHMENT_RETENTION_DEFAULT_DAYS=7', "")
+        function = function.replace(
+            'readonly ATTACHMENT_RETENTION_DAYS_FILE="${RUNTIME_DIR}/retention-days"', ""
+        )
+        function = function.replace(
+            'echo "قيمة مدة الاحتفاظ غير صالحة؛ استخدام الافتراضي ${ATTACHMENT_RETENTION_DEFAULT_DAYS} يوم." >&2',
+            'echo invalid >&2',
+        )
+        function = function.replace('ATTACHMENT_RETENTION_DEFAULT_DAYS', 'DEFAULT_DAYS')
+        function = function.replace('ATTACHMENT_RETENTION_DAYS_FILE', 'DAYS_FILE')
+
+        cases = {
+            "": 10080,
+            "1": 1440,
+            "7": 10080,
+            "30": 43200,
+            "365": 525600,
+            "0": 10080,
+            "366": 10080,
+            "abc": 10080,
+            "14d": 10080,
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value), tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
+                handle.write(value + "\n")
+                path = handle.name
+            try:
+                script = (
+                    f'DEFAULT_DAYS=7\nDAYS_FILE="{path}"\n' + function + '\nresolve_retention_minutes\n'
+                )
+                result = subprocess.run(
+                    ["bash", "-c", script], capture_output=True, text=True, timeout=15
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip().splitlines()[-1], str(expected))
+            finally:
+                Path(path).unlink(missing_ok=True)
 
     def test_reboot_guard_waits_and_checks_queue(self) -> None:
         content = GUARD.read_text(encoding="utf-8")
