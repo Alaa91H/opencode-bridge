@@ -76,6 +76,8 @@ class ModelManager:
         self._preferred_variant: str | None = None
         self._preferred_agent: str | None = None
         self._providers_cache: dict[str, Any] | list[dict[str, Any]] | None = None
+        self._owner_pin_reader: Callable[[str], Awaitable[str | None]] | None = None
+        self._owner_variant_reader: Callable[[str, str], Awaitable[str | None]] | None = None
 
     @property
     def preferred_model(self) -> str | None:
@@ -99,6 +101,24 @@ class ModelManager:
         if model_id == self.configured_variant_model:
             return self.configured_variant
         return None
+
+    def set_owner_variant_reader(self, reader: Callable[[str, str], Awaitable[str | None]]) -> None:
+        """Allow an explicit owner reasoning level to override catalog strength."""
+        self._owner_variant_reader = reader
+
+    async def resolve_variant(self, owner_id: str | None, model_id: str | None) -> str | None:
+        """Return the owner's explicit level when valid for this model, else catalog best."""
+        if not model_id:
+            return None
+        if owner_id and self._owner_variant_reader is not None:
+            try:
+                chosen = await self._owner_variant_reader(owner_id, model_id)
+            except Exception as exc:
+                log.info("تعذر قراءة مستوى الاستدلال المختار للمالك %s: %s", owner_id, type(exc).__name__)
+                chosen = None
+            if isinstance(chosen, str) and chosen.strip():
+                return chosen.strip()
+        return self.variant_for_model(model_id)
 
     def set_preferred_model(self, model_id: str | None) -> None:
         self._preferred_model = model_id.strip() if isinstance(model_id, str) and model_id.strip() else None
@@ -134,10 +154,17 @@ class ModelManager:
         if core is not None:
             setattr(core, "DEFAULT_AGENT", agent)
 
-    async def best_available(self, excluded_ids: set[str] | None = None) -> str | None:
+    async def best_available(
+        self,
+        excluded_ids: set[str] | None = None,
+        owner_id: str | None = None,
+    ) -> str | None:
         providers = await self.client.list_providers()
         self._providers_cache = providers
         excluded = excluded_ids or set()
+        pinned = await self.owner_pinned_model(owner_id)
+        if pinned and pinned in ranked_zen_general_model_ids(providers) and pinned not in excluded:
+            return pinned
         ranked = ranked_zen_general_model_ids(providers)
         if self.pin_default_model and self.configured_model in ranked and self.configured_model not in excluded:
             return self.configured_model
@@ -145,6 +172,23 @@ class ModelManager:
         if preferred and preferred in ranked and preferred not in excluded:
             return preferred
         return best_zen_general_model_id(providers, excluded_ids=excluded)
+
+    async def owner_pinned_model(self, owner_id: str | None) -> str | None:
+        """Return the owner-pinned model, or None when the owner chose automatic."""
+        if not owner_id or self._owner_pin_reader is None:
+            return None
+        try:
+            pinned = await self._owner_pin_reader(owner_id)
+        except Exception as exc:
+            log.info("تعذر قراءة تفضيل النموذج المثبّت للمالك %s: %s", owner_id, type(exc).__name__)
+            return None
+        if not isinstance(pinned, str) or not pinned.strip():
+            return None
+        return pinned.strip()
+
+    def set_owner_pin_reader(self, reader: Callable[[str], Awaitable[str | None]]) -> None:
+        """Allow the Telegram selection flow to register per-owner pin lookups."""
+        self._owner_pin_reader = reader
 
     async def best_available_for_inputs(
         self,
@@ -171,7 +215,7 @@ class ModelManager:
         excluded_ids: set[str] | None = None,
     ) -> str:
         """Choose and persist the current best model before executing a task."""
-        selected = await self.best_available(excluded_ids=excluded_ids)
+        selected = await self.best_available(excluded_ids=excluded_ids, owner_id=telegram_user_id)
         if selected is None:
             return current_model or self.fallback_model
         if selected == current_model:
@@ -200,8 +244,12 @@ class ModelManager:
         sessions = await self.store.list_sessions()
         changed = 0
         failed = 0
+        skipped = 0
         for session in sessions:
             if session.model == model_id:
+                continue
+            if await self.owner_pinned_model(session.telegram_user_id):
+                skipped += 1
                 continue
             try:
                 await self.client.update_session(session.opencode_session_id, model=model_id)
@@ -218,6 +266,8 @@ class ModelManager:
                 log.info("تعذر تطبيق نموذج الوكيل اليومي على جلسة %s: %s", session.telegram_user_id, type(exc).__name__)
         self.fallback_model = model_id
         self._last_best = model_id
+        if skipped:
+            log.info("تم الحفاظ على اختيار المالكين المثبّت عند تطبيق النموذج اليومي: %s", skipped)
         return changed, failed
 
     def _load_scout_state(self) -> dict[str, Any]:
@@ -384,6 +434,8 @@ class ModelManager:
                 return selected
             for session in sessions:
                 if session.model == selected:
+                    continue
+                if await self.owner_pinned_model(session.telegram_user_id):
                     continue
                 state = ""
                 if isinstance(states, dict):

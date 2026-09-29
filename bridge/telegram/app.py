@@ -41,7 +41,7 @@ def core_commands() -> list[BotCommand]:
         BotCommand("schedpause", "إيقاف مهمة مجدولة"),
         BotCommand("schedresume", "تشغيل مهمة مجدولة"),
         BotCommand("scheddelete", "حذف مهمة مجدولة"),
-        BotCommand("model", "عرض النموذج التلقائي وترتيبه"),
+        BotCommand("model", "اختيار النموذج ومستوى الاستدلال"),
         BotCommand("status", "عرض حالة الجلسة"),
         BotCommand("health", "فحص اتصال الوكيل"),
         BotCommand("agents", "عرض الوكلاء المتاحين"),
@@ -97,6 +97,7 @@ def register_core_handlers(
     app.add_handler(CommandHandler("schedresume", handlers.cmd_schedresume))
     app.add_handler(CommandHandler("scheddelete", handlers.cmd_scheddelete))
     app.add_handler(CallbackQueryHandler(handlers.handle_schedule_callback, pattern=r"^sch:"))
+    app.add_handler(CallbackQueryHandler(handlers.handle_model_callback, pattern=r"^mdl:"))
     app.add_handler(CommandHandler("share", handlers.cmd_share))
     app.add_handler(CommandHandler("unshare", handlers.cmd_unshare))
     app.add_handler(CommandHandler("model", handlers.cmd_model))

@@ -152,6 +152,35 @@ class ModelCatalogTests(unittest.TestCase):
         )
         self.assertIsNone(strongest_model_variant(providers, "opencode/custom-only"))
 
+    def test_max_outranks_xhigh_like_the_opencode_reasoning_selector(self) -> None:
+        providers = {
+            "all": [
+                {
+                    "id": "opencode",
+                    "models": {
+                        "reasoning-free": {
+                            "cost": {"input": 0, "output": 0},
+                            "variants": {
+                                "low": {},
+                                "medium": {},
+                                "high": {},
+                                "xhigh": {},
+                                "max": {},
+                            },
+                        }
+                    },
+                }
+            ]
+        }
+        self.assertEqual(
+            model_variant_ids(providers, "opencode/reasoning-free"),
+            ["high", "low", "max", "medium", "xhigh"],
+        )
+        self.assertEqual(
+            strongest_model_variant(providers, "opencode/reasoning-free"),
+            "max",
+        )
+
     def test_zen_catalog_excludes_free_models_from_other_providers(self) -> None:
         providers = {
             "all": [

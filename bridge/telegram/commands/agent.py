@@ -24,12 +24,16 @@ class AgentCommands:
         reply: Reply,
         error_message: ErrorMessage,
         startup_text: Callable[[], str],
+        selection_service: Any | None = None,
+        picker_callbacks: Any | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self.service = service
         self.reply = reply
         self.error_message = error_message
         self.startup_text = startup_text
+        self.selection_service = selection_service
+        self.picker_callbacks = picker_callbacks
         self.log = logger or logging.getLogger(__name__)
 
     @staticmethod
@@ -87,13 +91,15 @@ class AgentCommands:
 
     async def model(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user_id = self._owner(update)
+        if self.selection_service is not None:
+            await self.selection_show(update)
+            return
         try:
             if context.args:
                 await self.reply(
                     update.message,
-                    "اختيار النموذج تلقائي يوميًا من نماذج OpenCode Zen المجانية، "
-                    "ويُستخدم أعلى variant مدعوم للاستدلال عندما يعلنه الكتالوج. "
-                    "استخدم /model لعرض الحالة الحالية.",
+                    "اختيار النموذج من الأزرار: ابعت /model واختر النموذج ثم مستوى الاستدلال. "
+                    "أو اكتب /model هنا للعودة للعرض النصي فقط.",
                 )
                 return
             try:
@@ -109,6 +115,16 @@ class AgentCommands:
         except Exception as exc:
             self.log.exception("فشل التعامل مع أمر النموذج")
             await self.reply(update.message, self.error_message(exc, "عرض أو تغيير النموذج"))
+
+    async def selection_show(self, update: Update) -> None:
+        """Show the inline model picker and delegate presses to the callback adapter."""
+        if self.selection_service is None or self.picker_callbacks is None:
+            return
+        try:
+            await self.picker_callbacks.show(update)
+        except Exception as exc:
+            self.log.exception("فشل عرض قائمة اختيار النموذج")
+            await self.reply(update.message, self.error_message(exc, "عرض قائمة النماذج"))
 
     async def status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:

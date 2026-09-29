@@ -39,6 +39,10 @@ from bridge.services.agent_service import AgentService
 from bridge.services.config_service import ConfigurationService
 from bridge.services.draft_service import DraftService
 from bridge.infrastructure.database.draft_store import DraftStore
+from bridge.infrastructure.database.user_settings_store import UserSettingsStore
+from bridge.services.model_selection_service import ModelSelectionService
+from bridge.services.user_preferences_service import UserPreferencesService
+from bridge.telegram.callbacks.model_picker import ModelPickerCallbackAdapter
 from bridge.services.maintenance_service import MaintenanceReportService
 from bridge.services.media_service import MediaTaskService
 from bridge.services.schedule_service import ScheduleService
@@ -141,6 +145,9 @@ _config_commands_instance: ConfigCommands | None = None
 _draft_commands_instance: DraftCommands | None = None
 _draft_intake_instance: DraftIntakeAdapter | None = None
 _reboot_callback_instance: RebootCallbackAdapter | None = None
+_model_picker_callback_instance: ModelPickerCallbackAdapter | None = None
+_model_selection_service: ModelSelectionService | None = None
+_user_preferences_service: UserPreferencesService | None = None
 _access_controller_instance: TelegramAccessController | None = None
 _request_guard = RequestGuard((check_build, check_hardline))
 _agent_service = AgentService(
@@ -237,6 +244,63 @@ def _reboot_callback_adapter() -> RebootCallbackAdapter:
             audit_write=audit.write,
         )
     return _reboot_callback_instance
+
+
+def _user_preferences() -> UserPreferencesService:
+    global _user_preferences_service
+    if _user_preferences_service is None:
+        _user_preferences_service = UserPreferencesService(UserSettingsStore(task_store.database))
+    return _user_preferences_service
+
+
+async def _apply_model_to_owner_session(owner_id: str, session_id: str, model_id: str) -> None:
+    await client.update_session(session_id, model=model_id)
+    await store.update_session(owner_id, model=model_id)
+
+
+async def _owner_variant_choice(owner_id: str, model_id: str) -> str | None:
+    """Return the owner's explicit reasoning level, validated against the live catalog."""
+    preferences = await _user_preferences().get(owner_id)
+    if not preferences.model_pinned or preferences.model_preference != model_id:
+        return None
+    if not preferences.model_variant:
+        return None
+    providers = await client.list_providers()
+    from model_catalog import model_variant_ids
+
+    available = {value.casefold() for value in model_variant_ids(providers, model_id)}
+    return preferences.model_variant if preferences.model_variant.casefold() in available else None
+
+
+def _model_selection() -> ModelSelectionService:
+    global _model_selection_service
+    if _model_selection_service is None:
+        async def variant_resolver(owner_id: str, model_id: str) -> str | None:
+            if model_manager is None:
+                return None
+            return await model_manager.resolve_variant(owner_id, model_id)
+
+        _model_selection_service = ModelSelectionService(
+            catalog_provider=client.list_providers,
+            preferences=_user_preferences(),
+            session_model_reader=store.get_session,
+            session_model_writer=_apply_model_to_owner_session,
+            variant_resolver=variant_resolver,
+            audit_write=audit.write,
+        )
+    return _model_selection_service
+
+
+def _model_picker_callbacks() -> ModelPickerCallbackAdapter:
+    global _model_picker_callback_instance
+    if _model_picker_callback_instance is None:
+        _model_picker_callback_instance = ModelPickerCallbackAdapter(
+            service=_model_selection(),
+            is_allowed=_is_allowed,
+            answer=lambda query, text=None, show_alert=False: query.answer(text, show_alert=show_alert),
+            logger=log,
+        )
+    return _model_picker_callback_instance
 
 
 def _wake_task_workers() -> None:
@@ -340,6 +404,8 @@ def _agent_command_adapter() -> AgentCommands:
             reply=_safe_reply,
             error_message=user_error,
             startup_text=startup_message,
+            selection_service=_model_selection(),
+            picker_callbacks=_model_picker_callbacks(),
             logger=log,
         )
     return _agent_commands_instance
@@ -594,6 +660,10 @@ async def handle_reboot_callback(update: Update, context: ContextTypes.DEFAULT_T
     await _reboot_callback_adapter().handle(update, context)
 
 
+async def handle_model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _model_picker_callbacks().handle(update, context)
+
+
 @authorized
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _agent_command_adapter().status(update, context)
@@ -661,6 +731,10 @@ async def post_init(app: Application) -> None:
             fallback_model=DEFAULT_MODEL,
             sync_seconds=MODEL_CATALOG_SYNC_SECONDS,
             pin_default_model=PIN_DEFAULT_MODEL,
+        )
+        model_manager.set_owner_pin_reader(_model_selection().pinned_model)
+        model_manager.set_owner_variant_reader(
+            lambda owner_id, model_id: _owner_variant_choice(owner_id, model_id)
         )
         await model_manager.start()
     try:

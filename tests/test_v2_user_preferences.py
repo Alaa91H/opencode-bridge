@@ -24,8 +24,8 @@ class UserPreferencesTests(unittest.IsolatedAsyncioTestCase):
         value = UserPreferences()
         self.assertEqual(set(value.to_dict()), {
             "timezone", "language", "notification_level", "default_workspace",
-            "default_execution_profile", "model_preference", "output_style",
-            "retention_days", "schedule_defaults",
+            "default_execution_profile", "model_preference", "model_variant",
+            "model_pinned", "output_style", "retention_days", "schedule_defaults",
         })
 
     async def test_persistence_and_owner_isolation(self):
@@ -56,3 +56,31 @@ class UserPreferencesTests(unittest.IsolatedAsyncioTestCase):
             await self.service.update("alice", retention_days=-1)
         with self.assertRaises(ValueError):
             await self.service.update("alice", imaginary=True)
+
+    async def test_model_pin_requires_a_model(self):
+        with self.assertRaises(ValueError):
+            await self.service.update("alice", model_pinned=True)
+        with self.assertRaises(ValueError):
+            await self.service.update("alice", model_variant="high")
+        with self.assertRaises(ValueError):
+            await self.service.update("alice", model_preference="model-x", model_variant="")
+
+    async def test_model_pin_and_variant_round_trip(self):
+        await self.service.update(
+            "alice",
+            model_preference="opencode/free-a",
+            model_variant="high",
+            model_pinned=True,
+        )
+        saved = await self.service.get("alice")
+        self.assertEqual(saved.model_preference, "opencode/free-a")
+        self.assertEqual(saved.model_variant, "high")
+        self.assertTrue(saved.model_pinned)
+        self.assertEqual((await self.service.get("bob")).model_pinned, False)
+
+    async def test_legacy_settings_without_pin_still_load(self):
+        legacy = UserPreferences.from_dict({"language": "ar", "model_preference": "opencode/old"})
+        self.assertEqual(legacy.language, "ar")
+        self.assertEqual(legacy.model_preference, "opencode/old")
+        self.assertIsNone(legacy.model_variant)
+        self.assertFalse(legacy.model_pinned)

@@ -1,3 +1,29 @@
+## [2.0.0-rc.2] - 2026-09-29
+
+### Fixes
+
+- Fixed a total runtime failure shipped in `v2.0.0-rc.1`: `workspace_runtime.install()` closed the previous OpenCode client while the module-level `AgentService` in `bot.py` still referenced it, so every command and task failed with `RuntimeError: Cannot send a request, as the client has been closed`.
+- Corrected reasoning-level strength order to match the OpenCode selector: `Max` outranks `Xhigh` instead of the reverse. This also changes the automatic choice and the daily scout.
+
+### Telegram UX
+
+- `/model` now lists active zero-cost models as inline buttons, and picking one shows its reasoning levels as a single list ordered strongest to weakest.
+- Every level is labelled with its technical English name and its Arabic translation, with `Default` offered for the automatic level.
+- Added an explicit automatic button that clears the manual choice and returns the session to the strongest free catalog model.
+- Callback payloads carry only an index (`mdl:m:0`, `mdl:v:0:2`) so they stay far below the 64-byte Telegram limit and cannot be edited to name a paid or removed model.
+
+### Model selection
+
+- Added `model_variant` and `model_pinned` to `UserPreferences`, stored in the existing `user_settings` JSON blob with no schema migration.
+- `ModelManager.best_available()` accepts an owner and consults the owner pin before the configured default and the catalog best.
+- `reconcile_once()` and `force_all_sessions()` skip pinned owners, so a manual choice is no longer overwritten every 900 seconds or by the daily scout.
+- Added `resolve_variant()` so an explicitly chosen reasoning level is forwarded with each prompt after being revalidated against live catalog metadata.
+- The manual choice stays owner-scoped and never mutates the global preference.
+
+### Verification
+
+- Added 36 tests covering catalog-to-button mapping, index resolution, owner-scoped pins, pin survival across reconciliation and the daily scout, callback authorization, stale-selection handling, callback payload length, and the single-row bilingual level list.
+
 ## [1.8.2] - 2026-09-28
 
 ### Stable self-update

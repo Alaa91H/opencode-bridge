@@ -120,6 +120,9 @@ async def install(core: Any, workspace_store: Any, manager: GitWorkspaceManager)
         password=core.OPENCODE_PASSWORD,
     )
     core.client = scoped_client
+    service = core._agent_service
+    if service.client is old_client:
+        service.client = scoped_client
     await old_client.close()
 
     original_create_fresh_session = core._create_fresh_session

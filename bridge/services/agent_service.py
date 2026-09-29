@@ -102,6 +102,21 @@ class AgentService:
             return None
         return self.default_variant if model_id == self.variant_model else None
 
+    async def resolve_variant(self, owner_id: str, model_id: str | None) -> str | None:
+        """Return the owner's explicit reasoning level, else the catalog default."""
+        manager = self.model_manager_provider()
+        if manager is not None:
+            resolver = getattr(manager, "resolve_variant", None)
+            if resolver is not None:
+                try:
+                    dynamic = await resolver(owner_id, model_id)
+                except Exception as exc:
+                    self.log.info("تعذر تحديد مستوى الاستدلال المختار: %s", type(exc).__name__)
+                else:
+                    if dynamic:
+                        return dynamic
+        return self.variant_for_model(model_id)
+
     async def ensure_session(self, user_id: str) -> str:
         current = await self.sessions.get_session(user_id)
         manager = self.model_manager_provider()
@@ -256,7 +271,7 @@ class AgentService:
                 )
 
         async def send_for_model(model_id: str | None) -> dict:
-            variant = self.variant_for_model(model_id)
+            variant = await self.resolve_variant(owner_id, model_id)
             try:
                 return await self.client.send_prompt(
                     session_id,

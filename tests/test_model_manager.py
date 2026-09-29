@@ -166,6 +166,85 @@ class ModelManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.updated, [("idle-session", "opencode/general-rich")])
         self.assertEqual(store.updated, [("idle-user", "opencode/general-rich")])
 
+    async def test_owner_pin_wins_over_catalog_best_for_that_owner_only(self) -> None:
+        client = FakeClient()
+        store = FakeStore()
+        audit = FakeAudit()
+        manager = ModelManager(client, store, audit, fallback_model="opencode/legacy")
+        manager.set_owner_pin_reader(_pin_reader({"user-1": "opencode/text-only"}))
+        self.assertEqual(
+            await manager.ensure_session_model("user-1", "session-1", "opencode/general-rich"),
+            "opencode/text-only",
+        )
+        self.assertEqual(
+            await manager.ensure_session_model("user-2", "session-2", "opencode/text-only"),
+            "opencode/general-rich",
+        )
+
+    async def test_reconcile_never_overrides_an_owner_pin(self) -> None:
+        now = datetime.now(timezone.utc)
+        pinned = UserSession("pinned-user", "pinned-session", now, now, model="opencode/text-only")
+        free = UserSession("free-user", "free-session", now, now, model="opencode/text-only")
+        client = FakeClient({"pinned-session": {"state": "idle"}, "free-session": {"state": "idle"}})
+        store = FakeStore([pinned, free])
+        audit = FakeAudit()
+        manager = ModelManager(client, store, audit, fallback_model="opencode/legacy")
+        manager.set_owner_pin_reader(_pin_reader({"pinned-user": "opencode/text-only"}))
+        selected = await manager.reconcile_once()
+        self.assertEqual(selected, "opencode/general-rich")
+        self.assertEqual(client.updated, [("free-session", "opencode/general-rich")])
+        self.assertNotIn("pinned-user", [owner for owner, _ in store.updated])
+
+    async def test_daily_scout_keeps_owner_pins_and_reports_two_counts(self) -> None:
+        now = datetime.now(timezone.utc)
+        pinned = UserSession("pinned-user", "pinned-session", now, now, model="opencode/text-only")
+        free = UserSession("free-user", "free-session", now, now, model="opencode/legacy")
+        client = FakeClient()
+        store = FakeStore([pinned, free])
+        audit = FakeAudit()
+        manager = ModelManager(client, store, audit, fallback_model="opencode/legacy")
+        manager.set_owner_pin_reader(_pin_reader({"pinned-user": "opencode/text-only"}))
+        changed, failed = await manager.force_all_sessions("opencode/general-rich")
+        self.assertEqual((changed, failed), (1, 0))
+        self.assertEqual(pinned.model, "opencode/text-only")
+        self.assertEqual(free.model, "opencode/general-rich")
+
+    async def test_resolve_variant_prefers_owner_level_then_catalog(self) -> None:
+        client = FakeClient()
+        manager = ModelManager(client, FakeStore(), FakeAudit(), fallback_model="opencode/legacy")
+        await manager.best_available()
+        self.assertEqual(await manager.resolve_variant("user-1", "opencode/general-rich"), "xhigh")
+        manager.set_owner_variant_reader(
+            _variant_reader({"user-1": {"opencode/general-rich": "low"}})
+        )
+        self.assertEqual(await manager.resolve_variant("user-1", "opencode/general-rich"), "low")
+        self.assertEqual(await manager.resolve_variant("user-2", "opencode/general-rich"), "xhigh")
+
+    async def test_owner_pin_reader_failure_falls_back_to_automatic(self) -> None:
+        client = FakeClient()
+        manager = ModelManager(client, FakeStore(), FakeAudit(), fallback_model="opencode/legacy")
+
+        async def broken(owner_id: str) -> str:
+            raise RuntimeError("database gone")
+
+        manager.set_owner_pin_reader(broken)
+        self.assertIsNone(await manager.owner_pinned_model("user-1"))
+        self.assertEqual(await manager.best_available(owner_id="user-1"), "opencode/general-rich")
+
+
+def _pin_reader(pins: dict[str, str]):
+    async def read(owner_id: str) -> str | None:
+        return pins.get(owner_id)
+
+    return read
+
+
+def _variant_reader(levels: dict[str, dict[str, str]]):
+    async def read(owner_id: str, model_id: str) -> str | None:
+        return levels.get(owner_id, {}).get(model_id)
+
+    return read
+
 
 if __name__ == "__main__":
     unittest.main()

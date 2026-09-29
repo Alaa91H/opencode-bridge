@@ -7,7 +7,8 @@ from typing import Any
 
 OPENCODE_ZEN_PROVIDER_ID = "opencode"
 ACTIVE_MODEL_STATUSES = {"active", "available", "stable"}
-MAX_PERFORMANCE_VARIANTS = ("xhigh", "max", "high", "medium", "low", "minimal", "none")
+# Strength order as OpenCode itself presents the reasoning selector: Max > Xhigh > High > Medium > Low.
+MAX_PERFORMANCE_VARIANTS = ("max", "xhigh", "high", "medium", "low", "minimal", "none")
 
 
 def _numeric_values(value: Any) -> list[float]:
