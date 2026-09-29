@@ -38,15 +38,15 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3]
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - name: Run six-hour endurance shard
         shell: bash
         run: |
           python scripts/load_soak.py --tasks 10000 --schedules 500 --owners 100 --slow-ms 5 --duration-seconds 21600 > "soak-${{ matrix.shard }}.txt"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: soak-${{ matrix.shard }}
           path: soak-${{ matrix.shard }}.txt
