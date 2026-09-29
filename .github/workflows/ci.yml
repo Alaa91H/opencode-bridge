@@ -58,4 +58,14 @@ jobs:
         run: python -m json.tool opencode.json >/dev/null
 
       - name: Validate version
-        run: python -c "import pathlib; parts=pathlib.Path('VERSION').read_text().strip().split('.'); assert len(parts)==3 and all(p.isdigit() for p in parts); print('.'.join(parts))"
+        run: |
+          python - <<'PY'
+          import pathlib
+          import re
+
+          value = pathlib.Path("VERSION").read_text(encoding="utf-8").strip()
+          stable = re.fullmatch(r"\d+\.\d+\.\d+", value)
+          preview = re.fullmatch(r"2\.0\.0-rc\.\d+", value)
+          assert stable or preview, f"VERSION must be x.y.z or 2.0.0-rc.N, got {value!r}"
+          print(value)
+          PY
