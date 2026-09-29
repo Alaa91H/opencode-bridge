@@ -60,6 +60,7 @@ def core_commands() -> list[BotCommand]:
         BotCommand("share", "إنشاء رابط مشاركة"),
         BotCommand("unshare", "إلغاء رابط المشاركة"),
         BotCommand("help", "المساعدة"),
+        BotCommand("menu", "لوحة التحكم"),
     ]
 
 
@@ -98,6 +99,8 @@ def register_core_handlers(
     app.add_handler(CommandHandler("scheddelete", handlers.cmd_scheddelete))
     app.add_handler(CallbackQueryHandler(handlers.handle_schedule_callback, pattern=r"^sch:"))
     app.add_handler(CallbackQueryHandler(handlers.handle_model_callback, pattern=r"^mdl:"))
+    app.add_handler(CallbackQueryHandler(handlers.handle_panel_callback, pattern=r"^pnl:"))
+    app.add_handler(CommandHandler("menu", handlers.cmd_menu))
     app.add_handler(CommandHandler("share", handlers.cmd_share))
     app.add_handler(CommandHandler("unshare", handlers.cmd_unshare))
     app.add_handler(CommandHandler("model", handlers.cmd_model))

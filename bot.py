@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import shutil
 import signal
 import sys
 
@@ -43,6 +44,13 @@ from bridge.infrastructure.database.user_settings_store import UserSettingsStore
 from bridge.services.model_selection_service import ModelSelectionService
 from bridge.services.user_preferences_service import UserPreferencesService
 from bridge.telegram.callbacks.model_picker import ModelPickerCallbackAdapter
+from bridge.telegram.panels import (
+    MENU,
+    PATTERN as PANEL_PATTERN,
+    PanelContext,
+    PanelRouter,
+    build_panels,
+)
 from bridge.services.maintenance_service import MaintenanceReportService
 from bridge.services.media_service import MediaTaskService
 from bridge.services.schedule_service import ScheduleService
@@ -148,6 +156,7 @@ _reboot_callback_instance: RebootCallbackAdapter | None = None
 _model_picker_callback_instance: ModelPickerCallbackAdapter | None = None
 _model_selection_service: ModelSelectionService | None = None
 _user_preferences_service: UserPreferencesService | None = None
+_panel_router_instance: PanelRouter | None = None
 _access_controller_instance: TelegramAccessController | None = None
 _request_guard = RequestGuard((check_build, check_hardline))
 _agent_service = AgentService(
@@ -301,6 +310,130 @@ def _model_picker_callbacks() -> ModelPickerCallbackAdapter:
             logger=log,
         )
     return _model_picker_callback_instance
+
+
+def _panel_providers() -> dict[str, Any]:
+    """Real data sources for the control panel. Nothing here is mocked state."""
+
+    async def health(owner_id: str) -> Any:
+        del owner_id
+        from bridge.services.health_service import ComponentHealth, HealthService, HealthState
+
+        checks: dict[str, ComponentHealth] = {}
+
+        try:
+            payload = await client.health()
+            checks["opencode"] = ComponentHealth(
+                "opencode",
+                HealthState.HEALTHY if payload.get("healthy") else HealthState.UNHEALTHY,
+                str(payload.get("version", "")),
+            )
+        except Exception as exc:
+            checks["opencode"] = ComponentHealth("opencode", HealthState.UNHEALTHY, type(exc).__name__)
+
+        try:
+            await store.get_session("0")
+            checks["db"] = ComponentHealth("db", HealthState.HEALTHY, BRIDGE_DIR.name)
+        except Exception as exc:
+            checks["db"] = ComponentHealth("db", HealthState.UNHEALTHY, type(exc).__name__)
+
+        try:
+            free = shutil.disk_usage(BRIDGE_DIR).free
+            total = shutil.disk_usage(BRIDGE_DIR).total
+            percent = round(free * 100 / total, 1) if total else 0.0
+            checks["disk"] = ComponentHealth(
+                "disk",
+                HealthState.HEALTHY if percent >= 10 else HealthState.DEGRADED,
+                f"{percent}% free",
+            )
+        except Exception as exc:
+            checks["disk"] = ComponentHealth("disk", HealthState.UNHEALTHY, type(exc).__name__)
+
+        workers = SETTINGS.agent.task_workers
+        checks["workers"] = ComponentHealth(
+            "workers", HealthState.HEALTHY, f"max {workers}"
+        )
+
+        catalog = getattr(model_manager, "_providers_cache", None) if model_manager else None
+        checks["model_catalog"] = ComponentHealth(
+            "model_catalog",
+            HealthState.HEALTHY if catalog else HealthState.DEGRADED,
+            "loaded" if catalog else "not cached yet",
+        )
+
+        checks["telegram"] = ComponentHealth("telegram", HealthState.HEALTHY, "polling")
+        return HealthService().health(checks)
+
+    async def commands(owner_id: str) -> tuple[str, ...]:
+        del owner_id
+        return tuple(sorted(item.command for item in core_commands()))
+
+    async def limits(owner_id: str) -> dict[str, Any]:
+        return _configuration_service.effective_limits(owner_id)
+
+    async def config(owner_id: str) -> dict[str, Any]:
+        return _configuration_service.public_config(owner_id)
+
+    return {
+        "health": health,
+        "commands": commands,
+        "limits": limits,
+        "config": config,
+        "preferences": lambda owner_id: _user_preferences().get(owner_id),
+        "active": lambda owner_id: _task_application_service.active(owner_id),
+        "failed": lambda owner_id: _task_application_service.failed(owner_id),
+        "schedules": lambda owner_id: task_store.list_scheduled_jobs(owner_id),
+    }
+
+
+def _panel_actions() -> dict[tuple[str, str], Any]:
+    async def noop(context: PanelContext, arg: str) -> None:
+        return None
+
+    async def cancel_task(context: PanelContext, arg: str) -> None:
+        await _task_application_service.cancel(int(arg), context.owner_id)
+
+    async def retry_task(context: PanelContext, arg: str) -> None:
+        await _task_application_service.retry_failed(context.owner_id, int(arg))
+
+    async def toggle_schedule(context: PanelContext, arg: str) -> None:
+        job = await task_store.get_scheduled_job_by_id(int(arg), context.owner_id)
+        if job is not None:
+            await task_store.set_scheduled_job_enabled(context.owner_id, job.name, not job.enabled)
+
+    async def delete_schedule(context: PanelContext, arg: str) -> None:
+        job = await task_store.get_scheduled_job_by_id(int(arg), context.owner_id)
+        if job is not None:
+            await task_store.delete_scheduled_job(context.owner_id, job.name)
+
+    return {
+        ("system", "refresh"): noop,
+        ("tasks", "refresh"): noop,
+        ("schedules", "refresh"): noop,
+        ("tasks", "cancel"): cancel_task,
+        ("tasks", "retry"): retry_task,
+        ("schedules", "toggle_schedule"): toggle_schedule,
+        ("schedules", "delete_schedule"): delete_schedule,
+    }
+
+
+def _panel_router() -> PanelRouter:
+    global _panel_router_instance
+    if _panel_router_instance is None:
+        providers = _panel_providers()
+
+        def build_context(owner_id: str) -> PanelContext:
+            bound = {key: (lambda owner=owner_id, value=value: value(owner)) for key, value in providers.items()}
+            return PanelContext(owner_id, bound)
+
+        _panel_router_instance = PanelRouter(
+            panels=build_panels(),
+            providers=build_context,
+            actions=_panel_actions(),
+            is_allowed=_is_allowed,
+            logger=log,
+        )
+    return _panel_router_instance
 
 
 def _wake_task_workers() -> None:
@@ -662,6 +795,15 @@ async def handle_reboot_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 async def handle_model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _model_picker_callbacks().handle(update, context)
+
+
+@authorized
+async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _panel_router().show(update)
+
+
+async def handle_panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _panel_router().handle(update, context)
 
 
 @authorized

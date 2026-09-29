@@ -50,16 +50,27 @@ class ModelPickerCallbackAdapter:
             if message is not None:
                 await message.reply_text("غير مصرح لك باستخدام هذا الأمر.")
             return
+        await self._render_into_message(update, owner_id)
+
+    async def _render_into_message(self, update: Update, owner_id: str) -> None:
         view = await self.service.view(owner_id)
         text, keyboard = picker.model_page(view)
-        message = update.effective_message
-        if message is None:
+        query = update.callback_query
+        if query is not None and query.message is not None:
+            await update.get_bot().edit_message_text(
+                chat_id=query.message.chat_id,
+                message_id=query.message.message_id,
+                text=text,
+                reply_markup=keyboard,
+            )
             return
-        await message.reply_text(
-            text,
-            reply_markup=keyboard,
-            disable_web_page_preview=True,
-        )
+        message = update.effective_message
+        if message is not None:
+            await message.reply_text(
+                text,
+                reply_markup=keyboard,
+                disable_web_page_preview=True,
+            )
 
     async def handle(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -76,6 +87,10 @@ class ModelPickerCallbackAdapter:
         parts = query.data.split(":")
         action = parts[1] if len(parts) > 1 else ""
         if action == "noop":
+            await query.answer()
+            return
+        if action == "open":
+            await self._render_into_message(update, owner_id)
             await query.answer()
             return
         try:

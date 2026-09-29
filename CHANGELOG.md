@@ -1,3 +1,24 @@
+## [2.0.0-rc.3] - 2026-09-29
+
+### Telegram UX
+
+- Added a /menu control panel that gathers every capability behind inline buttons: settings, model and reasoning level, tasks, schedules, system health, downloads placeholder, and grouped help.
+- Every non-root screen ends with a back button, and every destructive or state-changing action requires an explicit confirmation step.
+- The model panel hands off to the existing picker through a raw mdl:open callback, so model selection keeps its own short-payload path.
+- Panel callbacks are pnl:go:/pnl:do:/pnl:yes:/pnl:no: with short names only; ssert_short() fails the build if any button would exceed the 64-byte Telegram limit.
+
+### Architecture
+
+- ridge/telegram/panels/registry.py holds the typed panel primitives and callback encoding.
+- ridge/telegram/panels/router.py owns rendering, navigation, confirmation, and the per-press authorization re-check that CallbackQueryHandler requires.
+- ridge/telegram/panels/screens.py holds the screens; they never import ot.py and receive every value by name through PanelContext, so each screen is testable with plain callables.
+- ot.py is the only place binding real services to panel providers, and uild_panels() is the single registration point.
+- No preference toggle is offered for a field the runtime never reads: eight UserPreferences fields are stored but unconsumed, so the settings screen reports effective values instead of pretending to control them.
+
+### Verification
+
+- Added 18 end-to-end tests driving the real router against a real SQLite database created by the real migration runner, the real task/session/preference stores, and a real HTTP server on a real socket standing in for OpenCode, so httpx, auth, and JSON handling are genuinely exercised.
+- Covered the menu, every screen, the callback length bound, navigation, unknown screens, authorization on both the command and the press path, real failed tasks from the database, the retry flow, confirmation/cancel/delete, schedule toggling, stale buttons, and cross-panel handoff to the model picker.
 ## [2.0.0-rc.2] - 2026-09-29
 
 ### Fixes
