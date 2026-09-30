@@ -1,3 +1,19 @@
+## [2.0.0-rc.5] - 2026-09-29
+
+### Fixes
+
+- Fixed the root cause of `TELEGRAM_API_MODE=local` never working: `local_api_base_url` and `local_file_base_url` were normalized with a trailing slash, but `python-telegram-bot` concatenates the bot token directly onto `base_url`. The Local Bot API Server therefore rejected the token with `Unauthorized` and the bridge retried ten times and stopped. The documented profile in `deploy/telegram-local-api.env.example` and the built-in defaults both went through that normalizer, so the local transport had never functioned for anyone.
+- The existing local-transport tests asserted only the resolved values and never the path the library actually requests, which is why the defect survived.
+
+### Verification
+
+- Added a regression test that starts a real HTTP server on a real socket, has the real Telegram library request through the resolved `base_url`, and asserts the requested path is exactly `bot<token>/getMe`. The assertion therefore tracks library behaviour instead of assuming it.
+- Added coverage for the no-trailing-slash contract, for idempotent normalization of repeated trailing slashes, and for the supported environment-variable names in the deployment profile.
+
+### Local Bot API Server
+
+- Verified the Local Bot API Server on the production host: the bridge now runs against `127.0.0.1:8081` with a dedicated unprivileged system account, a hardened unit, and root-only credentials.
+- The raise limit moves from 50MB to 2000MB and downloads are no longer bounded by server memory, which unblocks large-file delivery.
 ## [2.0.0-rc.4] - 2026-09-29
 
 ### User preferences now do something

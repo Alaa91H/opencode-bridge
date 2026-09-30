@@ -363,11 +363,11 @@ class BridgeSettings:
             local_api_base_url=str(_source_value(
                 merged_env, config, "TELEGRAM_LOCAL_API_BASE_URL",
                 "telegram.local_api_base_url", "http://127.0.0.1:8081/bot"
-            )).strip().rstrip("/") + "/",
+            )).strip().rstrip("/"),
             local_file_base_url=str(_source_value(
                 merged_env, config, "TELEGRAM_LOCAL_FILE_BASE_URL",
                 "telegram.local_file_base_url", "http://127.0.0.1:8081/file/bot"
-            )).strip().rstrip("/") + "/",
+            )).strip().rstrip("/"),
             attachment_max_bytes=_parse_int(
                 _source_value(
                     merged_env, config, "TELEGRAM_ATTACHMENT_MAX_BYTES",
