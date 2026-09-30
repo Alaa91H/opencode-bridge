@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-
 
 from bridge.infrastructure.database.sqlite import BridgeDatabase
 
@@ -60,7 +59,7 @@ class WorkspaceStore:
         )
 
     async def set(self, owner_id: str, repo_slug: str, directory: str) -> ActiveWorkspace:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         db = await self._get_db()
         async with self._lock:
             await db.execute(

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from bridge.domain.attachments.media_pipeline import MediaAnalysis, MediaArtifact, MediaInput
-from .archives import ArchiveLimits, zip_manifest
+
+from .archives import DEFAULT_ARCHIVE_LIMITS, ArchiveLimits, zip_manifest
 
 
 class ZipArchiveProcessor:
-    def __init__(self, *, limits: ArchiveLimits = ArchiveLimits()) -> None:
+    def __init__(self, *, limits: ArchiveLimits = DEFAULT_ARCHIVE_LIMITS) -> None:
         self.limits = limits
 
     def supports(self, media: MediaInput, detected_mime: str) -> bool:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+
 import watchdog_runner
 from bridge.config import get_settings
 
@@ -23,7 +24,7 @@ async def _run_loop() -> None:
             log.warning("watchdog cycle failed: %s", type(exc).__name__)
         try:
             await asyncio.wait_for(_stopped.wait(), timeout=INTERVAL_SECONDS)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             continue
 
 

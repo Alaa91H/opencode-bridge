@@ -2,7 +2,8 @@
 # Run deterministic checks that do not build packages or alter application data.
 set -Eeuo pipefail
 
-readonly BRIDGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BRIDGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly BRIDGE_DIR
 readonly PYTHON_BIN="${BRIDGE_DIR}/venv/bin/python"
 
 cd "$BRIDGE_DIR"

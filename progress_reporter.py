@@ -48,7 +48,7 @@ class LiveProgressReporter:
         bot: Any,
         queue: TaskQueueStore,
         progress_store: ProgressStore,
-        display_preferences: Callable[[], "DisplayPreferences"] | None = None,
+        display_preferences: Callable[[], DisplayPreferences] | None = None,
     ) -> None:
         self.task = task
         self.bot = bot
@@ -60,6 +60,14 @@ class LiveProgressReporter:
         self._last_message = ""
 
     async def _preferences(self) -> DisplayPreferences:
+        """Read the owner's display choices, never failing a task over them.
+
+        Falling back is correct: a preferences read must not be able to fail a
+        task. But silently swallowing the reason is how a missing import in
+        ``bot.py`` went unnoticed while every task ignored the owner's saved
+        notification level. The warning carries the exception itself so the
+        failure is diagnosable from the journal.
+        """
         if self._display is None:
             return DEFAULT_DISPLAY
         try:
@@ -67,7 +75,11 @@ class LiveProgressReporter:
             if inspect.isawaitable(value):
                 value = await value
         except Exception as exc:
-            log.info("تعذر قراءة تفضيلات العرض: %s", type(exc).__name__)
+            log.warning(
+                "تعذر قراءة تفضيلات العرض، سيتم استخدام الافتراضي: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
             return DEFAULT_DISPLAY
         return value if isinstance(value, DisplayPreferences) else DEFAULT_DISPLAY
 

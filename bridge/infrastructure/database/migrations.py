@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from bridge.infrastructure.database.sqlite import BridgeDatabase
 
@@ -229,7 +229,7 @@ class MigrationRunner:
                     await db.execute(statement)
                 await db.execute(
                     "INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (?, ?, ?, ?)",
-                    (migration.version, migration.name, migration.checksum, datetime.now(timezone.utc).isoformat()),
+                    (migration.version, migration.name, migration.checksum, datetime.now(UTC).isoformat()),
                 )
             applied.append(migration.version)
         return applied

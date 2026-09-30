@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-import time
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any, AsyncIterator
+from typing import Any
 
 import httpx
 
@@ -80,7 +80,8 @@ class OpenCodeClientV2:
                 self.metrics.retries += 1
                 await __import__("asyncio").sleep(self.config.retry_backoff * (2 ** attempt))
         self.metrics.failures += 1
-        assert last is not None
+        if last is None:
+            raise RuntimeError("opencode request failed without a recorded cause")
         raise last
 
     async def create_message(self, request: OpenCodeRequest, *, correlation_id: str | None = None) -> OpenCodeResponse:

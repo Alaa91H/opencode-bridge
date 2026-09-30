@@ -5,9 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import Mapping
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Mapping
 
 from bridge.infrastructure.tracing.tracing import redact_attributes
 

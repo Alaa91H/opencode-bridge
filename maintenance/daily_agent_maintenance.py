@@ -7,7 +7,7 @@ import asyncio
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +25,7 @@ from session_store import SessionStore
 RUNTIME_DIR = BRIDGE_DIR / "runtime"
 REPORT_PATH = RUNTIME_DIR / "agent-maintenance-latest.md"
 STATE_PATH = RUNTIME_DIR / "agent-maintenance-latest.json"
-UTC = timezone.utc
+UTC = UTC
 
 
 SETTINGS = get_settings()

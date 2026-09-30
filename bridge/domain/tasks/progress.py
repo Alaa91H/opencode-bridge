@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
+from typing import ClassVar
 
 
 class ProgressStage(str, Enum):
@@ -31,11 +32,11 @@ class ProgressEvent:
         if self.percent is not None and not 0 <= self.percent <= 100:
             raise ValueError("percent must be between 0 and 100")
         if not self.occurred_at:
-            object.__setattr__(self, "occurred_at", datetime.now(timezone.utc).isoformat())
+            object.__setattr__(self, "occurred_at", datetime.now(UTC).isoformat())
 
 
 class ProgressRenderer:
-    LABELS = {
+    LABELS: ClassVar[dict[ProgressStage, str]] = {
         ProgressStage.QUEUED: "Queued",
         ProgressStage.DOWNLOADING: "Downloading",
         ProgressStage.ANALYZING: "Analyzing",

@@ -3,7 +3,9 @@ import unittest
 from pathlib import Path
 
 from bridge.infrastructure.metrics.observability import (
-    REQUIRED_METRICS, MetricsRegistry, PrometheusEndpoint,
+    REQUIRED_METRICS,
+    MetricsRegistry,
+    PrometheusEndpoint,
 )
 from bridge.infrastructure.metrics.resources import sample_resources
 

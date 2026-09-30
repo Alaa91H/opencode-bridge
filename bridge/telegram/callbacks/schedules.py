@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from bridge.telegram.rendering.schedule_browser import delete_confirmation, schedule_actions, schedule_page
+from bridge.telegram.rendering.schedule_browser import (
+    delete_confirmation,
+    schedule_actions,
+    schedule_page,
+)
 from bridge.telegram.rendering.schedules import render_schedule_detail
 
 
@@ -61,7 +65,8 @@ class ScheduleCallbacks:
             base, n = f"{job.name} copy", 2
             new_name = base
             while new_name.casefold() in names:
-                new_name = f"{base} {n}"; n += 1
+                new_name = f"{base} {n}"
+                n += 1
             clone = await self.service.duplicate(owner, job.name, new_name)
             await query.edit_message_text(f"تم إنشاء نسخة «{clone.name}».", reply_markup=schedule_actions(clone, page))
         elif action == "delete":

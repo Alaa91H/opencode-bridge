@@ -2,7 +2,8 @@
 # Install root-owned maintenance and deferred reboot assets from the checked-out release.
 set -Eeuo pipefail
 
-readonly BRIDGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BRIDGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly BRIDGE_DIR
 readonly MAINTENANCE_DIR="${BRIDGE_DIR}/maintenance"
 
 if [[ "${EUID}" -ne 0 ]]; then

@@ -81,7 +81,7 @@ class TaskServiceV3:
         self._wake.clear()
         try:
             await asyncio.wait_for(self._wake.wait(), timeout=self.poll_seconds)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
     async def _run(self, worker_id: int) -> None:

@@ -24,7 +24,11 @@ async def run_cancellable_process(*argv: str, token: CancellationToken,
     token.checkpoint()
     process = await asyncio.create_subprocess_exec(
         *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-    cleanup = lambda: terminate_process(process, grace_seconds=grace_seconds)
+    # add_cleanup accepts Awaitable[None] and CancellationToken.cancel awaits it.
+    # A sync callback here would discard the coroutine and leak the process.
+    async def cleanup() -> None:
+        await terminate_process(process, grace_seconds=grace_seconds)
+
     token.add_cleanup(cleanup)
     communicate = asyncio.create_task(process.communicate())
     cancelled = asyncio.create_task(token.wait())

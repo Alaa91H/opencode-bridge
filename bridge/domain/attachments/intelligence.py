@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 
 @dataclass(frozen=True)
@@ -21,8 +22,8 @@ class AttachmentRoute:
 
 
 class AttachmentIntelligenceRouter:
-    DIRECT_MIME_PREFIXES = ("image/", "text/")
-    DIRECT_MIMES = {"application/pdf"}
+    DIRECT_MIME_PREFIXES: ClassVar[tuple[str, ...]] = ("image/", "text/")
+    DIRECT_MIMES: ClassVar[frozenset[str]] = frozenset({"application/pdf"})
 
     def route(self, *, path: Path, mime: str, size: int, context: AttachmentContext) -> AttachmentRoute:
         if size <= context.max_direct_bytes and (mime.startswith(self.DIRECT_MIME_PREFIXES) or mime in self.DIRECT_MIMES):

@@ -26,6 +26,9 @@ class SandboxLimits:
     network: bool = False
 
 
+_DEFAULT_SANDBOXLIMITS = SandboxLimits()  # frozen config: safe to share as a default
+
+
 @dataclass(frozen=True)
 class SandboxBackend:
     name: str
@@ -50,7 +53,7 @@ def detect_backend() -> SandboxBackend:
 
 
 class BuildSandbox:
-    def __init__(self, workspace: Path, limits: SandboxLimits = SandboxLimits(),
+    def __init__(self, workspace: Path, limits: SandboxLimits = _DEFAULT_SANDBOXLIMITS,
                  backend: SandboxBackend | None = None) -> None:
         self.workspace = workspace.resolve()
         self.limits = limits

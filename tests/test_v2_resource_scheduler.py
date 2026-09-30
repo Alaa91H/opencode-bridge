@@ -1,7 +1,11 @@
 import unittest
 
 from bridge.domain.tasks.resource_scheduler import (
-    ResourceCapacity, ResourceCost, ResourcePressure, ResourceScheduler, ResourceTask,
+    ResourceCapacity,
+    ResourceCost,
+    ResourcePressure,
+    ResourceScheduler,
+    ResourceTask,
 )
 
 

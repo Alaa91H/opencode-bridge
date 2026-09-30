@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Optional
 
 _RE_FLAGS = re.IGNORECASE | re.MULTILINE
 
@@ -48,7 +47,7 @@ def _normalize(value: str) -> str:
     return unicodedata.normalize("NFKC", value.replace("\x00", ""))
 
 
-def check_build(command: str) -> Optional[str]:
+def check_build(command: str) -> str | None:
     """Return a localized reason if *command* is a prohibited build action."""
     normalized = _normalize(command)
     for pattern, description in BUILD_COMPILED:
@@ -57,7 +56,7 @@ def check_build(command: str) -> Optional[str]:
     return None
 
 
-def check_hardline(command: str) -> Optional[str]:
+def check_hardline(command: str) -> str | None:
     """Return a localized reason for a non-recoverable command."""
     normalized = _normalize(command)
     for pattern, description in HARDLINE_COMPILED:
@@ -66,7 +65,7 @@ def check_hardline(command: str) -> Optional[str]:
     return None
 
 
-def check_command(command: str) -> tuple[Optional[str], bool, bool]:
+def check_command(command: str) -> tuple[str | None, bool, bool]:
     """Compatibility API: (reason, blocked, dangerous)."""
     reason = check_hardline(command)
     if reason:

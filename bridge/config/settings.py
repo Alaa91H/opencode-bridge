@@ -10,10 +10,11 @@ from __future__ import annotations
 import json
 import os
 import tomllib
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from threading import Lock
-from typing import Any, Mapping
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ENV_FILE = PROJECT_ROOT / ".env"
@@ -335,7 +336,7 @@ class BridgeSettings:
         env: Mapping[str, str] | None = None,
         env_file: Path | None = None,
         config_path: Path | None = None,
-    ) -> "BridgeSettings":
+    ) -> BridgeSettings:
         fallback_env = _parse_env_file(env_file)
         process_env = dict(os.environ if env is None else env)
         merged_env = {**fallback_env, **process_env}
@@ -782,7 +783,7 @@ class BridgeSettings:
         owner_id: str | None = None,
         *,
         task_override: Mapping[str, Any] | None = None,
-    ) -> "BridgeSettings":
+    ) -> BridgeSettings:
         resolved = self
         if owner_id is not None:
             policy = self.user_policies.get(str(owner_id))
@@ -797,7 +798,7 @@ class BridgeSettings:
         resolved.validate()
         return resolved
 
-    def _apply_override(self, flat: Mapping[str, Any]) -> "BridgeSettings":
+    def _apply_override(self, flat: Mapping[str, Any]) -> BridgeSettings:
         sections: dict[str, dict[str, Any]] = {}
         for path, value in flat.items():
             section, field_name = path.split(".", 1)

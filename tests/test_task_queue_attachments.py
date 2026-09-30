@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -52,22 +52,22 @@ class TaskQueueAttachmentTests(unittest.IsolatedAsyncioTestCase):
                 "7",
                 9,
                 "مهمة قبل منتصف الليل",
-                created_at=datetime(2026, 8, 22, 21, 59, tzinfo=timezone.utc),
+                created_at=datetime(2026, 8, 22, 21, 59, tzinfo=UTC),
             )
             at_midnight, _ = await store.enqueue(
                 "7",
                 9,
                 "مهمة بعد منتصف الليل",
-                created_at=datetime(2026, 8, 22, 22, 0, tzinfo=timezone.utc),
+                created_at=datetime(2026, 8, 22, 22, 0, tzinfo=UTC),
             )
             previous_day_count = await store.count_created_for_day(
                 "7",
-                reference_at=datetime(2026, 8, 22, 12, 0, tzinfo=timezone.utc),
+                reference_at=datetime(2026, 8, 22, 12, 0, tzinfo=UTC),
                 day_timezone=day_timezone,
             )
             next_day_count = await store.count_created_for_day(
                 "7",
-                reference_at=datetime(2026, 8, 23, 12, 0, tzinfo=timezone.utc),
+                reference_at=datetime(2026, 8, 23, 12, 0, tzinfo=UTC),
                 day_timezone=day_timezone,
             )
             self.assertEqual(previous_day_count, 1)

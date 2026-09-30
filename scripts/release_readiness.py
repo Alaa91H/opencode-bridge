@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 REQUIRED = (
     "ci", "python_matrix", "migration", "backup_restore", "crash_recovery",
     "schedule_recovery", "duplicate_delivery", "file_streaming",

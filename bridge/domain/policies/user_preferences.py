@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 @dataclass(frozen=True)
@@ -21,7 +21,13 @@ class UserPreferences:
     schedule_defaults: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        ZoneInfo(self.timezone)
+        # Every other validation in this method raises ValueError; a raw
+        # ZoneInfoNotFoundError would escape a caller that only catches
+        # ValueError, so normalize it here.
+        try:
+            ZoneInfo(self.timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"unknown timezone: {self.timezone}") from exc
         if not self.language.strip():
             raise ValueError("language must not be empty")
         if self.notification_level not in {"silent", "errors", "normal", "verbose"}:
@@ -46,6 +52,6 @@ class UserPreferences:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, value: dict[str, object]) -> "UserPreferences":
+    def from_dict(cls, value: dict[str, object]) -> UserPreferences:
         allowed = set(cls.__dataclass_fields__)
         return cls(**{k: v for k, v in value.items() if k in allowed})

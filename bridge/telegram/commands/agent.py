@@ -10,7 +10,11 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from bridge.services.agent_service import AgentService, NoActiveSession
-from bridge.telegram.rendering.agent import render_agent_status, render_agents, render_model_overview
+from bridge.telegram.rendering.agent import (
+    render_agent_status,
+    render_agents,
+    render_model_overview,
+)
 
 Reply = Callable[[Any, str], Awaitable[None]]
 ErrorMessage = Callable[[Exception, str], str]

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import BinaryIO, Callable
+from typing import BinaryIO
 
 
 class StreamCancelled(Exception):

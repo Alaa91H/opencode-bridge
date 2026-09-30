@@ -8,11 +8,16 @@ import logging
 import os
 import sys
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from agent_scout import parse_research_model, primary_agent_ids, research_prompt, select_primary_agent
+from agent_scout import (
+    parse_research_model,
+    primary_agent_ids,
+    research_prompt,
+    select_primary_agent,
+)
 from bridge.config import BridgeSettings, get_settings
 from model_catalog import (
     best_zen_general_model_id,
@@ -24,7 +29,7 @@ from opencode_client import extract_text_response
 
 log = logging.getLogger("opencode_bridge.model_manager")
 BUSY_SESSION_STATES = {"busy", "running", "working", "processing", "generating"}
-UTC = timezone.utc
+UTC = UTC
 SCOUT_STATE_PATH = Path(__file__).resolve().parent / "runtime" / "agent-scout.json"
 
 
@@ -138,9 +143,9 @@ class ModelManager:
         self._preferred_variant = self.variant_for_model(model)
         core = sys.modules.get("bot")
         if core is not None:
-            setattr(core, "DEFAULT_MODEL", model)
-            setattr(core, "VARIANT_MODEL", model)
-            setattr(core, "DEFAULT_MODEL_VARIANT", self._preferred_variant)
+            core.DEFAULT_MODEL = model
+            core.VARIANT_MODEL = model
+            core.DEFAULT_MODEL_VARIANT = self._preferred_variant
 
     def _apply_live_defaults(
         self,
@@ -152,7 +157,7 @@ class ModelManager:
         self._apply_model_defaults(model, providers)
         core = sys.modules.get("bot")
         if core is not None:
-            setattr(core, "DEFAULT_AGENT", agent)
+            core.DEFAULT_AGENT = agent
 
     async def best_available(
         self,

@@ -7,14 +7,13 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from telegram import Update
-
-from bridge.telegram.rendering.schedule_browser import schedule_page
 from telegram.ext import ContextTypes
 
 from bridge.domain.policies import RequestRejected
 from bridge.domain.schedules import parse_utc_datetime, split_pipe_args
 from bridge.services.schedule_service import ScheduleNotFound, ScheduleService
-from bridge.telegram.rendering.schedules import render_schedule_detail, render_schedule_list
+from bridge.telegram.rendering.schedule_browser import schedule_page
+from bridge.telegram.rendering.schedules import render_schedule_detail
 
 Reply = Callable[[Any, str], Awaitable[None]]
 CreateStatus = Callable[[Any, int, str], Awaitable[int | None]]

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 OPENCODE_ZEN_PROVIDER_ID = "opencode"
 ACTIVE_MODEL_STATUSES = {"active", "available", "stable"}
 # Strength order as OpenCode itself presents the reasoning selector: Max > Xhigh > High > Medium > Low.
@@ -22,10 +21,10 @@ def _numeric_values(value: Any) -> list[float]:
             numbers.extend(_numeric_values(child))
         return numbers
     if isinstance(value, list):
-        numbers: list[float] = []
+        items: list[float] = []
         for child in value:
-            numbers.extend(_numeric_values(child))
-        return numbers
+            items.extend(_numeric_values(child))
+        return items
     return []
 
 

@@ -1,4 +1,5 @@
 import asyncio
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -35,7 +36,7 @@ class MigrationTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 database = BridgeDatabase(Path(tmp) / "bridge.db")
                 db = await database.connect()
-                with self.assertRaises(Exception):
+                with self.assertRaises(sqlite3.OperationalError):
                     async with database.transaction(immediate=True):
                         await db.execute("CREATE TABLE rollback_probe(id INTEGER PRIMARY KEY)")
                         await db.execute("INSERT INTO missing_table VALUES (1)")

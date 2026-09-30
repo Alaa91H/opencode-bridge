@@ -62,9 +62,7 @@ def _python_env_names(path: Path) -> set[str]:
                 and node.args
                 and isinstance(node.args[0], ast.Constant)
                 and isinstance(node.args[0].value, str)
-            ):
-                names.add(node.args[0].value)
-            elif (
+            ) or (
                 isinstance(func, ast.Attribute)
                 and isinstance(func.value, ast.Attribute)
                 and isinstance(func.value.value, ast.Name)

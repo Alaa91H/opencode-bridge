@@ -5,7 +5,6 @@ import unittest
 from resource_monitor import ResourceSnapshot, WorkerDecision
 from shadow_policy_audit import AuditedShadowPolicy, format_readiness
 
-
 SNAPSHOT = ResourceSnapshot(
     total_memory_mib=4096,
     available_memory_mib=3072,

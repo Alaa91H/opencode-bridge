@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from bridge.domain.policies.user_preferences import UserPreferences
 from bridge.infrastructure.database.sqlite import BridgeDatabase
@@ -26,7 +26,7 @@ class UserSettingsStore:
     async def set(self, owner_id: str, preferences: UserPreferences) -> None:
         db = await self.database.connect()
         payload = json.dumps(preferences.to_dict(), ensure_ascii=False, sort_keys=True)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         async with self.database.transaction(immediate=True):
             await db.execute(
                 """INSERT INTO user_settings(owner_id,settings_json,updated_at)

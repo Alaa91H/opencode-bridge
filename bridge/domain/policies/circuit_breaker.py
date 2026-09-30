@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable
 
 
 class CircuitState(str, Enum):
@@ -25,6 +25,9 @@ class CircuitBreakerConfig:
     half_open_successes: int = 1
 
 
+DEFAULT_CIRCUIT_BREAKER_CONFIG = CircuitBreakerConfig()  # frozen: safe to share
+
+
 @dataclass
 class CircuitBreakerMetrics:
     successes: int = 0
@@ -35,7 +38,7 @@ class CircuitBreakerMetrics:
 
 
 class CircuitBreaker:
-    def __init__(self, name: str, config: CircuitBreakerConfig = CircuitBreakerConfig(),
+    def __init__(self, name: str, config: CircuitBreakerConfig = DEFAULT_CIRCUIT_BREAKER_CONFIG,
                  *, clock: Callable[[], float] = time.monotonic,
                  on_event: Callable[[str, str], None] | None = None) -> None:
         self.name = name
@@ -54,7 +57,10 @@ class CircuitBreaker:
 
     def allow(self) -> bool:
         if self.state is CircuitState.OPEN:
-            assert self._opened_at is not None
+            if self._opened_at is None:
+                raise RuntimeError(
+                    f"circuit {self.name!r} is OPEN but has no open timestamp"
+                )
             if self.clock() - self._opened_at >= self.config.recovery_timeout:
                 self.state = CircuitState.HALF_OPEN
                 self._half_open_successes = 0
@@ -93,7 +99,7 @@ class CircuitBreaker:
 class CircuitBreakerRegistry:
     DEFAULT_DEPENDENCIES = ("telegram", "opencode", "model_provider", "github", "storage")
 
-    def __init__(self, config: CircuitBreakerConfig = CircuitBreakerConfig(), **kwargs) -> None:
+    def __init__(self, config: CircuitBreakerConfig = DEFAULT_CIRCUIT_BREAKER_CONFIG, **kwargs) -> None:
         self.breakers = {name: CircuitBreaker(name, config, **kwargs) for name in self.DEFAULT_DEPENDENCIES}
 
     def __getitem__(self, dependency: str) -> CircuitBreaker:

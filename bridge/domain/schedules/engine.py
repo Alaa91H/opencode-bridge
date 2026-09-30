@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-UTC = timezone.utc
+UTC = UTC
 
 
 class MisfirePolicy(str, Enum):
@@ -75,7 +75,7 @@ class Recurrence:
         local = after.astimezone(zone)
         hour = self.hour if self.hour is not None else local.hour
         for offset in range(1, 370):
-            day = local.date() + timedelta(days=offset if self.kind != "daily" else offset)
+            day = local.date() + timedelta(days=offset)
             if self.kind in {"weekly", "weekdays"} and self.weekdays and day.weekday() not in self.weekdays:
                 continue
             if self.kind == "monthly" and day.day != (self.day_of_month or 1):

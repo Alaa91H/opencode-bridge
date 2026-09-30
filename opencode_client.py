@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, AsyncIterator, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 
@@ -38,7 +39,7 @@ class OpenCodeClient:
         self,
         host: str = DEFAULT_HOST,
         port: int = DEFAULT_PORT,
-        password: Optional[str] = None,
+        password: str | None = None,
         timeout: float = TIMEOUT,
     ) -> None:
         self.base_url = f"http://{host}:{port}"
@@ -69,8 +70,8 @@ class OpenCodeClient:
 
     async def create_session(
         self,
-        parent_id: Optional[str] = None,
-        title: Optional[str] = None,
+        parent_id: str | None = None,
+        title: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {}
         if parent_id:
@@ -104,10 +105,10 @@ class OpenCodeClient:
         self,
         session_id: str,
         text: str,
-        model: Optional[dict[str, str] | str] = None,
-        agent: Optional[str] = None,
+        model: dict[str, str] | str | None = None,
+        agent: str | None = None,
         parts: list[dict[str, Any]] | None = None,
-        variant: Optional[str] = None,
+        variant: str | None = None,
     ) -> dict[str, Any]:
         message_parts = list(parts or [])
         if text:
@@ -132,7 +133,7 @@ class OpenCodeClient:
         response = await self._client.post(f"/session/{session_id}/abort")
         return response.status_code in (200, 204)
 
-    async def share_session(self, session_id: str) -> Optional[str]:
+    async def share_session(self, session_id: str) -> str | None:
         response = await self._client.post(f"/session/{session_id}/share")
         if response.status_code not in (200, 204):
             return None
@@ -150,8 +151,8 @@ class OpenCodeClient:
     async def update_session(
         self,
         session_id: str,
-        title: Optional[str] = None,
-        model: Optional[str] = None,
+        title: str | None = None,
+        model: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {}
         if title is not None:

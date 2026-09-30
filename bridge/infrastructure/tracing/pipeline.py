@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from bridge.infrastructure.tracing.tracing import TraceContext, propagation_headers
 
-
 TRACE_STAGES = ("telegram", "db", "opencode", "model", "media", "github", "result")
 
 

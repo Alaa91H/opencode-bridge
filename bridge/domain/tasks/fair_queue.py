@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import IntEnum
 from time import monotonic
-from typing import Iterable
 
 from bridge.domain.tasks.resource_scheduler import ResourceCost
 
@@ -25,7 +25,7 @@ class FairTask:
     enqueued_at: float = 0.0
     interactive: bool = False
     scheduled: bool = False
-    cost: ResourceCost = ResourceCost()
+    cost: ResourceCost = ResourceCost()  # noqa: RUF009 - ResourceCost is frozen and immutable
 
 
 class FairQueuePolicy:

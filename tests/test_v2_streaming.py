@@ -6,7 +6,10 @@ import tracemalloc
 import unittest
 
 from bridge.infrastructure.storage.streaming import (
-    CancellationToken, StreamCancelled, copy_stream, copy_stream_async,
+    CancellationToken,
+    StreamCancelled,
+    copy_stream,
+    copy_stream_async,
 )
 
 

@@ -6,7 +6,8 @@ set -Eeuo pipefail
 
 readonly BRIDGE_DIR="/home/ubuntu/opencode-bridge"
 readonly BRIDGE_USER="ubuntu"
-readonly BRIDGE_UID="$(id -u "$BRIDGE_USER")"
+BRIDGE_UID="$(id -u "$BRIDGE_USER")"
+readonly BRIDGE_UID
 readonly USER_RUNTIME_DIR="/run/user/${BRIDGE_UID}"
 readonly PYTHON_BIN="${BRIDGE_DIR}/venv/bin/python"
 readonly RUNTIME_DIR="${BRIDGE_DIR}/runtime"
@@ -174,8 +175,6 @@ resolve_retention_minutes() {
 cleanup_managed_attachments() {
   local retention_minutes
   retention_minutes="$(resolve_retention_minutes)"
-  ATTACHMENT_RETENTION_MINUTES="$retention_minutes"
-  ATTACHMENT_RETENTION_SUMMARY="أقدم من $(( retention_minutes / 1440 )) يوم"
   ATTACHMENT_CLEANUP_SUMMARY="0 ملف (0B)"
   [[ -d "$ATTACHMENT_ROOT" ]] || return 0
   local stale_files stale_bytes

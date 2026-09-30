@@ -36,7 +36,7 @@ class DraftCommands:
                 text = f"تم حفظ «{draft.name}» v{draft.version}."
             elif action == "run":
                 name = " ".join(args)
-                result = await self.service.run(owner, update.effective_chat.id, name, idempotency_key=f"{update.update_id}:{name}")
+                await self.service.run(owner, update.effective_chat.id, name, idempotency_key=f"{update.update_id}:{name}")
                 text = f"تم إرسال Draft «{name}» للتنفيذ."
             elif action == "schedule":
                 raw = " ".join(args)

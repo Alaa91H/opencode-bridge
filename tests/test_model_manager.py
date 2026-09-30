@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -154,7 +154,7 @@ class ModelManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.updated, [("session-1", "opencode/text-only")])
 
     async def test_reconcile_skips_busy_session_and_updates_idle_session(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         idle = UserSession("idle-user", "idle-session", now, now, model="opencode/text-only")
         busy = UserSession("busy-user", "busy-session", now, now, model="opencode/text-only")
         client = FakeClient({"busy-session": {"state": "running"}, "idle-session": {"state": "idle"}})
@@ -182,7 +182,7 @@ class ModelManagerTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_reconcile_never_overrides_an_owner_pin(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         pinned = UserSession("pinned-user", "pinned-session", now, now, model="opencode/text-only")
         free = UserSession("free-user", "free-session", now, now, model="opencode/text-only")
         client = FakeClient({"pinned-session": {"state": "idle"}, "free-session": {"state": "idle"}})
@@ -196,7 +196,7 @@ class ModelManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("pinned-user", [owner for owner, _ in store.updated])
 
     async def test_daily_scout_keeps_owner_pins_and_reports_two_counts(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         pinned = UserSession("pinned-user", "pinned-session", now, now, model="opencode/text-only")
         free = UserSession("free-user", "free-session", now, now, model="opencode/legacy")
         client = FakeClient()

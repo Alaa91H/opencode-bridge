@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-import asyncio
 import unittest
 
 import httpx
 
-from bridge.infrastructure.opencode.client_v2 import OpenCodeClientV2, OpenCodeHttpConfig, OpenCodeRequest
+from bridge.infrastructure.opencode.client_v2 import (
+    OpenCodeClientV2,
+    OpenCodeHttpConfig,
+    OpenCodeRequest,
+)
 
 
 class OpenCodeClientContractTests(unittest.IsolatedAsyncioTestCase):

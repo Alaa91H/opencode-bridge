@@ -1,6 +1,5 @@
 import unittest
 
-
 FAULTS = (
     "bot_kill", "opencode_kill", "telegram_outage", "sqlite_busy", "disk_full",
     "corrupt_attachment", "http_429", "http_500", "timeout", "duplicate_update",

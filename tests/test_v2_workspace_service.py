@@ -7,7 +7,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from bridge.domain.policies import RequestGuard
-from bridge.services.workspace_service import WorkspaceService, WorkspaceUnavailable, workspace_prompt
+from bridge.services.workspace_service import (
+    WorkspaceService,
+    WorkspaceUnavailable,
+    workspace_prompt,
+)
 
 
 @dataclass

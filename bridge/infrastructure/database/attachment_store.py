@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .sqlite import BridgeDatabase
 
@@ -27,7 +27,7 @@ class AttachmentMetadataStore:
                             file_id: str | None = None, file_unique_id: str | None = None,
                             claimed_mime: str | None = None, detected_mime: str | None = None,
                             retention_until: str | None = None, scan_state: str = "pending") -> AttachmentReference:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         db = await self.database.connect()
         async with self.database.transaction(immediate=True):
             await db.execute(

@@ -5,7 +5,6 @@ from pathlib import Path
 
 from scripts.release_readiness import REQUIRED, validate
 
-
 REQUEST_ID = json.loads(Path("soak-request-2.0.json").read_text())["request_id"]
 
 
@@ -18,7 +17,7 @@ class ReleaseReadinessTests(unittest.TestCase):
     def test_complete_evidence_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "evidence.json"
-            data = {name: True for name in REQUIRED}
+            data = dict.fromkeys(REQUIRED, True)
             data["high_critical_vulnerabilities_accepted_or_zero"] = True
             data["soak"] = {
                 "completed": True,
@@ -32,7 +31,7 @@ class ReleaseReadinessTests(unittest.TestCase):
         for hours in (23.99, 73):
             with self.subTest(hours=hours), tempfile.TemporaryDirectory() as tmp:
                 path = Path(tmp) / "evidence.json"
-                data = {name: True for name in REQUIRED}
+                data = dict.fromkeys(REQUIRED, True)
                 data["high_critical_vulnerabilities_accepted_or_zero"] = True
                 data["soak"] = {
                     "completed": True,
@@ -45,7 +44,7 @@ class ReleaseReadinessTests(unittest.TestCase):
     def test_stale_soak_request_id_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "evidence.json"
-            data = {name: True for name in REQUIRED}
+            data = dict.fromkeys(REQUIRED, True)
             data["high_critical_vulnerabilities_accepted_or_zero"] = True
             data["soak"] = {
                 "completed": True,

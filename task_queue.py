@@ -6,17 +6,16 @@ import json
 import random
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone, tzinfo
+from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 
 import aiosqlite
 
-from bridge.infrastructure.database.sqlite import BridgeDatabase
 from bridge.infrastructure.database.migrations import MigrationRunner
+from bridge.infrastructure.database.sqlite import BridgeDatabase
 
-
-UTC = timezone.utc
+UTC = UTC
 
 
 def utc_now() -> datetime:
@@ -258,7 +257,10 @@ class TaskQueueStore:
             except aiosqlite.IntegrityError as exc:
                 raise ValueError("يوجد بالفعل جدول بهذا الاسم") from exc
         job = await self.get_scheduled_job_by_id(int(cursor.lastrowid), owner_id)
-        assert job is not None
+        if job is None:
+            raise LookupError(
+                f"scheduled job {cursor.lastrowid} vanished immediately after insert"
+            )
         return job
 
     async def get_scheduled_job_by_id(self, job_id: int, owner_id: str | None = None) -> ScheduledJob | None:
@@ -721,7 +723,8 @@ class TaskQueueStore:
                 await db.rollback()
                 raise
         task = await self.get(task_id)
-        assert task is not None
+        if task is None:
+            raise LookupError(f"task {task_id} vanished immediately after commit")
         return task, sequence, True
 
     async def claim_schedule_occurrence(
@@ -784,7 +787,8 @@ class TaskQueueStore:
             task_id = int(cursor.lastrowid)
             await db.commit()
         task = await self.get(task_id)
-        assert task is not None
+        if task is None:
+            raise LookupError(f"task {task_id} vanished immediately after commit")
         return task, sequence
 
     async def schedule(
@@ -812,7 +816,8 @@ class TaskQueueStore:
             task_id = int(cursor.lastrowid)
             await db.commit()
         task = await self.get(task_id)
-        assert task is not None
+        if task is None:
+            raise LookupError(f"task {task_id} vanished immediately after commit")
         return task
 
     async def get(self, task_id: int) -> QueuedTask | None:

@@ -4,7 +4,7 @@ import sys
 import tempfile
 import unittest
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -122,7 +122,7 @@ class AgentScoutPolicyTests(unittest.TestCase):
 
 class DailyScoutRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_daily_scout_applies_best_free_choice_to_all_saved_sessions(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         sessions = [
             UserSession("u1", "s1", now, now, "opencode/basic-free"),
             UserSession("u2", "s2", now, now, "opencode/basic-free"),

@@ -17,7 +17,8 @@ class ModelRouterTests(unittest.TestCase):
         self.assertEqual(route.primary, "deep")
 
     def test_fallback_chain_excludes_unavailable_and_zero_quota(self):
-        catalog = self.models() + [
+        catalog = [
+            *self.models(),
             ModelCandidate("offline", frozenset({"text"}), context_tokens=1000, available=False),
             ModelCandidate("empty", frozenset({"text"}), context_tokens=1000, quota_remaining=0),
         ]

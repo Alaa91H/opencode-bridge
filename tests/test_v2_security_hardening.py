@@ -3,8 +3,11 @@ import unittest
 from pathlib import Path
 
 from bridge.infrastructure.security.hardening import (
-    SYSTEMD_HARDENING, inspect_magic, require_loopback_opencode,
-    safe_output_path, subprocess_timeout,
+    SYSTEMD_HARDENING,
+    inspect_magic,
+    require_loopback_opencode,
+    safe_output_path,
+    subprocess_timeout,
 )
 
 

@@ -35,10 +35,10 @@ class _PathRecorder(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
+    def do_GET(self) -> None:
         self._respond()
 
-    def do_POST(self) -> None:  # noqa: N802 - the Telegram library posts to the API
+    def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length") or 0)
         if length:
             self.rfile.read(length)

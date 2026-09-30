@@ -99,7 +99,7 @@ class ModelPickerCallbackAdapter:
             self.log.info("تعذر تنفيذ اختيار النموذج: %s", exc)
             await query.answer(str(exc), show_alert=True)
             await self._refresh(update, owner_id)
-        except Exception as exc:
+        except Exception:
             self.log.exception("فشل التعامل مع زر اختيار النموذج")
             await query.answer("حدثت مشكلة غير متوقعة أثناء اختيار النموذج.", show_alert=True)
 

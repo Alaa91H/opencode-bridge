@@ -6,14 +6,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from load_soak import run
 
 
 async def execute(args: argparse.Namespace) -> dict[str, object]:
-    started = datetime.now(timezone.utc)
+    started = datetime.now(UTC)
     result = await run(
         tasks=args.tasks,
         schedules=args.schedules,
@@ -22,7 +22,7 @@ async def execute(args: argparse.Namespace) -> dict[str, object]:
         slow_ms=args.slow_ms,
         duration_seconds=args.duration_seconds,
     )
-    finished = datetime.now(timezone.utc)
+    finished = datetime.now(UTC)
     elapsed = float(result["elapsed_seconds"])
     if elapsed < args.duration_seconds * 0.995:
         raise RuntimeError(f"segment ended too early: {elapsed:.2f}s")

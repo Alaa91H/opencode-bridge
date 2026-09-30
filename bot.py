@@ -5,19 +5,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 import shutil
 import signal
 import sys
-
-import httpx
-import time
-from datetime import datetime, timedelta, timezone
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Awaitable, Callable, TypeVar
+from typing import Any, TypeVar
 
 from telegram import Update
-from telegram.constants import ChatAction
 from telegram.ext import Application, ContextTypes
 from telegram.request import HTTPXRequest
 
@@ -26,69 +22,60 @@ MAINTENANCE_REPORT_PATH = BRIDGE_DIR / "runtime" / "maintenance-latest.md"
 ATTACHMENT_ROOT = BRIDGE_DIR / "runtime" / "attachments"
 sys.path.insert(0, str(BRIDGE_DIR))
 
-from attachments import AttachmentError, AttachmentStore, attachment_prompt_note
+from attachments import AttachmentStore
 from audit_log import AuditLogger
 from block_patterns import check_build, check_hardline
 from bridge.config import get_settings
 from bridge.domain.policies import RequestGuard
 from bridge.domain.schedules import (
-    format_interval as schedule_format_interval,
-    parse_interval_seconds as schedule_parse_interval_seconds,
     parse_utc_datetime as schedule_parse_utc_datetime,
-    split_pipe_args as schedule_split_pipe_args,
 )
-from bridge.services.agent_service import AgentService
-from bridge.services.config_service import ConfigurationService
-from bridge.services.draft_service import DraftService
 from bridge.infrastructure.database.draft_store import DraftStore
 from bridge.infrastructure.database.user_settings_store import UserSettingsStore
-from bridge.services.download_service import DownloadService, DownloadError
+from bridge.services.agent_service import AgentService
+from bridge.services.config_service import ConfigurationService
+from bridge.services.download_service import DownloadService
+from bridge.services.draft_service import DraftService
+from bridge.services.maintenance_service import MaintenanceReportService
+from bridge.services.media_service import MediaTaskService
 from bridge.services.model_selection_service import ModelSelectionService
+from bridge.services.schedule_service import ScheduleService
+from bridge.services.task_execution_service import TaskExecutionService
+from bridge.services.task_service import TaskApplicationService
 from bridge.services.user_preferences_service import UserPreferencesService
+from bridge.telegram.app import build_application, core_commands, register_core_handlers
+from bridge.telegram.attachments import TelegramMediaAdapter
 from bridge.telegram.callbacks.model_picker import ModelPickerCallbackAdapter
+from bridge.telegram.callbacks.reboot import RebootCallbackAdapter
+from bridge.telegram.callbacks.schedules import ScheduleCallbacks
+from bridge.telegram.commands.agent import AgentCommands
+from bridge.telegram.commands.config import ConfigCommands
 from bridge.telegram.commands.downloads import DownloadCommands
+from bridge.telegram.commands.drafts import DraftCommands
+from bridge.telegram.commands.schedules import ScheduleCommands
+from bridge.telegram.commands.system import SystemCommands
+from bridge.telegram.commands.tasks import TaskCommands
+from bridge.telegram.draft_intake import DraftIntakeAdapter
+from bridge.telegram.execution import TelegramExecutionDelivery
+from bridge.telegram.middleware import TelegramAccessController
 from bridge.telegram.panels import (
     ACT,
-    MENU,
-    PATTERN as PANEL_PATTERN,
     PanelContext,
     PanelRouter,
     build_panels,
 )
-from bridge.services.maintenance_service import MaintenanceReportService
-from bridge.services.media_service import MediaTaskService
-from bridge.services.schedule_service import ScheduleService
-from bridge.services.task_service import TaskApplicationService
-from bridge.services.task_execution_service import TaskExecutionService
-from bridge.telegram.app import build_application, core_commands, register_core_handlers
-from bridge.telegram.attachments import TelegramMediaAdapter
-from bridge.telegram.callbacks.reboot import RebootCallbackAdapter
-from bridge.telegram.commands.agent import AgentCommands
-from bridge.telegram.commands.config import ConfigCommands
-from bridge.telegram.commands.drafts import DraftCommands
-from bridge.telegram.commands.schedules import ScheduleCommands
-from bridge.telegram.callbacks.schedules import ScheduleCallbacks
-from bridge.telegram.commands.system import SystemCommands
-from bridge.telegram.commands.tasks import TaskCommands
-from bridge.telegram.execution import TelegramExecutionDelivery
-from bridge.telegram.draft_intake import DraftIntakeAdapter
-from bridge.telegram.middleware import TelegramAccessController
-from bridge.telegram.rendering.schedules import scheduled_job_line
 from formatter import MAX_MESSAGE_LENGTH
-from model_catalog import ranked_zen_general_model_ids
-from model_manager import ModelManager
 from messages import (
     HELP_TEXT,
-    build_blocked_message,
-    empty_response_message,
     startup_message,
     unauthorized_message,
     user_error,
 )
-from opencode_client import OpenCodeClient, extract_file_response, extract_text_response
-from progress import ProgressStore, render_persisted_activity, render_progress
-from progress_reporter import LiveProgressReporter
-from prompt_enhancer import ResearchMode, enhance_prompt
+from model_manager import ModelManager
+from opencode_client import OpenCodeClient
+from progress import ProgressStore
+from progress_reporter import DisplayPreferences, LiveProgressReporter
+from prompt_enhancer import ResearchMode
 from reboot_state import decision_path, read_state, request_path, write_state
 from session_store import SessionStore
 from task_queue import QueuedTask, TaskQueueStore
@@ -201,7 +188,7 @@ _task_execution_service = TaskExecutionService(
 )
 _maintenance_service = MaintenanceReportService(MAINTENANCE_REPORT_PATH)
 _configuration_service = ConfigurationService(SETTINGS)
-UTC = timezone.utc
+UTC = UTC
 
 F = TypeVar("F", bound=Callable[..., Awaitable[None]])
 
@@ -739,7 +726,7 @@ async def _edit_task_status_message(bot, chat_id: int, message_id: int | None, t
         log.debug("تعذر تحديث رسالة حالة الطلب: %s", type(exc).__name__)
 
 
-def authorized(handler: F) -> F:
+def authorized[HandlerT](handler: HandlerT) -> HandlerT:
     """Compatibility decorator backed by the Telegram middleware layer."""
     return _access_controller().wrap(handler)
 

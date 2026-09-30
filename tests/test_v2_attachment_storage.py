@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from bridge.infrastructure.database.attachment_store import AttachmentMetadataStore
@@ -52,7 +52,7 @@ class AttachmentStorageTests(unittest.IsolatedAsyncioTestCase):
     async def test_retention_cleanup_releases_expired_reference(self):
         path = Path(self.temp.name) / "expired.bin"
         path.write_bytes(b"expire me")
-        past = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        past = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
         ref = await self.service.ingest_path(path, owner_id="owner", retention_until=past)
         self.assertTrue(self.backend.exists(ref.storage_key))
         self.assertEqual(await self.service.cleanup_expired(), 1)

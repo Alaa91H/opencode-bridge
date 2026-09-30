@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
 
 from bridge.domain.attachments.media_pipeline import MediaAnalysis, MediaArtifact, MediaInput
+
 from .tools import MediaToolCapabilities
 
 
 def _run(argv: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(argv, check=True, capture_output=True, text=True, timeout=timeout)
+    # argv is a fixed argv list built from MediaToolCapabilities, never a shell
+    # string, and shell is never enabled.
+    return subprocess.run(  # noqa: S603
+        argv, check=True, capture_output=True, text=True, timeout=timeout
+    )
 
 
 def _ffmpeg(tools: MediaToolCapabilities, argv: list[str]) -> None:

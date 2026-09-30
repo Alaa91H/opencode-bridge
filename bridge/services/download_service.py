@@ -27,7 +27,7 @@ import socket
 import time
 import unicodedata
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
@@ -35,7 +35,7 @@ from urllib.parse import unquote, urlparse
 import httpx
 
 log = logging.getLogger("opencode_bridge.downloads")
-UTC = timezone.utc
+UTC = UTC
 
 SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._\- ]+")
 ALLOWED_SCHEMES = {"http", "https"}
@@ -89,7 +89,7 @@ class DownloadRecord:
         }
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "DownloadRecord":
+    def from_dict(cls, value: dict[str, Any]) -> DownloadRecord:
         return cls(
             id=str(value["id"]),
             owner_id=str(value["owner_id"]),

@@ -1,8 +1,11 @@
 name: Code Quality
 
+# Strict hygiene gate. Nothing here is advisory: a check that cannot fail the
+# job is a report, not a gate, so there are no "|| true" escapes.
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -10,32 +13,94 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  quality:
+  hygiene:
+    name: hygiene (python ${{ matrix.python-version }})
     runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - name: Checkout
+        uses: actions/checkout@v5
         with:
-          python-version: "3.14"
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
 
       - name: Install quality tools
-        run: python -m pip install ruff mypy vulture
+        run: |
+          python -m pip install --disable-pip-version-check --quiet \
+            ruff==0.14.4 mypy==1.14.1 vulture==2.14
 
-      - name: Ruff critical correctness
-        run: ruff check bridge --select E9,F63,F7,F82
+      - name: Version
+        run: cat VERSION
 
-      - name: Formatting check on v2 infrastructure
-        run: ruff format --check bridge/infrastructure/tracing bridge/infrastructure/security bridge/infrastructure/deployment bridge/infrastructure/logging bridge/services/health_service.py || true
+      - name: Strict lint and hygiene
+        env:
+          QUALITY_PYTHON: python
+        run: bash scripts/quality.sh
 
-      - name: Import sorting check on v2 infrastructure
-        run: ruff check bridge/infrastructure/tracing bridge/infrastructure/security bridge/infrastructure/deployment bridge/infrastructure/logging bridge/services/health_service.py --select I || true
+      - name: Confirm the gate has no advisory escapes
+        run: |
+          if grep -nE '\|\|\s*true' scripts/quality.sh .github/workflows/quality.yml; then
+            echo "advisory escape found; a check cannot fail the job" >&2
+            exit 1
+          fi
 
-      - name: Type-check new policy modules
-        run: mypy --ignore-missing-imports bridge/infrastructure/tracing bridge/infrastructure/security bridge/services/health_service.py
+      - name: Shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends shellcheck
+          for file in start.sh scripts/*.sh maintenance/*.sh; do
+            [[ -f "$file" ]] || continue
+            shellcheck -S warning "$file"
+          done
 
-      - name: Dead-code report
-        run: vulture bridge --min-confidence 90 || true
+  release-identity:
+    name: release identity is tag-bound
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
-      - name: Complexity report
-        run: ruff check bridge --select C901 --output-format concise || true
+      - name: Deploy script requires a tag
+        run: |
+          set -euo pipefail
+          script=scripts/deploy.sh
+          # A deployment must never default to HEAD or accept a raw ref.
+          if grep -qE 'TARGET_REF=.*HEAD' "$script"; then
+            echo "deploy.sh still defaults to HEAD" >&2
+            exit 1
+          fi
+          for required in 'RELEASE_TAG_PATTERN' 'refs/tags/' 'deployment-identity' 'VERSION'; do
+            grep -q "$required" "$script" || { echo "deploy.sh missing $required" >&2; exit 1; }
+          done
+
+      - name: VERSION matches the tag on a tagged build
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ "v${version}" != "$tag" ]]; then
+            echo "tag ${tag} does not match VERSION ${version}" >&2
+            exit 1
+          fi
+
+      - name: system units are stamped by systemd.py
+        run: |
+          set -euo pipefail
+          grep -q 'BRIDGE_RELEASE_TAG' systemd.py
+          grep -q 'deployment-identity' systemd.py

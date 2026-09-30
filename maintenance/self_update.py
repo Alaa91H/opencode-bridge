@@ -7,7 +7,6 @@ import json
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
@@ -51,8 +50,7 @@ def _run(
         list(args),
         cwd=cwd,
         text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         timeout=timeout,
         check=False,
     )

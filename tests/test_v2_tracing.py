@@ -3,7 +3,12 @@ from unittest.mock import patch
 
 from bridge.infrastructure.tracing.pipeline import TRACE_STAGES, child_stage
 from bridge.infrastructure.tracing.tracing import (
-    SamplingPolicy, TraceContext, activate, current, redact_attributes, reset,
+    SamplingPolicy,
+    TraceContext,
+    activate,
+    current,
+    redact_attributes,
+    reset,
 )
 
 

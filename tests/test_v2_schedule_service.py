@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from bridge.domain.policies import RequestGuard, RequestRejected
-from bridge.domain.schedules import format_interval, parse_interval_seconds, parse_utc_datetime, split_pipe_args
+from bridge.domain.schedules import (
+    format_interval,
+    parse_interval_seconds,
+    parse_utc_datetime,
+    split_pipe_args,
+)
 from bridge.services.schedule_service import ScheduleNotFound, ScheduleService
 
-UTC = timezone.utc
+UTC = UTC
 
 
 class FakeScheduleRepository:

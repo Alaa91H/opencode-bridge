@@ -2,7 +2,8 @@
 # Roll back to the Git revision recorded before the last successful deployment.
 set -Eeuo pipefail
 
-readonly BRIDGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BRIDGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly BRIDGE_DIR
 readonly PREVIOUS_DEPLOYED_REF_FILE="${BRIDGE_DIR}/runtime/previous-deployed-ref"
 
 cd "$BRIDGE_DIR"

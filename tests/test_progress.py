@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import unittest
 
-from progress import ProgressStore, render_persisted_activity, render_progress, serialize_progress, summarize_agent_event
+from progress import (
+    ProgressStore,
+    render_persisted_activity,
+    render_progress,
+    serialize_progress,
+    summarize_agent_event,
+)
 
 
 class ProgressEventTests(unittest.TestCase):

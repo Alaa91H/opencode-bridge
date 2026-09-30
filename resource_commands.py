@@ -8,7 +8,6 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 import bot as core
 from bridge.services.resource_service import ResourceStatusService
 from bridge.telegram.commands.resources import ResourceCommands
-from bridge.telegram.rendering.resources import format_controller as _format_controller
 from resource_monitor import HostResourcePolicy
 
 _policy = HostResourcePolicy(cache_seconds=3.0)
@@ -68,5 +67,5 @@ async def install(app: Application) -> None:
     existing = await app.bot.get_my_commands()
     if not any(command.command == "resources" for command in existing):
         await app.bot.set_my_commands(
-            [BotCommand("resources", "Show host resource pressure")] + list(existing)
+            [BotCommand("resources", "Show host resource pressure"), *existing]
         )

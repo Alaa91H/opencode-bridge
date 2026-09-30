@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from threading import Lock
 
-
 REQUIRED_METRICS = (
     "queue_depth", "task_latency_seconds", "task_duration_seconds", "retry_count",
     "model_failures", "telegram_failures", "db_latency_seconds", "db_locks",
@@ -16,7 +15,7 @@ REQUIRED_METRICS = (
 
 @dataclass
 class MetricsRegistry:
-    values: dict[str, float] = field(default_factory=lambda: {name: 0.0 for name in REQUIRED_METRICS})
+    values: dict[str, float] = field(default_factory=lambda: dict.fromkeys(REQUIRED_METRICS, 0.0))
     _lock: Lock = field(default_factory=Lock, repr=False)
 
     def set(self, name: str, value: float) -> None:

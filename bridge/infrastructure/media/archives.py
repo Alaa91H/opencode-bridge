@@ -19,6 +19,9 @@ class ArchiveLimits:
     max_ratio: float = 200.0
 
 
+DEFAULT_ARCHIVE_LIMITS = ArchiveLimits()  # frozen config: safe to share as a default
+
+
 @dataclass(frozen=True)
 class ArchiveEntry:
     name: str
@@ -35,7 +38,7 @@ def _safe_name(name: str) -> PurePosixPath:
     return path
 
 
-def zip_manifest(path: Path, *, limits: ArchiveLimits = ArchiveLimits()) -> list[ArchiveEntry]:
+def zip_manifest(path: Path, *, limits: ArchiveLimits = DEFAULT_ARCHIVE_LIMITS) -> list[ArchiveEntry]:
     with zipfile.ZipFile(path) as archive:
         infos = archive.infolist()
         if len(infos) > limits.max_files:
@@ -54,7 +57,7 @@ def zip_manifest(path: Path, *, limits: ArchiveLimits = ArchiveLimits()) -> list
         return entries
 
 
-def extract_zip(path: Path, destination: Path, *, limits: ArchiveLimits = ArchiveLimits()) -> list[Path]:
+def extract_zip(path: Path, destination: Path, *, limits: ArchiveLimits = DEFAULT_ARCHIVE_LIMITS) -> list[Path]:
     manifest = zip_manifest(path, limits=limits)
     destination = destination.resolve()
     destination.mkdir(parents=True, exist_ok=True)

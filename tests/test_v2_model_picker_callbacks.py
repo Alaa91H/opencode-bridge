@@ -1,9 +1,9 @@
 import unittest
 from unittest.mock import AsyncMock
 
+from bridge.services.model_selection_service import ModelSelectionError
 from bridge.telegram.callbacks.model_picker import ModelPickerCallbackAdapter
 from bridge.telegram.rendering import model_picker as picker
-from bridge.services.model_selection_service import ModelSelectionError
 
 # The level names and order OpenCode itself shows in its reasoning selector.
 UI_LEVELS = ("max", "xhigh", "high", "medium", "low", "minimal")
@@ -93,7 +93,7 @@ class ModelPickerCallbackTests(unittest.IsolatedAsyncioTestCase):
         update = FakeUpdate(data="mdl:p:1")
         await self.adapter.handle(update, None)
         self.assertEqual(len(update.bot.edits), 1)
-        chat_id, message_id, text, keyboard = update.bot.edits[0]
+        chat_id, message_id, _text, keyboard = update.bot.edits[0]
         self.assertEqual((chat_id, message_id), (4242, 77))
         labels = [button.text for row in keyboard.inline_keyboard for button in row]
         self.assertIn("2/2", labels)

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from telegram import BotCommand, Update
+from telegram import BotCommand
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
 

@@ -2,7 +2,8 @@
 # Create a tested semantic-version release and deploy its immutable Git tag.
 set -Eeuo pipefail
 
-readonly BRIDGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BRIDGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly BRIDGE_DIR
 cd "$BRIDGE_DIR"
 
 if [[ $# -ne 2 ]]; then

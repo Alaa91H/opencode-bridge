@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import os
 import re
-from datetime import datetime, timezone
+from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 SENSITIVE_KEY_RE = re.compile(r"(?:token|secret|password|authorization|api[_-]?key)", re.IGNORECASE)
 
@@ -43,7 +44,7 @@ class AuditLogger:
     ) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "event": event,
             "outcome": outcome,
             "actor_id": str(actor_id) if actor_id is not None else None,

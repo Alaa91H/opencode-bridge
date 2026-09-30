@@ -1,7 +1,12 @@
 import unittest
 from pathlib import Path
 
-from bridge.infrastructure.sandbox.runner import BuildSandbox, SandboxBackend, SandboxLimits, SandboxUnavailable
+from bridge.infrastructure.sandbox.runner import (
+    BuildSandbox,
+    SandboxBackend,
+    SandboxLimits,
+    SandboxUnavailable,
+)
 
 
 class BuildSandboxTests(unittest.TestCase):

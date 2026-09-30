@@ -1,7 +1,10 @@
 import unittest
 
 from bridge.services.health_service import (
-    ComponentHealth, HealthService, HealthState, systemd_readiness_message,
+    ComponentHealth,
+    HealthService,
+    HealthState,
+    systemd_readiness_message,
 )
 
 

@@ -5,7 +5,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from bridge.infrastructure.security.secrets import (
-    ChainedSecretSource, EnvironmentSecretSource, SystemdCredentialSource, exposed_secret,
+    ChainedSecretSource,
+    EnvironmentSecretSource,
+    SystemdCredentialSource,
+    exposed_secret,
 )
 
 

@@ -1,4 +1,4 @@
 """Framework-independent request policy primitives."""
-from .requests import RequestRejected, RequestGuard
+from .requests import RequestGuard, RequestRejected
 
-__all__ = ["RequestRejected", "RequestGuard"]
+__all__ = ["RequestGuard", "RequestRejected"]

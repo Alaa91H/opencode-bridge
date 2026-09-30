@@ -1,9 +1,16 @@
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from bridge.domain.schedules.engine import MisfirePolicy, OverlapPolicy, Recurrence, due_occurrences, overlap_action, validate_timezone
+from bridge.domain.schedules.engine import (
+    MisfirePolicy,
+    OverlapPolicy,
+    Recurrence,
+    due_occurrences,
+    overlap_action,
+    validate_timezone,
+)
 
-UTC = timezone.utc
+UTC = UTC
 
 
 class SchedulerEngineTests(unittest.TestCase):

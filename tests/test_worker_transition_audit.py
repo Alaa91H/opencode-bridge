@@ -6,7 +6,6 @@ from adaptive_workers import StabilizedWorkerLimit, WorkerLimitTransition
 from resource_monitor import ResourceSnapshot, WorkerDecision
 from task_service import TaskService
 
-
 SNAPSHOT = ResourceSnapshot(
     total_memory_mib=4096,
     available_memory_mib=3072,

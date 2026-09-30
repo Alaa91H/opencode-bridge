@@ -9,7 +9,7 @@ from pathlib import Path
 from bridge.infrastructure.metrics.observability import MetricsRegistry
 
 
-def sample_resources(registry: MetricsRegistry, *, disk_path: Path = Path(".")) -> None:
+def sample_resources(registry: MetricsRegistry, *, disk_path: Path = Path()) -> None:
     usage = shutil.disk_usage(disk_path)
     registry.set("disk_free_bytes", usage.free)
     try:

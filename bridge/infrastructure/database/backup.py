@@ -5,10 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
 
 from bridge.infrastructure.database.sqlite import BridgeDatabase
 
@@ -42,7 +42,7 @@ class BackupService:
             await target.close()
         payload = destination.read_bytes()
         manifest = BackupManifest(
-            datetime.now(timezone.utc).isoformat(),
+            datetime.now(UTC).isoformat(),
             hashlib.sha256(payload).hexdigest(), len(payload),
             self.rpo_seconds, self.rto_seconds,
         )

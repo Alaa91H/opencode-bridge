@@ -1,7 +1,11 @@
 import unittest
 from types import SimpleNamespace
 
-from bridge.telegram.rendering.schedule_browser import delete_confirmation, schedule_actions, schedule_page
+from bridge.telegram.rendering.schedule_browser import (
+    delete_confirmation,
+    schedule_actions,
+    schedule_page,
+)
 
 
 def job(i, enabled=True):

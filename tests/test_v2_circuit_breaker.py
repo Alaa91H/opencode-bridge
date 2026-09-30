@@ -1,7 +1,11 @@
 import unittest
 
 from bridge.domain.policies.circuit_breaker import (
-    CircuitBreaker, CircuitBreakerConfig, CircuitBreakerRegistry, CircuitOpen, CircuitState,
+    CircuitBreaker,
+    CircuitBreakerConfig,
+    CircuitBreakerRegistry,
+    CircuitOpen,
+    CircuitState,
 )
 
 

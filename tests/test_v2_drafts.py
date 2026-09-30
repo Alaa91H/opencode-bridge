@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from bridge.infrastructure.database.draft_store import DraftStore
 from bridge.infrastructure.database.migrations import MigrationRunner
 from bridge.infrastructure.database.sqlite import BridgeDatabase
-from bridge.infrastructure.database.draft_store import DraftStore
 
 
 class DraftPersistenceTests(unittest.TestCase):

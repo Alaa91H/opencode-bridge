@@ -8,7 +8,7 @@ import os
 import sqlite3
 import subprocess
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +33,7 @@ STATE_PATH = RUNTIME_DIR / "watchdog-state.json"
 REPORT_PATH = RUNTIME_DIR / "watchdog-latest.json"
 AUDIT_PATH = RUNTIME_DIR / "watchdog-audit.jsonl"
 DEPLOYED_REF_PATH = RUNTIME_DIR / "deployed-ref"
-UTC = timezone.utc
+UTC = UTC
 
 
 SETTINGS = get_settings()
@@ -47,8 +47,7 @@ def _run(*args: str, timeout: float = 8.0) -> subprocess.CompletedProcess[str]:
         list(args),
         cwd=BRIDGE_DIR,
         text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         check=False,
         timeout=timeout,
     )

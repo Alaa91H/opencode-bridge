@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from bridge.infrastructure.database.v18_migration import V18MigrationPlanner
 from bridge.infrastructure.database.migrations import MigrationRunner
 from bridge.infrastructure.database.sqlite import BridgeDatabase
+from bridge.infrastructure.database.v18_migration import V18MigrationPlanner
 
 
 class V18MigrationTests(unittest.IsolatedAsyncioTestCase):

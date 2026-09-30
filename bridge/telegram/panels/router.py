@@ -14,11 +14,11 @@ from bridge.telegram.panels.registry import (
     CONFIRM_YES,
     MENU,
     NAVIGATE,
+    RAW,
     Panel,
     PanelAction,
     PanelError,
     PanelView,
-    RAW,
     action_callback,
     assert_short,
     cancel_callback,
@@ -52,7 +52,9 @@ class PanelContext:
         if not keys:
             return {}
         results = await _gather_all(self._providers, keys)
-        return dict(zip(keys, results))
+        # strict: a provider returning the wrong number of values must fail the
+        # panel render, not silently drop a section.
+        return dict(zip(keys, results, strict=True))
 
     async def one(self, key: str) -> Any:
         return (await self.fetch((key,)))[key]
@@ -60,7 +62,6 @@ class PanelContext:
 
 async def _gather_all(providers: dict[str, Provider], keys: tuple[str, ...]) -> list[Any]:
     """Await every provider, tolerating a provider that is a plain callable."""
-    import asyncio
     import inspect
 
     results: list[Any] = []

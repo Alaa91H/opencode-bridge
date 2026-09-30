@@ -47,7 +47,7 @@ class CancellationTests(unittest.IsolatedAsyncioTestCase):
         process.returncode = None
         process.terminate = Mock()
         process.kill = Mock()
-        process.wait = AsyncMock(side_effect=[asyncio.TimeoutError(), 0])
+        process.wait = AsyncMock(side_effect=[TimeoutError(), 0])
         with patch("bridge.infrastructure.processes.cancellable.asyncio.wait_for", side_effect=asyncio.TimeoutError):
             # use a fresh wait mock because wait_for times out before consuming it
             process.wait = AsyncMock(return_value=0)

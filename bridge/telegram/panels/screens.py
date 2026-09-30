@@ -13,10 +13,10 @@ from bridge.telegram.panels.registry import (
     ACT,
     MENU,
     NAVIGATE,
+    RAW,
     Panel,
     PanelAction,
     PanelView,
-    RAW,
 )
 
 BACK_LABEL = "‹ رجوع"
@@ -102,6 +102,9 @@ async def settings_screen(context: Any, data: dict[str, Any]) -> PanelView:
         f"🤖 النموذج: {model}",
         f"🎚 مستوى الاستدلال: {variant}",
         f"📌 التثبيت اليدوي: {'مفعّل' if pinned else 'معطّل'}",
+        f"🔔 التقدّم: {_NOTIFICATION_LABELS.get(level, level)}",
+        f"📄 أسلوب العرض: {_OUTPUT_LABELS.get(style, style)}",
+        f"🗑 مدة الاحتفاظ: {_RETENTION_LABELS.get(str(retention), f'{retention} يوم')}",
     ]
     rows: list[tuple[PanelAction, ...]] = [
         _row(_nav("🤖 تغيير النموذج والمستوى", "model")),
@@ -119,7 +122,7 @@ async def settings_screen(context: Any, data: dict[str, Any]) -> PanelView:
             lines.append(f"• {key}: {value}")
     else:
         lines.append("• لا توجد إعدادات معروضة")
-    return PanelView(text="\n".join(lines), rows=tuple(rows) + (_row(_nav("📏 عرض الحدود", "system")),))
+    return PanelView(text="\n".join(lines), rows=(*rows, _row(_nav("📏 عرض الحدود", "system"))))
 
 
 NOTIFICATION_CHOICES = (
@@ -134,6 +137,10 @@ OUTPUT_CHOICES = (
     ("compact", "⚡ مختصر"),
 )
 RETENTION_CHOICES = (("1", "يوم"), ("7", "٧ أيام"), ("30", "٣٠ يوم"), ("90", "٩٠ يوم"))
+
+_NOTIFICATION_LABELS = dict(NOTIFICATION_CHOICES)
+_OUTPUT_LABELS = dict(OUTPUT_CHOICES)
+_RETENTION_LABELS = dict(RETENTION_CHOICES)
 
 
 def _option(label: str, name: str) -> PanelAction:
@@ -196,7 +203,7 @@ async def tasks_screen(context: Any, data: dict[str, Any]) -> PanelView:
         lines += ["", "لا توجد مهام فاشلة."]
     return PanelView(
         text="\n".join(lines),
-        rows=tuple(rows) + (_row(PanelAction(label="🔄 تحديث", verb="refresh")),),
+        rows=(*rows, _row(PanelAction(label="🔄 تحديث", verb="refresh"))),
     )
 
 
@@ -232,7 +239,7 @@ async def schedules_screen(context: Any, data: dict[str, Any]) -> PanelView:
         lines.append("لا توجد مهام مجدولة. أضف واحدة بأمر /schedule <اسم> <المهمة>.")
     return PanelView(
         text="\n".join(lines),
-        rows=tuple(rows) + (_row(PanelAction(label="🔄 تحديث", verb="refresh")),),
+        rows=(*rows, _row(PanelAction(label="🔄 تحديث", verb="refresh"))),
     )
 
 
@@ -279,7 +286,7 @@ async def downloads_screen(context: Any, data: dict[str, Any]) -> PanelView:
         lines += ["", "لا توجد ملفات محفوظة."]
     return PanelView(
         text="\n".join(lines),
-        rows=tuple(rows) + (_row(PanelAction(label="🔄 تحديث", verb="refresh")),),
+        rows=(*rows, _row(PanelAction(label="🔄 تحديث", verb="refresh"))),
     )
 
 

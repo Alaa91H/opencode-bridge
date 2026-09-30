@@ -1,6 +1,10 @@
 import unittest
 
-from bridge.domain.policies.execution_profiles import CAPABILITIES, ExecutionPolicy, ExecutionProfile
+from bridge.domain.policies.execution_profiles import (
+    CAPABILITIES,
+    ExecutionPolicy,
+    ExecutionProfile,
+)
 
 
 class ExecutionProfileTests(unittest.TestCase):

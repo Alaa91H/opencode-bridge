@@ -9,12 +9,11 @@ Only Telegram's own transport is substituted, with a recording bot, because the
 Bot API cannot be called from a unit test.
 """
 
-import asyncio
 import json
 import tempfile
 import threading
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
@@ -22,15 +21,13 @@ from typing import Any
 from bridge.infrastructure.database.migrations import MigrationRunner
 from bridge.infrastructure.database.sqlite import BridgeDatabase
 from bridge.infrastructure.database.user_settings_store import UserSettingsStore
-from bridge.services.agent_service import AgentService
 from bridge.services.download_service import DownloadService
 from bridge.services.model_selection_service import ModelSelectionService
 from bridge.services.user_preferences_service import UserPreferencesService
 from bridge.telegram.panels import (
-    MENU,
     MAX_CALLBACK_BYTES,
+    MENU,
     PanelContext,
-    PanelError,
     PanelRouter,
     build_panels,
 )
@@ -42,7 +39,7 @@ OWNER = "424242"
 
 
 def _future(minutes: int = 60) -> datetime:
-    return datetime.now(timezone.utc) + timedelta(minutes=minutes)
+    return datetime.now(UTC) + timedelta(minutes=minutes)
 
 
 def catalog_payload() -> dict[str, Any]:
@@ -84,7 +81,7 @@ class _OpenCodeHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
+    def do_GET(self) -> None:
         if self.path == "/global/health":
             self._send({"healthy": True, "version": "e2e-1.2.3"})
             return
@@ -93,7 +90,7 @@ class _OpenCodeHandler(BaseHTTPRequestHandler):
             return
         self._send({}, status=404)
 
-    def do_POST(self) -> None:  # noqa: N802
+    def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length") or 0)
         self.rfile.read(length)
         if self.path == "/session":
@@ -383,7 +380,7 @@ class PanelEndToEndTests(unittest.IsolatedAsyncioTestCase):
         job = await self.tasks.create_scheduled_job(OWNER, 10, "تقرير", "prompt", _future())
         first = FakeUpdate(data=f"pnl:do:schedules:delete_schedule:{job.id}")
         await self.routers[True].handle(first, None)
-        cancel = FakeUpdate(data=f"pnl:no:schedules")
+        cancel = FakeUpdate(data="pnl:no:schedules")
         await self.routers[True].handle(cancel, None)
         self.assertIsNotNone(await self.tasks.get_scheduled_job(OWNER, "تقرير"))
 

@@ -7,10 +7,19 @@ from pathlib import Path
 from unittest.mock import patch
 
 from bridge.domain.attachments.media_pipeline import MediaInput, MediaPipeline
-from bridge.infrastructure.media.archives import ArchiveLimits, UnsafeArchive, extract_zip, zip_manifest
-from bridge.infrastructure.media.processors import AudioProcessor, ImageProcessor, PdfProcessor, VideoProcessor
+from bridge.infrastructure.media.archives import (
+    ArchiveLimits,
+    UnsafeArchive,
+    extract_zip,
+    zip_manifest,
+)
+from bridge.infrastructure.media.processors import (
+    AudioProcessor,
+    ImageProcessor,
+    PdfProcessor,
+    VideoProcessor,
+)
 from bridge.infrastructure.media.tools import MediaToolCapabilities, detect_media_tools
-
 
 NO_TOOLS = MediaToolCapabilities(None, None, None, None, None)
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+
 import bot as core
 
 log = logging.getLogger("opencode_bridge.bootstrap")

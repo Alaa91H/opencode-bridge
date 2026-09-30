@@ -5,12 +5,11 @@ with real files on a real filesystem. Only the Telegram send path is absent,
 because that belongs to the command adapter.
 """
 
-import asyncio
 import json
 import tempfile
 import threading
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -23,7 +22,7 @@ from bridge.services.download_service import (
     validate_url,
 )
 
-UTC = timezone.utc
+UTC = UTC
 OWNER = "4242"
 OTHER = "9999"
 
@@ -45,7 +44,7 @@ class _FileServer(BaseHTTPRequestHandler):
     def log_message(self, *args: object) -> None:
         return
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         type(self).requests.append(self.path)
         if self.redirect_to and self.path == "/redirect":
             self.send_response(302)

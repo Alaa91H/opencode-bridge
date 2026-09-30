@@ -50,7 +50,7 @@ class UserPreferencesTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.service.get("alice")).language, "ar")
 
     async def test_validation_rejects_bad_values_and_unknown_keys(self):
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValueError):
             await self.service.update("alice", timezone="Not/AZone")
         with self.assertRaises(ValueError):
             await self.service.update("alice", retention_days=-1)

@@ -1,9 +1,9 @@
-import aiosqlite
 import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+
+import aiosqlite
 
 from bridge.infrastructure.database.sqlite import BridgeDatabase
 
@@ -18,12 +18,12 @@ class UserSession:
     opencode_session_id: str
     created_at: datetime
     updated_at: datetime
-    model: Optional[str] = None
-    title: Optional[str] = None
+    model: str | None = None
+    title: str | None = None
 
 
 class SessionStore:
-    def __init__(self, db_path: Optional[Path] = None, database: BridgeDatabase | None = None):
+    def __init__(self, db_path: Path | None = None, database: BridgeDatabase | None = None):
         self.db_path = Path(db_path or DB_PATH)
         self.database = database or BridgeDatabase(self.db_path)
         self._owns_database = database is None
@@ -57,14 +57,13 @@ class SessionStore:
             title=row["title"],
         )
 
-    async def get_session(self, telegram_user_id: str) -> Optional[UserSession]:
+    async def get_session(self, telegram_user_id: str) -> UserSession | None:
         db = await self._get_db()
-        async with self._lock:
-            async with db.execute(
-                "SELECT * FROM sessions WHERE telegram_user_id = ?",
-                (telegram_user_id,),
-            ) as cursor:
-                row = await cursor.fetchone()
+        async with self._lock, db.execute(
+            "SELECT * FROM sessions WHERE telegram_user_id = ?",
+            (telegram_user_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
         if not row:
             return None
         return self._from_row(row)
@@ -81,7 +80,7 @@ class SessionStore:
         self,
         telegram_user_id: str,
         opencode_session_id: str,
-        model: Optional[str] = None,
+        model: str | None = None,
     ) -> UserSession:
         now = datetime.utcnow()
         session = UserSession(
@@ -114,10 +113,10 @@ class SessionStore:
     async def update_session(
         self,
         telegram_user_id: str,
-        opencode_session_id: Optional[str] = None,
-        model: Optional[str] = None,
-        title: Optional[str] = None,
-    ) -> Optional[UserSession]:
+        opencode_session_id: str | None = None,
+        model: str | None = None,
+        title: str | None = None,
+    ) -> UserSession | None:
         now = datetime.utcnow()
         db = await self._get_db()
         async with self._lock:

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 
 @dataclass(frozen=True)
@@ -32,6 +32,9 @@ class ResourcePressure:
     ram: float = 0.0
     disk: float = 0.0
     io: float = 0.0
+
+
+_DEFAULT_RESOURCEPRESSURE = ResourcePressure()  # frozen config: safe to share as a default
 
 
 @dataclass(frozen=True)
@@ -83,7 +86,7 @@ class ResourceScheduler:
             cost.media / max(capacity.media, .001),
         )
 
-    def pack(self, tasks: Iterable[ResourceTask], pressure: ResourcePressure = ResourcePressure()) -> tuple[ResourceTask, ...]:
+    def pack(self, tasks: Iterable[ResourceTask], pressure: ResourcePressure = _DEFAULT_RESOURCEPRESSURE) -> tuple[ResourceTask, ...]:
         available = self.available(pressure)
         # Best-fit-decreasing by dominant resource share reduces fragmentation.
         ranked = sorted(tasks, key=lambda t: (-self._weight(t.cost, self.capacity), t.task_id))

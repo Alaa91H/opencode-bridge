@@ -8,13 +8,18 @@ until the T04 database-layer migration.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from bridge.domain.policies import RequestGuard
 from bridge.domain.schedules import parse_interval_seconds
 
-UTC = timezone.utc
+UTC = UTC
+
+# This class exposes a public method named `list`, so inside the class body the
+# bare name `list` resolves to that method rather than the builtin, which makes
+# `-> list[dict[str, Any]]` an invalid type. Qualify it explicitly.
+_BuiltinList = list
 
 
 class ScheduleRepository(Protocol):
@@ -77,7 +82,7 @@ class ScheduleService:
             return value.replace(tzinfo=UTC)
         return value.astimezone(UTC)
 
-    async def list(self, owner_id: str, limit: int = 100) -> list[Any]:
+    async def list(self, owner_id: str, limit: int = 100) -> _BuiltinList[Any]:
         return await self.repository.list_scheduled_jobs(owner_id, limit=limit)
 
     async def get(self, owner_id: str, name: str) -> Any:
@@ -225,7 +230,7 @@ class ScheduleService:
         if not await self.repository.delete_scheduled_job(owner_id, name):
             raise ScheduleNotFound(name)
 
-    async def history(self, owner_id: str, name: str, limit: int = 20) -> list[dict[str, Any]]:
+    async def history(self, owner_id: str, name: str, limit: int = 20) -> _BuiltinList[dict[str, Any]]:
         await self.get(owner_id, name)
         return await self.repository.list_schedule_history(owner_id, name, limit)
 

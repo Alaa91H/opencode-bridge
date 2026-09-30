@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
 
 import aiosqlite
 
@@ -70,9 +70,8 @@ class BridgeDatabase:
 
     async def integrity_check(self) -> str:
         db = await self.connect()
-        async with self.transaction_lock:
-            async with db.execute("PRAGMA integrity_check") as cursor:
-                row = await cursor.fetchone()
+        async with self.transaction_lock, db.execute("PRAGMA integrity_check") as cursor:
+            row = await cursor.fetchone()
         return str(row[0]) if row else "unknown"
 
     async def close(self) -> None:

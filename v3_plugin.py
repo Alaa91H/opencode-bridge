@@ -10,7 +10,7 @@ from telegram import BotCommand, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 import bot as core
-from bridge.services.workspace_service import WorkspaceService, workspace_prompt
+from bridge.services.workspace_service import WorkspaceService
 from bridge.telegram.commands.workspaces import WorkspaceCommands
 from resource_monitor import HostResourcePolicy
 from task_service_v3 import TaskServiceV3
@@ -39,7 +39,11 @@ class V3TaskService(TaskServiceV3):
         self.resource_policy = HostResourcePolicy() if ADAPTIVE_WORKERS else None
         provider = None
         if self.resource_policy is not None:
-            provider = lambda: self.resource_policy.decide(TASK_WORKERS).allowed_workers
+            policy = self.resource_policy
+
+            def provider() -> int:
+                return policy.decide(TASK_WORKERS).allowed_workers
+
         super().__init__(
             store,
             executor,

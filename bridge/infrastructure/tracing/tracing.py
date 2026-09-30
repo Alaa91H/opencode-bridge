@@ -6,11 +6,11 @@ import hashlib
 import random
 import re
 import secrets
+from collections.abc import Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Mapping
 
-_TRACE: ContextVar["TraceContext | None"] = ContextVar("bridge_trace", default=None)
+_TRACE: ContextVar[TraceContext | None] = ContextVar("bridge_trace", default=None)
 _SECRET = re.compile(r"(?i)(token|secret|password|authorization|api[_-]?key)")
 
 
@@ -34,11 +34,11 @@ class TraceContext:
     baggage: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
-    def root(cls, policy: SamplingPolicy | None = None) -> "TraceContext":
+    def root(cls, policy: SamplingPolicy | None = None) -> TraceContext:
         p = policy or SamplingPolicy()
         return cls(secrets.token_hex(16), secrets.token_hex(8), p.sample())
 
-    def child(self) -> "TraceContext":
+    def child(self) -> TraceContext:
         return TraceContext(self.trace_id, secrets.token_hex(8), self.sampled, self.baggage)
 
     def traceparent(self) -> str:

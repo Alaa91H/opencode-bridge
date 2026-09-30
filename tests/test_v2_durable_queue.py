@@ -1,4 +1,5 @@
 import asyncio
+import sqlite3
 import tempfile
 import unittest
 from datetime import timedelta
@@ -59,7 +60,7 @@ class DurableQueueTests(unittest.TestCase):
                 store = TaskQueueStore(Path(tmp) / "queue.db")
                 await store.init()
                 await store.enqueue("owner", 1, "one", idempotency_key="same")
-                with self.assertRaises(Exception):
+                with self.assertRaises(sqlite3.IntegrityError):
                     await store.enqueue("owner", 1, "two", idempotency_key="same")
                 await store.close()
         asyncio.run(scenario())

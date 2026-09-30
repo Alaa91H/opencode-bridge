@@ -4,7 +4,9 @@ import unittest
 from pathlib import Path
 
 from bridge.infrastructure.database.migration_safety import (
-    MigrationPlan, MigrationSafety, Snapshot,
+    MigrationPlan,
+    MigrationSafety,
+    Snapshot,
 )
 
 

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from bridge.domain.attachments.intelligence import AttachmentContext, AttachmentIntelligenceRouter, AttachmentRoute
+from bridge.domain.attachments.intelligence import (
+    AttachmentContext,
+    AttachmentIntelligenceRouter,
+    AttachmentRoute,
+)
 from bridge.domain.attachments.media_pipeline import MediaInput
 from bridge.services.media_pipeline_service import MediaPipelineService
 

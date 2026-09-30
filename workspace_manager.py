@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 from urllib.parse import urlparse
 
 _SLUG_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -97,7 +97,7 @@ class GitWorkspaceManager:
         )
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=self.git_timeout)
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             raise WorkspaceError("انتهت مهلة عملية Git قبل اكتمالها") from exc
         out = stdout.decode("utf-8", errors="replace").strip()
         err = stderr.decode("utf-8", errors="replace").strip()

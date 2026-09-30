@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from bridge.infrastructure.database.attachment_store import AttachmentMetadataStore
@@ -39,7 +39,7 @@ class AttachmentStorageService:
         return True
 
     async def cleanup_expired(self, now: datetime | None = None) -> int:
-        stamp = (now or datetime.now(timezone.utc)).isoformat()
+        stamp = (now or datetime.now(UTC)).isoformat()
         expired = await self.metadata.expired_references(stamp)
         removed = 0
         for reference_id, owner_id in expired:

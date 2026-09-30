@@ -9,7 +9,6 @@ from pathlib import Path
 from resource_monitor import ResourceSnapshot, WorkerDecision
 from shadow_policy_audit import AuditedShadowPolicy
 
-
 SNAPSHOT = ResourceSnapshot(
     total_memory_mib=4096,
     available_memory_mib=3072,

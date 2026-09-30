@@ -18,6 +18,9 @@ class WorkspacePolicy:
     allow_pr: bool = False
 
 
+_DEFAULT_WORKSPACEPOLICY = WorkspacePolicy()  # frozen config: safe to share as a default
+
+
 @dataclass(frozen=True)
 class Workspace:
     task_id: str
@@ -31,7 +34,7 @@ class WorkspaceBusy(RuntimeError):
 
 
 class WorkspaceManager:
-    def __init__(self, root: Path, policy: WorkspacePolicy = WorkspacePolicy()) -> None:
+    def __init__(self, root: Path, policy: WorkspacePolicy = _DEFAULT_WORKSPACEPOLICY) -> None:
         self.root = root.resolve()
         self.policy = policy
         self._locks: set[str] = set()

@@ -7,12 +7,12 @@ import mimetypes
 import re
 import shutil
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from bridge.infrastructure.storage.streaming import copy_stream
-from typing import Any, Iterable
-
 
 SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -73,7 +73,7 @@ class StoredAttachment:
         return record
 
     @classmethod
-    def from_record(cls, record: dict[str, Any]) -> "StoredAttachment":
+    def from_record(cls, record: dict[str, Any]) -> StoredAttachment:
         required = ("path", "filename", "mime", "size", "kind")
         if not all(key in record for key in required):
             raise AttachmentError("بيانات المرفق غير مكتملة")

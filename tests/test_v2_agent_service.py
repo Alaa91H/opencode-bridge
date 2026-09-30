@@ -190,7 +190,7 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_file_transport_failure_retries_without_direct_parts(self) -> None:
         self.client.send_errors = [415]
-        response, model = await self.service.send_prompt_with_fallback(
+        response, _model = await self.service.send_prompt_with_fallback(
             "u",
             "s-1",
             "hello",
