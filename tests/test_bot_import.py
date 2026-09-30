@@ -10,12 +10,33 @@ sys.path.insert(0, str(PROJECT_DIR))
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "123456:TEST_TOKEN_FOR_IMPORT_ONLY")
 os.environ.setdefault("TELEGRAM_ALLOWED_USERS", "1")
 
+# bot.DEFAULT_AGENT is `SETTINGS.opencode.agent`, and the settings layer merges
+# the host .env into the environment. This test asserts a property of the code,
+# not of whichever agent a given host happens to run, so it pins the input
+# before the import. Assign rather than setdefault: on a deployed host the
+# variable is often unset in the environment and only present in .env, and
+# setdefault would leave the test reading the host's value.
+#
+# This is what made the suite pass only when a caller exported
+# OPENCODE_AGENT=telegram-operator, which meant verify.sh failed in CI and on
+# the host while local runs looked green.
+os.environ["OPENCODE_AGENT"] = "telegram-operator"
+
 import bot
 
 
 class BotImportTests(unittest.TestCase):
-    def test_default_agent_is_operator(self) -> None:
+    def test_default_agent_comes_from_the_pinned_setting(self) -> None:
+        # The wiring is what matters: DEFAULT_AGENT must be the configured
+        # value, not a hardcoded literal inside bot.py.
+        self.assertEqual(bot.DEFAULT_AGENT, bot.SETTINGS.opencode.agent)
         self.assertEqual(bot.DEFAULT_AGENT, "telegram-operator")
+
+    def test_default_agent_is_not_hardcoded(self) -> None:
+        # If someone inlines a literal, the deployment can no longer choose the
+        # agent and the second assertion above stops meaning anything.
+        source = (PROJECT_DIR / "bot.py").read_text(encoding="utf-8")
+        self.assertIn("DEFAULT_AGENT = SETTINGS.opencode.agent", source)
 
     def test_help_keeps_commands_and_excludes_removed_operational_text(self) -> None:
         self.assertIn("/health", bot.HELP_TEXT)
