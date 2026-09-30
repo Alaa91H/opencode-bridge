@@ -75,6 +75,18 @@ fi
 
 "$PYTHON_BIN" scripts/check_queue.py
 
+# A checkout of the target can delete a file the deployed unit depends on if
+# that revision does not track it. wait_for_opencode.py is an ExecStartPre of
+# opencode-bridge-telegram.service, so losing it takes the bot down.
+readonly REQUIRED_RUNTIME_FILES=(wait_for_opencode.py)
+for required in "${REQUIRED_RUNTIME_FILES[@]}"; do
+  if ! git cat-file -e "${TARGET_COMMIT}:${required}" 2>/dev/null; then
+    echo "الوسم ${TARGET_TAG} لا يتتبّع ${required}، وهو اعتماد حي للخدمة." >&2
+    echo "سيتوقّف البوت بعد النشر. ارفع الملف أو أدرج المرجع كـExecStartPre." >&2
+    exit 65
+  fi
+done
+
 if [[ "$TARGET_COMMIT" == "$DEPLOYED_COMMIT" ]]; then
   echo "الخدمة المنشورة تطابق المرجع المطلوب: ${TARGET_COMMIT:0:12}"
   exit 0
