@@ -23,6 +23,7 @@ from bridge.infrastructure.database.migrations import MigrationRunner
 from bridge.infrastructure.database.sqlite import BridgeDatabase
 from bridge.infrastructure.database.user_settings_store import UserSettingsStore
 from bridge.services.agent_service import AgentService
+from bridge.services.download_service import DownloadService
 from bridge.services.model_selection_service import ModelSelectionService
 from bridge.services.user_preferences_service import UserPreferencesService
 from bridge.telegram.panels import (
@@ -172,6 +173,7 @@ class PanelEndToEndTests(unittest.IsolatedAsyncioTestCase):
             session_model_writer=self._write_session_model,
             variant_resolver=self._variant,
         )
+        self.downloads = DownloadService(self.root / "downloads", allow_private_hosts=True)
         self.routers = self._build_routers()
 
     async def asyncTearDown(self) -> None:
@@ -200,6 +202,8 @@ class PanelEndToEndTests(unittest.IsolatedAsyncioTestCase):
             "active": self._active,
             "failed": self._failed,
             "schedules": self._schedules,
+            "downloads": self._downloads,
+            "capabilities": self._capabilities,
         }
 
         def make(allowed: bool) -> PanelRouter:
@@ -266,6 +270,13 @@ class PanelEndToEndTests(unittest.IsolatedAsyncioTestCase):
 
     async def _schedules(self, owner_id: str) -> list[Any]:
         return await self.tasks.list_scheduled_jobs(owner_id)
+
+    async def _downloads(self, owner_id: str) -> list[Any]:
+        return self.downloads.list(owner_id)
+
+    async def _capabilities(self, owner_id: str) -> dict[str, Any]:
+        del owner_id
+        return self.downloads.capabilities()
 
     # --------------------------------------------------------------- actions
 

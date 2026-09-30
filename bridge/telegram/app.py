@@ -61,6 +61,8 @@ def core_commands() -> list[BotCommand]:
         BotCommand("unshare", "إلغاء رابط المشاركة"),
         BotCommand("help", "المساعدة"),
         BotCommand("menu", "لوحة التحكم"),
+        BotCommand("download", "تنزيل رابط وإرساله كملف"),
+        BotCommand("deletefile", "حذف ملف منزّل"),
     ]
 
 
@@ -101,6 +103,8 @@ def register_core_handlers(
     app.add_handler(CallbackQueryHandler(handlers.handle_model_callback, pattern=r"^mdl:"))
     app.add_handler(CallbackQueryHandler(handlers.handle_panel_callback, pattern=r"^pnl:"))
     app.add_handler(CommandHandler("menu", handlers.cmd_menu))
+    app.add_handler(CommandHandler("download", handlers.cmd_download))
+    app.add_handler(CommandHandler("deletefile", handlers.cmd_deletefile))
     app.add_handler(CommandHandler("share", handlers.cmd_share))
     app.add_handler(CommandHandler("unshare", handlers.cmd_unshare))
     app.add_handler(CommandHandler("model", handlers.cmd_model))

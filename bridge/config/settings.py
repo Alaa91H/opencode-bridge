@@ -161,6 +161,13 @@ _ALLOWED_SECTION_KEYS: dict[str, set[str]] = {
         "attachment_pending_seconds",
         "media_group_debounce_seconds",
     },
+    "downloads": {
+        "max_file_bytes",
+        "max_total_bytes",
+        "ttl_hours",
+        "direct_send_limit",
+        "cleanup_interval_seconds",
+    },
     "opencode": {
         "host",
         "port",
@@ -240,6 +247,17 @@ class TelegramSettings:
 
 
 @dataclass(frozen=True)
+class DownloadSettings:
+    """Managed link downloads kept on the host and sent back over Telegram."""
+
+    max_file_bytes: int = 2000 * 1024 * 1024
+    max_total_bytes: int = 8 * 1024 * 1024 * 1024
+    ttl_hours: int = 24
+    direct_send_limit: int = 50 * 1024 * 1024
+    cleanup_interval_seconds: int = 900
+
+
+@dataclass(frozen=True)
 class OpenCodeSettings:
     host: str = "127.0.0.1"
     port: int = 4096
@@ -299,6 +317,7 @@ class FeatureFlags:
 @dataclass(frozen=True)
 class BridgeSettings:
     telegram: TelegramSettings = field(default_factory=TelegramSettings)
+    downloads: DownloadSettings = field(default_factory=DownloadSettings)
     opencode: OpenCodeSettings = field(default_factory=OpenCodeSettings)
     agent: AgentSettings = field(default_factory=AgentSettings)
     workspace: WorkspaceSettings = field(default_factory=WorkspaceSettings)
@@ -618,7 +637,50 @@ class BridgeSettings:
         }
         settings = cls(
             telegram=telegram,
-            opencode=opencode,
+            downloads=DownloadSettings(
+            max_file_bytes=_parse_int(
+                _source_value(
+                    merged_env, config, "DOWNLOAD_MAX_FILE_BYTES",
+                    "downloads.max_file_bytes", 2000 * 1024 * 1024
+                ),
+                key="DOWNLOAD_MAX_FILE_BYTES",
+                minimum=1,
+            ),
+            max_total_bytes=_parse_int(
+                _source_value(
+                    merged_env, config, "DOWNLOAD_MAX_TOTAL_BYTES",
+                    "downloads.max_total_bytes", 8 * 1024 * 1024 * 1024
+                ),
+                key="DOWNLOAD_MAX_TOTAL_BYTES",
+                minimum=1,
+            ),
+            ttl_hours=_parse_int(
+                _source_value(
+                    merged_env, config, "DOWNLOAD_TTL_HOURS",
+                    "downloads.ttl_hours", 24
+                ),
+                key="DOWNLOAD_TTL_HOURS",
+                minimum=1,
+                maximum=8760,
+            ),
+            direct_send_limit=_parse_int(
+                _source_value(
+                    merged_env, config, "DOWNLOAD_DIRECT_SEND_LIMIT",
+                    "downloads.direct_send_limit", 50 * 1024 * 1024
+                ),
+                key="DOWNLOAD_DIRECT_SEND_LIMIT",
+                minimum=1,
+            ),
+            cleanup_interval_seconds=_parse_int(
+                _source_value(
+                    merged_env, config, "DOWNLOAD_CLEANUP_INTERVAL_SECONDS",
+                    "downloads.cleanup_interval_seconds", 900
+                ),
+                key="DOWNLOAD_CLEANUP_INTERVAL_SECONDS",
+                minimum=60,
+            ),
+        ),
+        opencode=opencode,
             agent=agent,
             workspace=workspace,
             github=github,

@@ -240,15 +240,59 @@ async def schedules_screen(context: Any, data: dict[str, Any]) -> PanelView:
 
 
 async def downloads_screen(context: Any, data: dict[str, Any]) -> PanelView:
-    del data
+    records = data.get("downloads") or []
+    caps = data.get("capabilities") or {}
+    lines = [
+        "💾 <b>الملفات والتنزيلات</b>",
+        "",
+        "أرسل رابط <code>http</code> أو <code>https</code> كرسالة،",
+        "وال.bot بيزوّده ويحفظه هنا ويرجّعه لك.",
+        "",
+        f"حد الملف: {_human(caps.get('max_file_bytes'))} — المساحة المتاحة: {_human(caps.get('free_bytes'))}",
+        f"مدة الحفظ: {caps.get('ttl_hours', 24)} ساعة — المستخدَم: {_human(caps.get('used_bytes'))}",
+        f"الإرسال المباشر: لحد {_human(caps.get('direct_send_limit'))} — فوق هيتبعت برابط.",
+    ]
+    if not caps.get("ytdlp_available"):
+        lines += ["", "ℹ️ استخراج الفيديو من المواقع غير متاح على هذا الخادم."]
+    rows: list[tuple[PanelAction, ...]] = []
+    if records:
+        lines += ["", f"<b>الملفات ({len(records)})</b>"]
+        for record in records[:10]:
+            mark = "📤" if record.sendable_inline else "🔗"
+            lines.append(
+                f"{mark} {record.filename} — {_human(record.size_bytes)} — يتبخّر {record.expires_at[:16].replace('T', ' ')}"
+            )
+        for record in records[:8]:
+            rows.append(
+                _row(
+                    PanelAction(label=f"📤 إرسال: {record.filename[:24]}", verb="send", arg=record.id),
+                    PanelAction(
+                        label=f"🗑 حذف: {record.filename[:20]}",
+                        verb="delete_download",
+                        arg=record.id,
+                        confirm=f"هل تريد حذف «{record.filename[:60]}»؟",
+                        destructive=True,
+                    ),
+                )
+            )
+    else:
+        lines += ["", "لا توجد ملفات محفوظة."]
     return PanelView(
-        text=(
-            "💾 <b>الملفات والتنزيلات</b>\n\n"
-            "هذه الشاشة قيد الإنشاء. تنزيل الملفات المباشرة والفيديو "
-            "سيضاف كإصدار مستقل بعد استكمال باقي اللوحة."
-        ),
-        rows=(),
+        text="\n".join(lines),
+        rows=tuple(rows) + (_row(PanelAction(label="🔄 تحديث", verb="refresh")),),
     )
+
+
+def _human(value: Any) -> str:
+    try:
+        size = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    for unit in ("بايت", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            return f"{size:.0f} {unit}" if unit == "بايت" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
 
 
 # ----------------------------------------------------------------- model link
@@ -334,7 +378,12 @@ def build_panels() -> dict[str, Panel]:
         "schedules": Panel(
             name="schedules", title="الجدولة", render=schedules_screen, needs=("schedules",)
         ),
-        "downloads": Panel(name="downloads", title="الملفات", render=downloads_screen, needs=()),
+        "downloads": Panel(
+            name="downloads",
+            title="الملفات والتنزيلات",
+            render=downloads_screen,
+            needs=("downloads", "capabilities"),
+        ),
         "model": Panel(name="model", title="النموذج", render=model_screen, needs=()),
         "help": Panel(name="help", title="المساعدة", render=help_screen, needs=("commands",)),
     }

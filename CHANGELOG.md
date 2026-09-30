@@ -1,3 +1,36 @@
+## [2.0.0-rc.6] - 2026-09-30
+
+### Managed downloads
+
+- Added `/download <url>`: fetches one http or https link into a managed root, keeps it for a retention window, and sends the file back over Telegram when it fits the direct-send limit. Larger files are recorded in the panel instead.
+- Added a downloads panel under `/menu` listing stored files with send and delete buttons, and showing the real limits, free space, and whether video extraction is available on the host.
+- Added `/deletefile <id>`.
+- Retention is enforced every 15 minutes by a loop that runs once at startup and then on the interval; the interval is configurable and the loop cannot take the bridge down.
+
+### Untrusted input handling
+
+- Downloads are refused before a single byte is fetched when the scheme is not http or https, or when the host is loopback, private, link-local, reserved, multicast, `localhost` or `.local`. The cloud metadata address and the host's own private address are both covered.
+- Every address a hostname resolves to is checked, not just the literal, so a public name pointing inward is still refused.
+- The redirect chain is validated after the response arrives, so a redirect cannot walk the transfer into the internal network.
+- The test-only `allow_private_hosts` escape hatch defaults to False, and a dedicated test asserts that production gets the strict policy and that the escape hatch does not relax the scheme rule.
+
+### Storage
+
+- Files are written to a `.part` path first and only moved into place once the transfer completes, so a failure, a size cap, or a full budget never leaves a partial file or a stale index entry.
+- Per-file and total budgets bound the disk regardless of how many files are requested.
+- The filename comes from the server response, is Unicode-normalized and sanitized, and the result is asserted to stay inside the managed root.
+- Each owner gets their own directory, the index is written atomically at 0600, and list, get, and delete all filter by owner.
+- A corrupt index is discarded instead of breaking every read.
+
+### Dependencies and architecture
+
+- No new runtime dependency: downloads use the already-pinned httpx, and video extraction is an optional host tool rather than a package, because the exact-pin supply-chain policy allows only three direct runtime dependencies.
+- The download logic lives in `bridge/telegram/commands/downloads.py` so the `bot.py` handlers stay single-await delegates, as the architecture boundary test requires.
+
+### Verification
+
+- Added 18 end-to-end tests against a real HTTP server on a real socket: a real download with byte-for-byte verification, index survival across service instances, owner isolation, eight SSRF shapes, scheme rejection, size and budget limits, partial-file cleanup, filename sanitization, expiry cleanup, cross-owner delete refusal, corrupt index recovery, and host capability reporting.
+- Total suite: 498 tests.
 ## [2.0.0-rc.5] - 2026-09-29
 
 ### Fixes

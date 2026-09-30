@@ -42,9 +42,11 @@ from bridge.services.config_service import ConfigurationService
 from bridge.services.draft_service import DraftService
 from bridge.infrastructure.database.draft_store import DraftStore
 from bridge.infrastructure.database.user_settings_store import UserSettingsStore
+from bridge.services.download_service import DownloadService, DownloadError
 from bridge.services.model_selection_service import ModelSelectionService
 from bridge.services.user_preferences_service import UserPreferencesService
 from bridge.telegram.callbacks.model_picker import ModelPickerCallbackAdapter
+from bridge.telegram.commands.downloads import DownloadCommands
 from bridge.telegram.panels import (
     ACT,
     MENU,
@@ -159,6 +161,9 @@ _model_picker_callback_instance: ModelPickerCallbackAdapter | None = None
 _model_selection_service: ModelSelectionService | None = None
 _user_preferences_service: UserPreferencesService | None = None
 _panel_router_instance: PanelRouter | None = None
+_download_service: DownloadService | None = None
+_download_commands_instance: DownloadCommands | None = None
+download_cleanup_task: asyncio.Task[None] | None = None
 _access_controller_instance: TelegramAccessController | None = None
 _request_guard = RequestGuard((check_build, check_hardline))
 _agent_service = AgentService(
@@ -327,6 +332,62 @@ def _model_picker_callbacks() -> ModelPickerCallbackAdapter:
     return _model_picker_callback_instance
 
 
+def _downloads() -> DownloadService:
+    global _download_service
+    if _download_service is None:
+        _download_service = DownloadService(
+            BRIDGE_DIR / "runtime" / "downloads",
+            max_file_bytes=SETTINGS.downloads.max_file_bytes,
+            max_total_bytes=SETTINGS.downloads.max_total_bytes,
+            ttl_hours=SETTINGS.downloads.ttl_hours,
+            direct_send_limit=SETTINGS.downloads.direct_send_limit,
+        )
+    return _download_service
+
+
+def _download_command_adapter() -> DownloadCommands:
+    global _download_commands_instance
+    if _download_commands_instance is None:
+        _download_commands_instance = DownloadCommands(
+            _downloads(),
+            reply=_safe_reply,
+            error_message=user_error,
+            audit_write=audit.write,
+            logger=log,
+        )
+    return _download_commands_instance
+
+
+def _download_cleanup_loop() -> None:
+    """Remove downloads past their retention window. Never raises."""
+    try:
+        result = _downloads().cleanup_expired()
+        if result["removed"]:
+            log.info(
+                "تنظيف التنزيلات: حُذف %s ملف (%s بايت)",
+                result["removed"],
+                result["freed_bytes"],
+            )
+    except Exception as exc:
+        log.info("تعذر تنظيف التنزيلات: %s", type(exc).__name__)
+
+
+async def _download_cleanup_task() -> None:
+    interval = max(60, int(SETTINGS.downloads.cleanup_interval_seconds))
+    _download_cleanup_loop()
+    while True:
+        await asyncio.sleep(interval)
+        _download_cleanup_loop()
+
+
+def _schedule_download_cleanup() -> None:
+    global download_cleanup_task
+    if download_cleanup_task is None or download_cleanup_task.done():
+        download_cleanup_task = asyncio.create_task(
+            _download_cleanup_task(), name="opencode-bridge-download-cleanup"
+        )
+
+
 def _panel_providers() -> dict[str, Any]:
     """Real data sources for the control panel. Nothing here is mocked state."""
 
@@ -398,6 +459,8 @@ def _panel_providers() -> dict[str, Any]:
         "active": lambda owner_id: _task_application_service.active(owner_id),
         "failed": lambda owner_id: _task_application_service.failed(owner_id),
         "schedules": lambda owner_id: task_store.list_scheduled_jobs(owner_id),
+        "downloads": lambda owner_id: _downloads().list(owner_id),
+        "capabilities": lambda owner_id: _downloads().capabilities(),
     }
 
 
@@ -437,14 +500,19 @@ def _panel_actions() -> dict[tuple[str, str], Any]:
             "تم تحديث تفضيل %s للمالك %s", field, context.owner_id
         )
 
+    async def delete_download(context: PanelContext, arg: str) -> None:
+        _downloads().delete(context.owner_id, arg)
+
     return {
         ("system", "refresh"): noop,
         ("tasks", "refresh"): noop,
         ("schedules", "refresh"): noop,
+        ("downloads", "refresh"): noop,
         ("tasks", "cancel"): cancel_task,
         ("tasks", "retry"): retry_task,
         ("schedules", "toggle_schedule"): toggle_schedule,
         ("schedules", "delete_schedule"): delete_schedule,
+        ("downloads", "delete_download"): delete_download,
         ("settings.notification", ACT): set_preference,
         ("settings.output", ACT): set_preference,
         ("settings.retention", ACT): set_preference,
@@ -866,6 +934,14 @@ async def cmd_health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await _agent_command_adapter().health(update, context)
 
 @authorized
+async def cmd_download(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _download_command_adapter().download(update, context)
+
+@authorized
+async def cmd_deletefile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _download_command_adapter().delete(update, context)
+
+@authorized
 async def cmd_agents(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _agent_command_adapter().agents(update, context)
 
@@ -916,6 +992,7 @@ async def post_init(app: Application) -> None:
             log.warning("تم تعليم %s مهمة كفاشلة بعد انقطاع سابق.", interrupted)
     if pending_cleanup_task is None or pending_cleanup_task.done():
         pending_cleanup_task = asyncio.create_task(_pending_attachment_cleanup_loop())
+    _schedule_download_cleanup()
     if model_manager is None:
         model_manager = ModelManager(
             client=client,
