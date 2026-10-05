@@ -19,8 +19,8 @@ jobs:
   preflight:
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Install locked runtime dependencies
@@ -42,8 +42,8 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 260
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Run endurance segment 1
@@ -51,7 +51,7 @@ jobs:
         run: |
           REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
           python scripts/soak_segment.py --request-id "$REQUEST_ID" --source-sha "$GITHUB_SHA" --segment 1 --output segment-1.json --duration-seconds 14700
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: soak-segment-1
           path: segment-1.json
@@ -62,8 +62,8 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 260
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Run endurance segment 2
@@ -71,7 +71,7 @@ jobs:
         run: |
           REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
           python scripts/soak_segment.py --request-id "$REQUEST_ID" --source-sha "$GITHUB_SHA" --segment 2 --output segment-2.json --duration-seconds 14700
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: soak-segment-2
           path: segment-2.json
@@ -82,8 +82,8 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 260
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Run endurance segment 3
@@ -91,7 +91,7 @@ jobs:
         run: |
           REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
           python scripts/soak_segment.py --request-id "$REQUEST_ID" --source-sha "$GITHUB_SHA" --segment 3 --output segment-3.json --duration-seconds 14700
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: soak-segment-3
           path: segment-3.json
@@ -102,8 +102,8 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 260
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Run endurance segment 4
@@ -111,7 +111,7 @@ jobs:
         run: |
           REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
           python scripts/soak_segment.py --request-id "$REQUEST_ID" --source-sha "$GITHUB_SHA" --segment 4 --output segment-4.json --duration-seconds 14700
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: soak-segment-4
           path: segment-4.json
@@ -122,8 +122,8 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 260
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Run endurance segment 5
@@ -131,7 +131,7 @@ jobs:
         run: |
           REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
           python scripts/soak_segment.py --request-id "$REQUEST_ID" --source-sha "$GITHUB_SHA" --segment 5 --output segment-5.json --duration-seconds 14700
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: soak-segment-5
           path: segment-5.json
@@ -142,8 +142,8 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 260
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Run endurance segment 6
@@ -151,7 +151,7 @@ jobs:
         run: |
           REQUEST_ID="$(python -c 'import json; print(json.load(open("soak-request-2.0.json"))["request_id"])')"
           python scripts/soak_segment.py --request-id "$REQUEST_ID" --source-sha "$GITHUB_SHA" --segment 6 --output segment-6.json --duration-seconds 14700
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: soak-segment-6
           path: segment-6.json
@@ -161,18 +161,18 @@ jobs:
     needs: segment-6
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           pattern: soak-segment-*
           path: soak-parts
           merge-multiple: true
       - name: Validate 24-72h active soak evidence
         run: python scripts/aggregate_soak.py soak-parts --output soak-evidence.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: soak-evidence-2.0
           path: soak-evidence.json
@@ -186,12 +186,12 @@ jobs:
       contents: write
       actions: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: soak-evidence-2.0
 
