@@ -202,7 +202,8 @@ def parse_credential_pool(value: str | None) -> tuple[OpenCodeCredential, ...]:
     if not value or not value.strip():
         return ()
     credentials: list[OpenCodeCredential] = []
-    normalized = value.replace("\\r\\n", "\\n").replace(";", "\\n")\n    for raw in normalized.splitlines():
+    normalized = value.replace("\\r\\n", "\\n").replace(";", "\\n")
+    for raw in normalized.splitlines():
         entry = raw.strip()
         if not entry:
             continue
