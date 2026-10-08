@@ -7,8 +7,10 @@ It never rotates credentials for zen_free_quota because that bucket is shared by
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from threading import Lock
 from typing import Iterable
 
@@ -17,6 +19,7 @@ from typing import Iterable
 class OpenCodeCredential:
     name: str
     secret: str
+    weight: int = 1
 
     @property
     def fingerprint(self) -> str:
@@ -29,6 +32,20 @@ class CredentialSnapshot:
     fingerprint: str
     state: str
     cooldown_until: datetime | None = None
+    successes: int = 0
+    failures: int = 0
+    consecutive_failures: int = 0
+    last_used_at: datetime | None = None
+
+
+@dataclass
+class _RuntimeState:
+    successes: int = 0
+    failures: int = 0
+    consecutive_failures: int = 0
+    cooldown_until: datetime | None = None
+    last_used_at: datetime | None = None
+    disabled: bool = False
 
 
 class CredentialPool:
@@ -41,9 +58,9 @@ class CredentialPool:
             raise ValueError("credential names must be unique")
         if any(not item.name or not item.secret for item in self._credentials):
             raise ValueError("credential name and secret must be non-empty")
-        self._cooldowns: dict[str, datetime] = {}
-        self._disabled: set[str] = set()
-        self._cursor = 0
+        if any(item.weight < 1 for item in self._credentials):
+            raise ValueError("credential weight must be >= 1")
+        self._state = {item.name: _RuntimeState() for item in self._credentials}
         self._lock = Lock()
 
     def __len__(self) -> int:
@@ -58,13 +75,14 @@ class CredentialPool:
             for offset in range(len(self._credentials)):
                 index = (self._cursor + offset) % len(self._credentials)
                 item = self._credentials[index]
-                if item.name in blocked or item.name in self._disabled:
+                runtime = self._state[item.name]
+                if item.name in blocked or runtime.disabled:
                     continue
-                cooldown = self._cooldowns.get(item.name)
+                cooldown = runtime.cooldown_until
                 if cooldown is not None and cooldown > current:
                     continue
-                self._cooldowns.pop(item.name, None)
-                self._cursor = (index + 1) % len(self._credentials)
+                runtime.cooldown_until = None
+                runtime.last_used_at = current
                 return item
         return None
 
@@ -74,11 +92,16 @@ class CredentialPool:
             return False
         current = (now or datetime.now(UTC)).astimezone(UTC)
         with self._lock:
+            runtime = self._state[name]
+            runtime.failures += 1
+            runtime.consecutive_failures += 1
+            runtime.last_used_at = current
             if category in {"auth", "invalid_credential"}:
-                self._disabled.add(name)
+                runtime.disabled = True
                 return True
             if category in {"credential_quota", "credential_rate_limit"}:
-                self._cooldowns[name] = current + timedelta(seconds=max(1.0, retry_after))
+                backoff = min(3600.0, 30.0 * (2 ** min(runtime.consecutive_failures - 1, 7)))
+                runtime.cooldown_until = current + timedelta(seconds=max(1.0, retry_after, backoff))
                 return True
         return False
 
@@ -87,15 +110,16 @@ class CredentialPool:
         result: list[CredentialSnapshot] = []
         with self._lock:
             for item in self._credentials:
-                cooldown = self._cooldowns.get(item.name)
-                if item.name in self._disabled:
+                runtime = self._state[item.name]
+                cooldown = runtime.cooldown_until
+                if runtime.disabled:
                     state = "disabled"
                 elif cooldown is not None and cooldown > current:
                     state = "cooldown"
                 else:
                     state = "ready"
                     cooldown = None
-                result.append(CredentialSnapshot(item.name, item.fingerprint, state, cooldown))
+                result.append(CredentialSnapshot(item.name, item.fingerprint, state, cooldown, runtime.successes, runtime.failures, runtime.consecutive_failures, runtime.last_used_at))
         return tuple(result)
 
 
