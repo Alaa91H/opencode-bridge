@@ -28,13 +28,13 @@ class TaskServiceV3:
         store: TaskQueueStore,
         executor: TaskExecutor,
         poll_seconds: float = 5.0,
-        max_workers: int = 2,
+        max_workers: int = 3,
         worker_limit_provider: WorkerLimitProvider | None = None,
     ) -> None:
         self.store = store
         self.executor = executor
         self.poll_seconds = max(0.5, min(60.0, float(poll_seconds)))
-        self.max_workers = max(1, min(int(max_workers), 8))
+        self.max_workers = max(1, min(int(max_workers), 3))
         self.worker_limit_provider = worker_limit_provider
         self._wake = asyncio.Event()
         self._stop = asyncio.Event()
@@ -45,11 +45,15 @@ class TaskServiceV3:
         if self.worker_limit_provider is None:
             return self.max_workers
         try:
+            policy = getattr(self.worker_limit_provider, "policy", None)
+            sample = getattr(policy, "snapshot", None)
+            if callable(sample):
+                sample(force=True)
             requested = int(self.worker_limit_provider())
         except Exception as exc:
             log.warning("adaptive worker limit provider failed: %s", type(exc).__name__)
-            return 1
-        return max(1, min(requested, self.max_workers))
+            return 0
+        return max(0, min(requested, self.max_workers))
 
     def worker_can_claim(self, worker_id: int) -> bool:
         """Return whether this worker may claim a new task right now."""

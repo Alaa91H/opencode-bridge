@@ -278,7 +278,7 @@ class AgentSettings:
     scout_interval_seconds: float = 86400.0
     scout_preferred_agent: str = "development-agent"
     v3_agent: str = "development-agent"
-    task_workers: int = 2
+    task_workers: int = 3
     task_poll_seconds: float = 5.0
     worker_recovery_seconds: float = 30.0
 
@@ -522,13 +522,13 @@ class BridgeSettings:
                 "agent.v3_agent",
                 _nested(config, "opencode.agent", "development-agent"),
             )).strip() or "development-agent",
-            task_workers=_parse_int(
+            task_workers=min(3, _parse_int(
                 _source_value(
                     merged_env, config, "AGENT_TASK_WORKERS",
-                    "agent.task_workers", 2
+                    "agent.task_workers", 3
                 ),
                 key="AGENT_TASK_WORKERS", minimum=1, maximum=8,
-            ),
+            )),
             task_poll_seconds=_parse_float(
                 _source_value(
                     merged_env, config, "AGENT_TASK_POLL_SECONDS",
@@ -812,6 +812,8 @@ class BridgeSettings:
                 "agent.task_workers",
             }:
                 parsed = _parse_int(value, key=path, minimum=1)
+                if path == "agent.task_workers":
+                    parsed = min(3, parsed)
             elif path == "agent.task_poll_seconds":
                 parsed = _parse_float(value, key=path, minimum=0.5, maximum=60)
             else:

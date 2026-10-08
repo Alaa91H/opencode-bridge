@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from resource_monitor import HostResourcePolicy, ResourceSnapshot
 
@@ -15,6 +16,12 @@ class FixedPolicy(HostResourcePolicy):
 
 
 class ResourcePolicyTests(unittest.TestCase):
+    def test_missing_cpu_count_fails_resource_sampling_closed(self) -> None:
+        policy = HostResourcePolicy()
+        with patch("resource_monitor.os.cpu_count", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "CPU sample unavailable"):
+                policy.snapshot(force=True)
+
     def sample(
         self,
         total=4096,

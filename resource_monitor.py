@@ -6,6 +6,7 @@ is safe to use continuously on small VPS hosts.
 
 from __future__ import annotations
 
+import math
 import os
 import time
 from dataclasses import dataclass
@@ -83,8 +84,14 @@ class HostResourcePolicy:
             return self._cached_snapshot
 
         mem = self._read_meminfo()
+        if mem.get("MemTotal", 0) <= 0 or not ("MemAvailable" in mem or "MemFree" in mem):
+            raise RuntimeError("host memory sample unavailable")
         load1 = self._read_load1()
-        cpu_count = max(1, os.cpu_count() or 1)
+        if not math.isfinite(load1) or load1 < 0:
+            raise RuntimeError("host load sample unavailable")
+        cpu_count = os.cpu_count()
+        if cpu_count is None or cpu_count <= 0:
+            raise RuntimeError("host CPU sample unavailable")
         stat = os.statvfs(self.root_path)
         disk_total = stat.f_blocks * stat.f_frsize
         disk_free = stat.f_bavail * stat.f_frsize
@@ -313,16 +320,16 @@ class HostResourcePolicy:
                 number = value.strip().split(maxsplit=1)[0]
                 if number.isdigit():
                     result[key] = int(number)
-        except OSError:
-            pass
+        except OSError as exc:
+            raise RuntimeError("host memory sample unavailable") from exc
         return result
 
     @staticmethod
     def _read_load1(path: Path = Path("/proc/loadavg")) -> float:
         try:
             return float(path.read_text(encoding="utf-8").split()[0])
-        except (OSError, ValueError, IndexError):
-            return 0.0
+        except (OSError, ValueError, IndexError) as exc:
+            raise RuntimeError("host load sample unavailable") from exc
 
     @staticmethod
     def _read_memory_psi(path: Path = Path("/proc/pressure/memory")) -> float | None:

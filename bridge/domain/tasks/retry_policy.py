@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any
 
@@ -31,6 +31,47 @@ class RetryDecision:
     delay_seconds: float
     unlimited: bool = False
     pending: bool = False
+    retry_at: datetime | None = None
+
+
+def is_zen_free_model(model_id: str | None) -> bool:
+    """Recognize OpenCode Zen models whose IDs explicitly carry the free suffix."""
+    if not model_id:
+        return False
+    provider, separator, model = model_id.partition("/")
+    return bool(
+        separator
+        and provider.casefold() in {"opencode", "opencode-zen"}
+        and model.casefold().endswith("-free")
+    )
+
+
+def next_utc_midnight(now: datetime | None = None) -> datetime:
+    """Return the next UTC day boundary used by the Zen free usage limiter."""
+    current = now or datetime.now(UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+    current = current.astimezone(UTC)
+    return (current + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _retry_after_matches_reset(value: str | None, reset_at: datetime, now: datetime | None) -> bool:
+    if not value:
+        return False
+    reference = now or datetime.now(UTC)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=UTC)
+    expected_seconds = (reset_at - reference.astimezone(UTC)).total_seconds()
+    try:
+        return abs(float(value) - expected_seconds) <= 2.0
+    except (TypeError, ValueError, OverflowError):
+        try:
+            parsed = parsedate_to_datetime(value)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            return abs((parsed.astimezone(UTC) - reset_at).total_seconds()) <= 2.0
+        except (TypeError, ValueError, OverflowError):
+            return False
 
 
 def retry_after_seconds(value: str | None) -> float:
@@ -49,16 +90,23 @@ def retry_after_seconds(value: str | None) -> float:
     return max(1.0, seconds) if math.isfinite(seconds) else 60.0
 
 
-def classify_retry(exc: Exception) -> RetryDecision | None:
+def classify_retry(
+    exc: Exception,
+    *,
+    model_id: str | None = None,
+    now: datetime | None = None,
+) -> RetryDecision | None:
     """Quota waits never exhaust the retry budget; auth/config errors do."""
     status = 0
     body = ""
     delay = 60.0
     pending = False
+    retry_after_value: str | None = None
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
         body = exc.response.text.casefold()
-        delay = retry_after_seconds(exc.response.headers.get("Retry-After"))
+        retry_after_value = exc.response.headers.get("Retry-After")
+        delay = retry_after_seconds(retry_after_value)
     elif isinstance(exc, ProviderTaskError):
         data = exc.error.get("data", exc.error)
         if not isinstance(data, dict):
@@ -71,12 +119,28 @@ def classify_retry(exc: Exception) -> RetryDecision | None:
         headers = data.get("responseHeaders") or {}
         if isinstance(headers, dict):
             value = next((v for k, v in headers.items() if k.casefold() == "retry-after"), None)
+            retry_after_value = str(value) if value is not None else None
             delay = retry_after_seconds(str(value) if value is not None else None)
         pending = exc.pending
     elif isinstance(exc, (httpx.TimeoutException, httpx.NetworkError)):
         return RetryDecision("transport", 60.0, pending=True)
     else:
         return None
+
+    reset_at = next_utc_midnight(now)
+    zen_free_quota = is_zen_free_model(model_id) and (
+        any(marker in body for marker in (
+            "freeusagelimiterror",
+            "free-models-per-day",
+        ))
+        or (status == 429 and _retry_after_matches_reset(retry_after_value, reset_at, now))
+    )
+    if zen_free_quota:
+        reference = now or datetime.now(UTC)
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=UTC)
+        delay = max(1.0, (reset_at - reference.astimezone(UTC)).total_seconds())
+        return RetryDecision("zen_free_quota", delay, unlimited=True, pending=pending, retry_at=reset_at)
 
     quota = any(marker in body for marker in (
         "insufficient_quota", "quota_exceeded", "quota exceeded", "usage limit",
