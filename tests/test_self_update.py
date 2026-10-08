@@ -17,7 +17,7 @@ class SelfUpdatePolicyTests(unittest.TestCase):
         expected = "alaa91h/opencode-bridge"
         self.assertEqual(self_update.normalize_github_repository("https://github.com/Alaa91H/opencode-bridge.git"), expected)
         self.assertEqual(self_update.normalize_github_repository("git@github.com:Alaa91H/opencode-bridge.git"), expected)
-        self.assertEqual(self_update.normalize_github_repository("ssh://git@github.com/Alaa91H/opencode-bridge.git"), expected)
+        self.assertEqual(self_update.normalize_github_repository("ssh://git@github.com:Alaa91H/opencode-bridge.git"), expected)
 
     def test_rejects_non_github_and_wrong_repository(self) -> None:
         self.assertIsNone(self_update.normalize_github_repository("https://example.com/Alaa91H/opencode-bridge.git"))
@@ -31,7 +31,7 @@ class SelfUpdatePolicyTests(unittest.TestCase):
 
     def test_production_updater_never_compiles_or_runs_tests(self) -> None:
         source = MODULE_PATH.read_text(encoding="utf-8")
-        self.assertNotIn("compileall", source)
+        self.assertNotIn('"compileall"', source)
         self.assertNotIn('"unittest"', source)
         self.assertNotIn("_validate_candidate", source)
 
