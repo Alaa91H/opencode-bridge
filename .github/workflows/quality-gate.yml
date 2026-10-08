@@ -1,0 +1,202 @@
+name: Unified Quality Pipeline
+
+# Strict hygiene gate. Nothing here is advisory: a check that cannot fail the
+# job is a report, not a gate, so the blocking path uses no exit-zero fallback
+# operator. The "Confirm the gate has no advisory escapes" step below greps this
+# workflow too, which is why this comment avoids spelling the pattern out.
+on:
+  push:
+    branches: [main, "preview/**"]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unified-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hygiene:
+    name: hygiene (python ${{ matrix.python-version }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install quality tools
+        run: |
+          python -m pip install --disable-pip-version-check --quiet \
+            ruff==0.14.4 mypy==1.14.1 vulture==2.14
+
+      - name: Version
+        run: cat VERSION
+
+      - name: Strict lint and hygiene
+        env:
+          QUALITY_PYTHON: python
+        run: bash scripts/quality.sh
+
+      - name: Confirm the gate has no advisory escapes
+        run: |
+          if grep -nE '\|\|\s*true' scripts/quality.sh .github/workflows/quality.yml; then
+            echo "advisory escape found; a check cannot fail the job" >&2
+            exit 1
+          fi
+
+      - name: Shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends shellcheck
+          for file in start.sh scripts/*.sh maintenance/*.sh; do
+            [[ -f "$file" ]] || continue
+            shellcheck -S warning "$file"
+          done
+
+  release-identity:
+    name: release identity is tag-bound
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Deploy script requires a tag
+        run: |
+          set -euo pipefail
+          script=scripts/deploy.sh
+          # A deployment must never default to HEAD or accept a raw ref.
+          if grep -qE 'TARGET_REF=.*HEAD' "$script"; then
+            echo "deploy.sh still defaults to HEAD" >&2
+            exit 1
+          fi
+          for required in 'RELEASE_TAG_PATTERN' 'refs/tags/' 'deployment-identity' 'VERSION'; do
+            grep -q "$required" "$script" || { echo "deploy.sh missing $required" >&2; exit 1; }
+          done
+
+      - name: VERSION matches the tag on a tagged build
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ "v${version}" != "$tag" ]]; then
+            echo "tag ${tag} does not match VERSION ${version}" >&2
+            exit 1
+          fi
+
+      - name: system units are stamped by systemd.py
+        run: |
+          set -euo pipefail
+          grep -q 'BRIDGE_RELEASE_TAG' systemd.py
+          grep -q 'deployment-identity' systemd.py
+
+
+  tests:
+    name: strict tests (python ${{ matrix.python-version }})
+    needs: hygiene
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install locked runtime dependencies
+        run: |
+          python -m pip install -r requirements.lock -c constraints.txt
+          python -m pip check
+      - name: Compile and test
+        env:
+          PYTHONWARNINGS: error::DeprecationWarning
+        run: |
+          python -m compileall -q .
+          python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Baseline architecture and benchmark
+        run: |
+          python scripts/v2_baseline_probe.py --inventory-only
+          python scripts/v2_baseline_probe.py --benchmark-only
+          python -m json.tool opencode.json >/dev/null
+
+  security:
+    name: security and supply chain
+    needs: hygiene
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Dependency vulnerability gate
+        run: |
+          python -m pip install pip-audit==2.9.0
+          pip-audit -r requirements.lock
+      - name: Secret detection gate
+        run: |
+          python -m pip install detect-secrets==1.5.0
+          detect-secrets scan --all-files --exclude-files '(^|/)\.git/|^tests/' > /tmp/secrets.json
+          python -c "import json; d=json.load(open('/tmp/secrets.json')); assert not any(d.get('results', {}).values()), d.get('results')"
+      - name: Static security gate
+        run: |
+          python -m pip install bandit==1.8.6
+          bandit -r bridge opencode_client.py bot.py -q -lll
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: sbom.spdx.json
+      - name: Checksums
+        run: sha256sum requirements.lock constraints.txt VERSION > release-checksums.txt
+      - name: Attest SBOM
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-sbom@v3
+        with:
+          subject-path: requirements.lock
+          sbom-path: sbom.spdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: security-evidence-${{ github.sha }}
+          path: |
+            sbom.spdx.json
+            release-checksums.txt
+          retention-days: 30
+
+  final-gate:
+    name: final strict gate
+    needs: [hygiene, tests, security, release-identity]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify single-workflow architecture
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          count="$(find .github/workflows -maxdepth 1 -type f | wc -l)"
+          [[ "$count" -eq 1 ]]
+          echo "quality=PASS tests=PASS security=PASS release_identity=PASS"
