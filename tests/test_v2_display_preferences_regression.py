@@ -18,6 +18,7 @@ reimplement a scope checker.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import pathlib
 import sys
 import unittest
@@ -59,7 +60,10 @@ class DisplayPreferencesNameTests(unittest.TestCase):
 
     def test_helper_is_a_coroutine_function(self) -> None:
         # The delivery adapter awaits this hook, so it must stay async.
-        self.assertTrue(asyncio.iscoroutinefunction(bot._display_preferences))
+        # inspect.iscoroutinefunction is the supported spelling: asyncio's copy is
+        # deprecated and is scheduled for removal in Python 3.16, which CI already
+        # turns into a test error via PYTHONWARNINGS=error::DeprecationWarning.
+        self.assertTrue(inspect.iscoroutinefunction(bot._display_preferences))
 
 
 class DisplayPreferencesWiringTests(unittest.TestCase):
