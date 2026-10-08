@@ -46,12 +46,10 @@ jobs:
           CLASS="$(python scripts/release_version.py "$VERSION")"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "class=$CLASS" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
           if [[ "$CLASS" == "preview" ]]; then
             echo "VERSION=$VERSION is a preview; stable publication is skipped."
-            echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
-            exit 0
           fi
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Skip stable publication for preview
         if: steps.version.outputs.class == 'preview'
@@ -63,7 +61,7 @@ jobs:
         run: python scripts/release_readiness.py release-evidence-2.0.json
 
       - name: Wait for 2.0 quality and supply-chain gates
-        if: steps.version.outputs.class == 'stable' && steps.version.outputs.version == '2.0.0'
+        if: steps.version.outputs.class == 'stable'
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.commit.outputs.sha }}
@@ -91,6 +89,21 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Package immutable source artifact
+        if: steps.version.outputs.class == 'stable'
+        env:
+          TARGET_SHA: ${{ steps.commit.outputs.sha }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ARTIFACT="dist/opencode-bridge-${VERSION}.tar.gz"
+          git archive --format=tar "$TARGET_SHA" | gzip -n > "$ARTIFACT"
+          python scripts/release_artifact.py create "$ARTIFACT" "$VERSION" "$TARGET_SHA" dist/manifest.json
+          python scripts/release_artifact.py verify "$ARTIFACT" dist/manifest.json "$TARGET_SHA"
+           (cd dist && sha256sum "opencode-bridge-$VERSION.tar.gz" > "opencode-bridge-$VERSION.tar.gz.sha256")
 
       - name: Verify release notes source
         if: steps.version.outputs.class == 'stable'
@@ -140,3 +153,14 @@ jobs:
             --title "OpenCode Bridge $TAG" \
             --notes-file RELEASE_NOTES.md \
             --target "$TARGET_SHA"
+
+      - name: Publish verified artifact assets
+        if: steps.version.outputs.class == 'stable'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          ARTIFACT="dist/opencode-bridge-${VERSION}.tar.gz"
+          gh release upload "$TAG" "$ARTIFACT" "${ARTIFACT}.sha256" dist/manifest.json --clobber

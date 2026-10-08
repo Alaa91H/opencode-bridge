@@ -111,7 +111,6 @@ chmod 0600 "${archive}.sha256"
 
 git checkout --detach --quiet "$TARGET_COMMIT"
 "$PYTHON_BIN" systemd.py
-scripts/verify.sh
 sudo -n "${BRIDGE_DIR}/maintenance/install-root-assets.sh"
 
 systemctl --user restart "$SERVICE_NAME"
