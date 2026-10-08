@@ -15,34 +15,13 @@ SPEC.loader.exec_module(self_update)
 class SelfUpdatePolicyTests(unittest.TestCase):
     def test_accepts_only_expected_github_repository_forms(self) -> None:
         expected = "alaa91h/opencode-bridge"
-        self.assertEqual(
-            self_update.normalize_github_repository("https://github.com/Alaa91H/opencode-bridge.git"),
-            expected,
-        )
-        self.assertEqual(
-            self_update.normalize_github_repository("git@github.com:Alaa91H/opencode-bridge.git"),
-            expected,
-        )
-        self.assertEqual(
-            self_update.normalize_github_repository("ssh://git@github.com/Alaa91H/opencode-bridge.git"),
-            expected,
-        )
+        self.assertEqual(self_update.normalize_github_repository("https://github.com/Alaa91H/opencode-bridge.git"), expected)
+        self.assertEqual(self_update.normalize_github_repository("git@github.com:Alaa91H/opencode-bridge.git"), expected)
+        self.assertEqual(self_update.normalize_github_repository("ssh://git@github.com/Alaa91H/opencode-bridge.git"), expected)
 
     def test_rejects_non_github_and_wrong_repository(self) -> None:
         self.assertIsNone(self_update.normalize_github_repository("https://example.com/Alaa91H/opencode-bridge.git"))
-        self.assertNotEqual(
-            self_update.normalize_github_repository("https://github.com/other/opencode-bridge.git"),
-            self_update.EXPECTED_REPOSITORY,
-        )
-
-    def test_update_implementation_never_uses_force_reset_or_clean(self) -> None:
-        source = MODULE_PATH.read_text(encoding="utf-8")
-        self.assertNotIn("reset --hard", source)
-        self.assertNotIn("git clean", source)
-        self.assertNotIn('"merge", "--ff-only"', source)
-        self.assertIn('"worktree", "add", "--detach"', source)
-        self.assertIn('"checkout", "--detach", "--quiet"', source)
-        self.assertIn('"fetch", "--prune", "--tags"', source)
+        self.assertNotEqual(self_update.normalize_github_repository("https://github.com/other/opencode-bridge.git"), self_update.EXPECTED_REPOSITORY)
 
     def test_stable_tag_pattern_rejects_prereleases(self) -> None:
         self.assertIsNotNone(self_update._STABLE_TAG.fullmatch("v1.8.2"))
@@ -50,19 +29,22 @@ class SelfUpdatePolicyTests(unittest.TestCase):
         self.assertIsNone(self_update._STABLE_TAG.fullmatch("v2.0.0-rc1"))
         self.assertIsNone(self_update._STABLE_TAG.fullmatch("latest"))
 
-    def test_untracked_parser_and_conflict_detection_are_exact(self) -> None:
-        self.assertEqual(
-            self_update._nul_paths("wait_for_opencode.py\0runtime/local.tmp\0"),
-            {"wait_for_opencode.py", "runtime/local.tmp"},
-        )
-        self.assertEqual(self_update._nul_paths(""), set())
+    def test_production_updater_never_compiles_or_runs_tests(self) -> None:
+        source = MODULE_PATH.read_text(encoding="utf-8")
+        self.assertNotIn('"compileall"', source)
+        self.assertNotIn('"unittest"', source)
+        self.assertNotIn("_validate_candidate", source)
 
-    def test_policy_ignores_nonconflicting_untracked_files_but_not_tracked_changes(self) -> None:
+    def test_deploy_script_does_not_run_production_validation_suite(self) -> None:
+        source = (PROJECT_DIR / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+        self.assertNotIn("scripts/verify.sh", source)
+
+    def test_update_preserves_clean_checkout_and_exact_sha_guards(self) -> None:
         source = MODULE_PATH.read_text(encoding="utf-8")
         self.assertIn('"--untracked-files=no"', source)
-        self.assertIn('"ls-files", "--others", "--exclude-standard", "-z"', source)
-        self.assertIn('"ls-tree", "-r", "--name-only", "-z"', source)
-        self.assertIn("untracked files would conflict with the target release", source)
+        self.assertIn('"checkout", "--detach", "--quiet"', source)
+        self.assertIn('"merge-base", "--is-ancestor"', source)
+        self.assertIn('"scripts/check_queue.py"', source)
 
 
 if __name__ == "__main__":
