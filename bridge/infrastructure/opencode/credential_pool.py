@@ -105,7 +105,7 @@ class CredentialPool:
                 return True
         return False
 
-    def snapshots(self, *, now: datetime | None = None) -> tuple[CredentialSnapshot, ...]:
+    def record_success(self, name: str, *, now: datetime | None = None) -> None:\n        current = (now or datetime.now(UTC)).astimezone(UTC)\n        with self._lock:\n            runtime = self._state[name]\n            runtime.successes += 1\n            runtime.consecutive_failures = 0\n            runtime.cooldown_until = None\n            runtime.last_used_at = current\n\n    def enable(self, name: str) -> None:\n        with self._lock:\n            runtime = self._state[name]\n            runtime.disabled = False\n            runtime.consecutive_failures = 0\n            runtime.cooldown_until = None\n\n    def snapshots(self, *, now: datetime | None = None) -> tuple[CredentialSnapshot, ...]:
         current = (now or datetime.now(UTC)).astimezone(UTC)
         result: list[CredentialSnapshot] = []
         with self._lock:
