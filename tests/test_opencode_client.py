@@ -10,7 +10,8 @@ import httpx
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_DIR))
 
-from bridge.infrastructure.opencode.credential_pool import CredentialPool, OpenCodeCredential\nfrom opencode_client import OpenCodeClient, message_model_reference
+from bridge.infrastructure.opencode.credential_pool import CredentialPool, OpenCodeCredential
+from opencode_client import OpenCodeClient, message_model_reference
 
 
 class OpenCodeClientPromptTests(unittest.IsolatedAsyncioTestCase):
