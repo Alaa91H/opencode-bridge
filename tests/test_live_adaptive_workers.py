@@ -36,12 +36,12 @@ class LiveAdaptiveWorkerAdmissionTests(unittest.TestCase):
         service = TaskServiceV3(
             store=None,  # type: ignore[arg-type]
             executor=_executor,
-            max_workers=3,
+            max_workers=8,
             worker_limit_provider=lambda: 99,
         )
         self.assertEqual(service.active_worker_limit(), 3)
 
-    def test_provider_failure_falls_back_to_one_worker(self) -> None:
+    def test_provider_failure_fails_closed_without_claiming_work(self) -> None:
         def broken_provider() -> int:
             raise RuntimeError("sampling failed")
 
@@ -51,8 +51,8 @@ class LiveAdaptiveWorkerAdmissionTests(unittest.TestCase):
             max_workers=4,
             worker_limit_provider=broken_provider,
         )
-        self.assertEqual(service.active_worker_limit(), 1)
-        self.assertTrue(service.worker_can_claim(1))
+        self.assertEqual(service.active_worker_limit(), 0)
+        self.assertFalse(service.worker_can_claim(1))
         self.assertFalse(service.worker_can_claim(2))
 
 
