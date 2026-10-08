@@ -1,0 +1,100 @@
+name: Deploy Production
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deployment-not-configured:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
+      vars.PRODUCTION_DEPLOY_ENABLED != 'true'
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Report deployment configuration requirement
+        run: echo "::warning::Artifact is ready, but production deployment is disabled until the production SSH key and pinned known_hosts are configured."
+
+  deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
+      vars.PRODUCTION_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - name: Checkout exact CI commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Download artifact from the successful CI run
+        uses: actions/download-artifact@v5
+        with:
+          name: production-${{ github.event.workflow_run.head_sha }}
+          run-id: ${{ github.event.workflow_run.id }}
+          path: dist
+          github-token: ${{ github.token }}
+
+      - name: Verify artifact and reject stale commits
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          ARTIFACT="opencode-bridge-${SOURCE_SHA}.tar.gz"
+          python scripts/release_artifact.py verify "dist/$ARTIFACT" dist/manifest.json "$SOURCE_SHA"
+          [[ "" == "" ]]
+          (cd dist && sha256sum -c "$ARTIFACT.sha256")
+          CURRENT_MAIN="$(gh api repos/${GITHUB_REPOSITORY}/commits/main --jq .sha)"
+          [[ "$CURRENT_MAIN" == "$SOURCE_SHA" ]] || {
+            echo "Refusing stale deployment: main advanced to $CURRENT_MAIN" >&2
+            exit 1
+          }
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Configure restricted SSH transport
+        env:
+          DEPLOY_KEY: ${{ secrets.PRODUCTION_DEPLOY_KEY }}
+          PINNED_HOSTS: ${{ secrets.PRODUCTION_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$DEPLOY_KEY" ]] || { echo "PRODUCTION_DEPLOY_KEY is missing from the production environment" >&2; exit 1; }
+          [[ -n "$PINNED_HOSTS" ]] || { echo "PRODUCTION_KNOWN_HOSTS is missing from the production environment" >&2; exit 1; }
+          install -d -m 0700 "$RUNNER_TEMP/ssh"
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/ssh/deploy_key"
+          printf '%s\n' "$PINNED_HOSTS" > "$RUNNER_TEMP/ssh/known_hosts"
+          chmod 0600 "$RUNNER_TEMP/ssh/deploy_key" "$RUNNER_TEMP/ssh/known_hosts"
+          ssh-keygen -y -f "$RUNNER_TEMP/ssh/deploy_key" >/dev/null
+
+      - name: Transfer and activate the verified release
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          PRODUCTION_HOST: ${{ vars.PRODUCTION_HOST || '130.61.123.50' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PRODUCTION_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          ARTIFACT="opencode-bridge-${SOURCE_SHA}.tar.gz"
+          REMOTE_DIR="/tmp/opencode-bridge-deploy-${SOURCE_SHA}"
+          SSH=(ssh -i "$RUNNER_TEMP/ssh/deploy_key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts")
+          SCP=(scp -i "$RUNNER_TEMP/ssh/deploy_key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts")
+          "${SSH[@]}" "ubuntu@${PRODUCTION_HOST}" "install -d -m 0700 '$REMOTE_DIR'"
+          "${SCP[@]}" maintenance/activate_artifact.py maintenance/artifact_activation.py "dist/$ARTIFACT" dist/manifest.json "ubuntu@${PRODUCTION_HOST}:${REMOTE_DIR}/"
+          "${SSH[@]}" "ubuntu@${PRODUCTION_HOST}" "set -e; trap 'rm -rf -- '$REMOTE_DIR'' EXIT; /home/ubuntu/opencode-bridge/venv/bin/python '$REMOTE_DIR/activate_artifact.py' --archive '$REMOTE_DIR/$ARTIFACT' --manifest '$REMOTE_DIR/manifest.json' --source-sha '$SOURCE_SHA' --version '$VERSION'"

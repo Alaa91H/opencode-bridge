@@ -23,28 +23,12 @@ class SelfUpdatePolicyTests(unittest.TestCase):
         self.assertIsNone(self_update.normalize_github_repository("https://example.com/Alaa91H/opencode-bridge.git"))
         self.assertNotEqual(self_update.normalize_github_repository("https://github.com/other/opencode-bridge.git"), self_update.EXPECTED_REPOSITORY)
 
-    def test_stable_tag_pattern_rejects_prereleases(self) -> None:
-        self.assertIsNotNone(self_update._STABLE_TAG.fullmatch("v1.8.2"))
-        self.assertIsNotNone(self_update._STABLE_TAG.fullmatch("v2.0.0"))
-        self.assertIsNone(self_update._STABLE_TAG.fullmatch("v2.0.0-rc1"))
-        self.assertIsNone(self_update._STABLE_TAG.fullmatch("latest"))
-
-    def test_production_updater_never_compiles_or_runs_tests(self) -> None:
+    def test_daily_updater_never_mutates_the_production_checkout(self) -> None:
         source = MODULE_PATH.read_text(encoding="utf-8")
+        self.assertNotIn('"checkout"', source)
         self.assertNotIn('"compileall"', source)
         self.assertNotIn('"unittest"', source)
-        self.assertNotIn("_validate_candidate", source)
-
-    def test_deploy_script_does_not_run_production_validation_suite(self) -> None:
-        source = (PROJECT_DIR / "scripts" / "deploy.sh").read_text(encoding="utf-8")
-        self.assertNotIn("scripts/verify.sh", source)
-
-    def test_update_preserves_clean_checkout_and_exact_sha_guards(self) -> None:
-        source = MODULE_PATH.read_text(encoding="utf-8")
-        self.assertIn('"--untracked-files=no"', source)
-        self.assertIn('"checkout", "--detach", "--quiet"', source)
-        self.assertIn('"merge-base", "--is-ancestor"', source)
-        self.assertIn('"scripts/check_queue.py"', source)
+        self.assertEqual(self_update.update()["status"], "skipped")
 
 
 if __name__ == "__main__":

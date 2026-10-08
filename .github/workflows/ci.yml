@@ -69,3 +69,37 @@ jobs:
           assert stable or preview, f"VERSION must be x.y.z or 2.0.0-rc.N, got {value!r}"
           print(value)
           PY
+
+  package:
+    name: package immutable main artifact
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Checkout exact CI commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Package and verify exact source identity
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          mkdir -p dist
+          ARTIFACT="opencode-bridge-${SOURCE_SHA}.tar.gz"
+          git archive --format=tar "$SOURCE_SHA" | gzip -n > "dist/$ARTIFACT"
+          python scripts/release_artifact.py create "dist/$ARTIFACT" "$VERSION" "$SOURCE_SHA" dist/manifest.json
+          python scripts/release_artifact.py verify "dist/$ARTIFACT" dist/manifest.json "$SOURCE_SHA"
+          (cd dist && sha256sum "$ARTIFACT" > "$ARTIFACT.sha256")
+
+      - name: Upload immutable artifact for deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30

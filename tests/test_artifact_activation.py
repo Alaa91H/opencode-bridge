@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import io
 import json
-import tempfile
+import sqlite3
 import tarfile
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-from scripts.release_artifact import create_manifest
 from maintenance.artifact_activation import ArtifactActivator
+from scripts.release_artifact import create_manifest
 
 
 class ArtifactActivationTests(unittest.TestCase):
@@ -26,7 +26,10 @@ class ArtifactActivationTests(unittest.TestCase):
         self.shared_runtime = self.root / "runtime"
         self.shared_runtime.mkdir()
         self.shared_database = self.root / "sessions.db"
-        self.shared_database.write_bytes(b"existing database")
+        with sqlite3.connect(self.shared_database) as database:
+            database.execute("CREATE TABLE state (value TEXT NOT NULL)")
+            database.execute("INSERT INTO state VALUES ('preserved')")
+        self.backup_root = self.root / "backups"
         self.archive = self.root / "release.tar.gz"
         self.manifest_path = self.root / "manifest.json"
         self.source_sha = "a" * 40
@@ -35,7 +38,7 @@ class ArtifactActivationTests(unittest.TestCase):
         self.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         self.activator = ArtifactActivator(
             self.release_root, self.current, self.legacy,
-            self.shared_runtime, self.shared_database,
+            self.shared_runtime, self.shared_database, self.backup_root,
         )
 
     def tearDown(self) -> None:
@@ -60,29 +63,41 @@ class ArtifactActivationTests(unittest.TestCase):
         self.assertEqual(self.current.resolve(), release.resolve())
         self.assertEqual((release / "runtime").resolve(), self.shared_runtime.resolve())
         self.assertEqual((release / "sessions.db").resolve(), self.shared_database.resolve())
+        self.assertTrue((self.backup_root / f"{self.source_sha}-sessions.db").is_file())
         prepare.assert_called_once_with(release)
         restart.assert_called_once_with()
         smoke.assert_called_once_with(release)
 
     def test_failed_smoke_restores_previous_release_and_restarts_it(self) -> None:
         restart = Mock()
+        smoke = Mock()
+
+        def fail_after_mutating_database(_release: Path) -> None:
+            if smoke.call_count == 1:
+                with sqlite3.connect(self.shared_database) as database:
+                    database.execute("UPDATE state SET value = 'partially migrated'")
+                raise RuntimeError("smoke failed")
+
+        smoke.side_effect = fail_after_mutating_database
         with self.assertRaisesRegex(RuntimeError, "smoke failed"):
             self.activator.activate(
                 self.archive, self.manifest_path, self.source_sha, "2.0.0",
-                prepare=Mock(), restart=restart,
-                smoke=Mock(side_effect=RuntimeError("smoke failed")),
+                prepare=Mock(), restart=restart, smoke=smoke,
             )
         self.assertEqual(self.current.resolve(), self.legacy.resolve())
         self.assertEqual(restart.call_count, 2)
+        with sqlite3.connect(self.shared_database) as database:
+            value = database.execute("SELECT value FROM state").fetchone()[0]
+        self.assertEqual(value, "preserved")
+        self.assertEqual(smoke.call_count, 2)
 
     def test_source_sha_and_checksum_mismatch_do_not_switch_release(self) -> None:
-        for expected_sha in ("b" * 40,):
-            with self.subTest(expected_sha=expected_sha), self.assertRaises(ValueError):
-                self.activator.activate(
-                    self.archive, self.manifest_path, expected_sha, "2.0.0",
-                    prepare=Mock(), restart=Mock(), smoke=Mock(),
-                )
-            self.assertFalse(self.current.exists())
+        with self.assertRaises(ValueError):
+            self.activator.activate(
+                self.archive, self.manifest_path, "b" * 40, "2.0.0",
+                prepare=Mock(), restart=Mock(), smoke=Mock(),
+            )
+        self.assertFalse(self.current.exists())
 
         manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
         manifest["sha256"] = hashlib.sha256(b"wrong").hexdigest()
