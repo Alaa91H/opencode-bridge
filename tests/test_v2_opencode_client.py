@@ -4,6 +4,7 @@ import unittest
 
 import httpx
 
+from bridge.infrastructure.opencode.credential_pool import CredentialPool, OpenCodeCredential
 from bridge.infrastructure.opencode.client_v2 import (
     OpenCodeClientV2,
     OpenCodeHttpConfig,
@@ -57,6 +58,21 @@ class OpenCodeClientContractTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await client.close()
 
+    async def test_credential_pool_injects_auth_without_exposing_secret(self):
+        seen = {}
+        async def handler(request):
+            seen["authorization"] = request.headers.get("Authorization")
+            return httpx.Response(200, json={"ok": True})
+        pool = CredentialPool((OpenCodeCredential("primary", "secret-token"),))
+        client = OpenCodeClientV2(OpenCodeHttpConfig("http://opencode.test"), transport=httpx.MockTransport(handler), credential_pool=pool)
+        try:
+            await client.request("GET", "/health")
+        finally:
+            await client.close()
+        self.assertEqual(seen["authorization"], "Bearer secret-token")
+        snapshot = pool.snapshots()[0]
+        self.assertEqual(snapshot.successes, 1)
+        self.assertNotIn("secret-token", repr(snapshot))
 
 class OpenApiAssessmentTests(unittest.TestCase):
     def test_generation_is_not_assumed_without_official_schema(self):
