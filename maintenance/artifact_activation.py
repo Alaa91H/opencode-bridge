@@ -79,6 +79,10 @@ class ArtifactActivator:
             raise ValueError("existing release directory is incomplete")
         if (target / "VERSION").read_text(encoding="utf-8").strip() != expected_version:
             raise ValueError("existing release directory has a different version")
+        for name in ("runtime", "sessions.db"):
+            shared_path = target / name
+            if not shared_path.is_symlink() or shared_path.resolve() != (self.shared_runtime if name == "runtime" else self.shared_database).resolve():
+                raise ValueError(f"existing release has an invalid shared state path: {name}")
 
         previous = self._current_target()
         if previous is None:
@@ -90,6 +94,7 @@ class ArtifactActivator:
         backup: Path | None = None
         switched = False
         quiesced = False
+        database_may_have_changed = False
         try:
             if quiesce is not None:
                 quiesce()
@@ -99,6 +104,7 @@ class ArtifactActivator:
             if previous != target.resolve():
                 self._switch(target)
                 switched = True
+            database_may_have_changed = True
             restart()
             smoke(target)
             if commit is not None:
@@ -106,7 +112,7 @@ class ArtifactActivator:
         except BaseException:
             if switched:
                 self._switch(previous)
-            if quiesced and backup is not None:
+            if database_may_have_changed and backup is not None:
                 self._restore_database(backup)
             try:
                 restart()

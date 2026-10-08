@@ -91,6 +91,39 @@ class ArtifactActivationTests(unittest.TestCase):
         self.assertEqual(value, "preserved")
         self.assertEqual(smoke.call_count, 2)
 
+
+    def test_prepare_failure_does_not_restore_database_while_legacy_release_is_active(self) -> None:
+        restart = Mock()
+
+        def fail_prepare(_release: Path) -> None:
+            with sqlite3.connect(self.shared_database) as database:
+                database.execute("INSERT INTO state VALUES ('written by legacy service')")
+            raise RuntimeError("prepare failed")
+
+        with self.assertRaisesRegex(RuntimeError, "prepare failed"):
+            self.activator.activate(
+                self.archive, self.manifest_path, self.source_sha, "2.0.0",
+                prepare=fail_prepare, restart=restart, smoke=Mock(),
+            )
+        self.assertEqual(self.current.resolve(), self.legacy.resolve())
+        self.assertEqual(restart.call_count, 1)
+        with sqlite3.connect(self.shared_database) as database:
+            values = [row[0] for row in database.execute("SELECT value FROM state ORDER BY rowid")]
+        self.assertEqual(values, ["preserved", "written by legacy service"])
+
+    def test_existing_release_with_untrusted_shared_state_path_is_rejected(self) -> None:
+        release = self.release_root / self.source_sha
+        release.mkdir(parents=True)
+        (release / "VERSION").write_text("2.0.0\n", encoding="utf-8")
+        (release / "runtime").symlink_to(self.root, target_is_directory=True)
+        (release / "sessions.db").symlink_to(self.shared_database)
+        self.current.symlink_to(self.legacy, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "invalid shared state path: runtime"):
+            self.activator.activate(
+                self.archive, self.manifest_path, self.source_sha, "2.0.0",
+                prepare=Mock(), restart=Mock(), smoke=Mock(),
+            )
+
     def test_source_sha_and_checksum_mismatch_do_not_switch_release(self) -> None:
         with self.assertRaises(ValueError):
             self.activator.activate(
