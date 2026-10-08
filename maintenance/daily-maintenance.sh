@@ -86,7 +86,7 @@ bridge_self_update() {
   printf '%s\n' "$BRIDGE_UPDATE_JSON"
   case "$BRIDGE_UPDATE_STATUS" in
     updated|up_to_date) return 0 ;;
-    skipped) return 3 ;;
+    skipped) return 0 ;;
     *) return 2 ;;
   esac
 }

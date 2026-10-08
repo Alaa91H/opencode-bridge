@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-"""Install the prebuilt systemd user units shipped with this bridge.
-
-This helper only copies unit files and reloads systemd. It never builds code,
-installs Python packages, or changes the bridge environment file.
-
-Every unit is stamped with the release tag it came from, so ``systemctl cat``
-answers "which version is running" without a second lookup. The stamp is written
-as a drop-in rather than by editing the shipped unit, so re-running this script
-over a new release replaces the stamp instead of accumulating them.
-"""
+"""Install the prebuilt systemd user units shipped with this bridge."""
 
 from __future__ import annotations
 
@@ -29,12 +20,7 @@ TAG_PATTERN = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$")
 
 
 def _run(argv: list[str], *, capture: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        argv,
-        check=True,
-        text=True,
-        capture_output=capture,
-    )
+    return subprocess.run(argv, check=True, text=True, capture_output=capture)
 
 
 def read_version() -> str:
@@ -46,25 +32,11 @@ def read_version() -> str:
 
 
 def deployed_tag() -> str:
-    """Prefer the tag of the running checkout, then the recorded identity."""
-    bridge_dir = pathlib.Path(__file__).resolve().parent
-    identity = bridge_dir / "runtime" / "deployment-identity"
-    if identity.is_file():
-        match = re.search(
-            r'"tag"\s*:\s*"(v[^"]+)"',
-            identity.read_text(encoding="utf-8"),
-        )
-        if match and TAG_PATTERN.fullmatch(match.group(1)):
-            return match.group(1)
-    head = _run(["git", "-C", str(bridge_dir), "rev-parse", "HEAD"], capture=True).stdout.strip()
-    described = subprocess.run(
-        ["git", "-C", str(bridge_dir), "describe", "--tags", "--exact-match", head],
-        text=True,
-        capture_output=True,
-    )
-    if described.returncode == 0 and TAG_PATTERN.fullmatch(described.stdout.strip()):
-        return described.stdout.strip()
-    return f"v{read_version()}"
+    """Derive the tag from the immutable release tree, which has no .git dir."""
+    tag = f"v{read_version()}"
+    if not TAG_PATTERN.fullmatch(tag):
+        raise SystemExit("VERSION cannot be represented as a release tag")
+    return tag
 
 
 def dropin_text(tag: str, version: str) -> str:
@@ -111,11 +83,7 @@ def install(dropins: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--no-dropin",
-        action="store_true",
-        help="skip stamping the units with the release tag",
-    )
+    parser.add_argument("--no-dropin", action="store_true", help="skip stamping units with the release tag")
     arguments = parser.parse_args(argv)
     return install(dropins=not arguments.no_dropin)
 

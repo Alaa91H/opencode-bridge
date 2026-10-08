@@ -6,7 +6,7 @@ PartOf=opencode-bridge.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/ubuntu/opencode-bridge
+WorkingDirectory=/home/ubuntu/opencode-releases/current
 EnvironmentFile=-/home/ubuntu/opencode-bridge/.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
