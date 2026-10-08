@@ -54,7 +54,7 @@ jobs:
 
       - name: Confirm the gate has no advisory escapes
         run: |
-          if grep -nE '\|\|\s*true' scripts/quality.sh .github/workflows/quality.yml; then
+          if grep -nE '\|\|\s*true' scripts/quality.sh .github/workflows/quality-gate.yml; then
             echo "advisory escape found; a check cannot fail the job" >&2
             exit 1
           fi
@@ -189,6 +189,7 @@ jobs:
 
   final-gate:
     name: final strict gate
+    if: always()
     needs: [hygiene, tests, security, release-identity]
     runs-on: ubuntu-26.04
     timeout-minutes: 5
@@ -197,6 +198,10 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          [[ "${{ needs.hygiene.result }}" == "success" ]]
+          [[ "${{ needs.tests.result }}" == "success" ]]
+          [[ "${{ needs.security.result }}" == "success" ]]
+          [[ "${{ needs.release-identity.result }}" == "success" ]]
           count="$(find .github/workflows -maxdepth 1 -type f | wc -l)"
           [[ "$count" -eq 1 ]]
           echo "quality=PASS tests=PASS security=PASS release_identity=PASS"
