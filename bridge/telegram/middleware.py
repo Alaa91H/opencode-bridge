@@ -40,7 +40,7 @@ class TelegramAccessController:
             return False
         if chat is None:
             return False
-        return chat.type == ChatType.PRIVATE or chat.id in self.allowed_chat_ids
+        return chat.type == ChatType.PRIVATE and chat.id == user.id
 
     def wrap(self, handler: F) -> F:
         async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
