@@ -4,10 +4,12 @@ import tempfile
 import unittest
 from datetime import timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import httpx
 
 from bridge.services.task_execution_service import TaskExecutionService
+from bridge.services.task_service import TaskApplicationService
 from task_queue import TaskQueueStore, encode_time, utc_now
 from task_service_v3 import TaskServiceV3
 from tests.test_v2_task_execution_service import FakeAttachmentStore, FakeDelivery
@@ -130,3 +132,115 @@ class DurableTaskResumeTests(unittest.IsolatedAsyncioTestCase):
         await self.store.cancel(first.id, "a")
         current = await self.store.retry_or_dead_letter(first.id, "quota", retryable=True, max_attempts=None)
         self.assertEqual(current.status, "cancelled")
+
+    async def test_quota_then_restart_then_success_resumes_same_task_and_session(self):
+        first, _ = await self.store.enqueue("a", 1, "finish issues in order", attachments=[{"path": "/tmp/input.txt"}])
+        attachments = FakeAttachmentStore()
+        calls = []
+
+        class Agent:
+            client = object()
+            model_calls = 0
+
+            async def current_model(self, owner_id):
+                self.model_calls += 1
+                return "original-session", "provider/model"
+
+            async def send_prompt_with_fallback(self, owner, session, prompt, parts, model, **kwargs):
+                calls.append((session, prompt, kwargs["message_id"]))
+                if len(calls) == 1:
+                    return {"info": {"error": {"data": {"statusCode": 429}}}}, model
+                return {"parts": [{"type": "text", "text": "completed"}]}, model
+
+        agent = Agent()
+
+        async def execute(task):
+            service = TaskExecutionService(self.store, agent, attachments, audit_write=lambda *a, **k: None)
+            await service.execute(task, FakeDelivery())
+
+        worker = TaskServiceV3(self.store, execute)
+        await worker._execute(await self.store.claim_next())
+        self.assertEqual((await self.store.get(first.id)).status, "retrying")
+        await self.store.close()
+        self.store = TaskQueueStore(Path(self.tmp.name) / "queue.db")
+        await self.store.init()
+        await self.store.recover_interrupted()
+        db = await self.store._get_db()
+        await db.execute("UPDATE agent_tasks SET next_attempt_at=NULL WHERE id=?", (first.id,))
+        await db.commit()
+        worker = TaskServiceV3(self.store, execute)
+        await worker._execute(await self.store.claim_next())
+        self.assertEqual((await self.store.get(first.id)).status, "completed")
+        self.assertEqual(agent.model_calls, 1)
+        self.assertEqual([call[0] for call in calls], ["original-session", "original-session"])
+        self.assertNotEqual(calls[0][2], calls[1][2])
+        self.assertIn("Resume the existing task", calls[1][1])
+        self.assertEqual(attachments.cleaned, [first.id])
+        self.assertEqual(len(attachments.deleted), 1)
+
+    async def test_cancel_deferred_work_aborts_persisted_session_and_releases_queue(self):
+        first, _ = await self.store.enqueue("a", 1, "first")
+        await self.store.claim_next()
+        await self.store.retry_or_dead_letter(first.id, "quota", retryable=True, max_attempts=None,
+                                             checkpoint={"session_id": "saved"})
+        later, _ = await self.store.enqueue("a", 1, "second")
+        aborted = []
+
+        class Client:
+            async def abort_session(self, session_id):
+                aborted.append(session_id)
+
+        class Agent:
+            client = Client()
+
+        service = TaskApplicationService(self.store, Agent(), FakeAttachmentStore(), None)
+        self.assertIsNone(await service.cancel(first.id, "other-owner"))
+        self.assertEqual((await service.cancel(first.id, "a")).status, "cancelled")
+        self.assertEqual(aborted, ["saved"])
+        self.assertEqual((await self.store.claim_next()).id, later.id)
+
+    async def test_notification_and_delivery_errors_cannot_terminalize_deferred_work(self):
+        first, _ = await self.store.enqueue("a", 1, "work")
+        attachments = FakeAttachmentStore()
+        delivery = FakeDelivery()
+
+        async def broken_delivery(*args, **kwargs):
+            raise ConnectionError("Telegram unavailable")
+
+        delivery.reporter.finalize_text = broken_delivery
+        delivery.end = broken_delivery
+
+        class Agent:
+            client = object()
+
+            async def current_model(self, owner):
+                return "saved", "provider/model"
+
+            async def send_prompt_with_fallback(self, *args, **kwargs):
+                return {"info": {"error": {"data": {"statusCode": 429}}}}, "provider/model"
+
+        async def execute(task):
+            service = TaskExecutionService(self.store, Agent(), attachments, audit_write=lambda *a, **k: None)
+            await service.execute(task, delivery)
+
+        worker = TaskServiceV3(self.store, execute)
+        await worker._execute(await self.store.claim_next())
+        self.assertEqual((await self.store.get(first.id)).status, "retrying")
+        self.assertEqual(attachments.cleaned, [])
+
+    async def test_finish_cannot_overwrite_concurrent_cancellation(self):
+        first, _ = await self.store.enqueue("a", 1, "work")
+        original_get = self.store.get
+        cancelled = False
+
+        async def get_then_cancel(task_id):
+            nonlocal cancelled
+            snapshot = await original_get(task_id)
+            if not cancelled:
+                cancelled = True
+                await self.store.cancel(task_id, "a")
+            return snapshot
+
+        with patch.object(self.store, "get", side_effect=get_then_cancel):
+            await self.store.finish(first.id, success=True)
+        self.assertEqual((await self.store.get(first.id)).status, "cancelled")

@@ -1198,7 +1198,7 @@ class TaskQueueStore:
                     SET status = 'scheduled', due_at = ?, updated_at = ?, started_at = NULL,
                         completed_at = ?, last_error = ?, checkpoint_json='{}',
                         lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL, next_attempt_at=NULL
-                    WHERE id = ?
+                    WHERE id = ? AND status != 'cancelled'
                     """,
                     (encode_time(next_due), now, now, None if success else error, task_id),
                 )
@@ -1208,7 +1208,7 @@ class TaskQueueStore:
                     UPDATE agent_tasks
                     SET status = ?, updated_at = ?, completed_at = ?, last_error = ?,
                         lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL, next_attempt_at=NULL
-                    WHERE id = ?
+                    WHERE id = ? AND status != 'cancelled'
                     """,
                     ("completed" if success else "failed", now, now, error, task_id),
                 )

@@ -21,6 +21,10 @@ class ProviderTaskError(Exception):
         self.pending = pending
 
 
+class TaskCancelledError(Exception):
+    """The queue cancelled an execution before it could submit or deliver work."""
+
+
 @dataclass(frozen=True)
 class RetryDecision:
     category: str

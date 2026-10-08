@@ -117,7 +117,9 @@ class TaskServiceV3:
             raise
         except Exception as exc:
             log.exception("task %s failed", task.id)
-            await self.store.finish(task.id, success=False, error=type(exc).__name__)
+            current = await self.store.get(task.id)
+            if current and current.status == "running":
+                await self.store.finish(task.id, success=False, error=type(exc).__name__)
         else:
             current = await self.store.get(task.id)
             if current and current.status == "running":

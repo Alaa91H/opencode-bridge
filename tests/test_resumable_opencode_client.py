@@ -1,9 +1,10 @@
 import json
 import unittest
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
-from bridge.domain.tasks.retry_policy import ProviderTaskError, classify_retry
+from bridge.domain.tasks.retry_policy import ProviderTaskError, TaskCancelledError, classify_retry
 from opencode_client import OpenCodeClient
 
 
@@ -84,3 +85,60 @@ class ResumableOpenCodeClientTests(unittest.IsolatedAsyncioTestCase):
         decision = classify_retry(captured.exception)
         self.assertTrue(decision.pending)
         self.assertTrue(decision.unlimited)
+
+    async def test_outer_wall_deadline_is_classified_as_retryable_transport(self):
+        class Deadline:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                raise TimeoutError("wall deadline")
+
+        client = await self.client(lambda _request: httpx.Response(200, json={}))
+        with patch("opencode_client.asyncio.timeout", return_value=Deadline()):
+            with self.assertRaises(httpx.ReadTimeout) as captured:
+                await client._task_request("GET", "/session/status")
+        self.assertTrue(classify_retry(captured.exception).pending)
+
+    async def test_cancel_before_submission_never_posts(self):
+        posts = []
+
+        def handler(request):
+            if request.method == "POST":
+                posts.append(request.url.path)
+            return httpx.Response(404)
+
+        client = await self.client(handler)
+        with self.assertRaises(TaskCancelledError):
+            await client.send_prompt("saved", "work", message_id="msg_saved", should_continue=AsyncMock(return_value=False))
+        self.assertEqual(posts, [])
+
+    async def test_cancel_after_submission_aborts_before_polling(self):
+        posts = []
+
+        def handler(request):
+            if request.method == "POST":
+                posts.append(request.url.path)
+                return httpx.Response(204)
+            return httpx.Response(404)
+
+        client = await self.client(handler)
+        with self.assertRaises(TaskCancelledError):
+            await client.send_prompt("saved", "work", message_id="msg_saved", should_continue=AsyncMock(side_effect=[True, False]))
+        self.assertEqual(posts, ["/session/saved/prompt_async", "/session/saved/abort"])
+
+    async def test_idle_interruption_allows_continuation_instead_of_reconnecting_forever(self):
+        for reply in ([], [{"info": {"role": "assistant", "parentID": "msg_saved", "time": {"created": 1}}, "parts": []}]):
+            with self.subTest(reply=reply):
+                def handler(request, reply=reply):
+                    if request.url.path.endswith("/message/msg_saved"):
+                        return httpx.Response(200, json={})
+                    if request.url.path == "/session/status":
+                        return httpx.Response(200, json={"saved": {"type": "idle"}})
+                    return httpx.Response(200, json=reply)
+
+                client = await self.client(handler)
+                with patch("opencode_client.asyncio.sleep", new_callable=AsyncMock):
+                    with self.assertRaises(ProviderTaskError) as captured:
+                        await client.send_prompt("saved", "work", message_id="msg_saved")
+                self.assertFalse(classify_retry(captured.exception).pending)

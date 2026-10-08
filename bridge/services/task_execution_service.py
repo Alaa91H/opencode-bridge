@@ -86,6 +86,10 @@ class TaskExecutionService:
         reporter = await delivery.begin(task)
         event_task: asyncio.Task[None] | None = None
         checkpoint = dict(getattr(current, "checkpoint", None) or {})
+
+        async def should_continue() -> bool:
+            active = await self.repository.get(task.id)
+            return active is not None and active.status != "cancelled"
         try:
             requested_mode: ResearchMode | None = None
             if task.execution_mode:
@@ -192,6 +196,7 @@ class TaskExecutionService:
                     audit_write=self.audit_write,
                     task_id=task.id,
                     message_id=checkpoint["message_id"],
+                    should_continue=should_continue,
                 )
             )
             if response.get("info", {}).get("error"):
@@ -218,6 +223,7 @@ class TaskExecutionService:
                         audit_write=self.audit_write,
                         task_id=task.id,
                         message_id=checkpoint["message_id"],
+                        should_continue=should_continue,
                     )
                 )
                 if response.get("info", {}).get("error"):
@@ -330,16 +336,19 @@ class TaskExecutionService:
                     retry_after=decision.delay_seconds, checkpoint=checkpoint,
                 )
                 if deferred is not None and deferred.status == "retrying":
-                    if notify:
-                        await reporter.finalize_text(
-                            "المهمة محفوظة وستُستأنف تلقائيًا عند عودة الرصيد أو الخدمة. "
-                            "لن يتم تجاوزها إلى المهمة التالية. يمكنك إلغاءها من قائمة المهام.",
-                            status="retrying", message="بانتظار عودة الرصيد أو الخدمة.",
+                    try:
+                        if notify:
+                            await reporter.finalize_text(
+                                "المهمة محفوظة وستُستأنف تلقائيًا عند عودة الرصيد أو الخدمة. "
+                                "لن يتم تجاوزها إلى المهمة التالية. يمكنك إلغاءها من قائمة المهام.",
+                                status="retrying", message="بانتظار عودة الرصيد أو الخدمة.",
+                            )
+                        self.audit_write(
+                            "task_deferred", decision.category, actor_id=task.owner_id,
+                            details={"task_id": task.id, "next_attempt_at": deferred.next_attempt_at.isoformat()},
                         )
-                    self.audit_write(
-                        "task_deferred", decision.category, actor_id=task.owner_id,
-                        details={"task_id": task.id, "next_attempt_at": deferred.next_attempt_at.isoformat()},
-                    )
+                    except Exception as notify_exc:
+                        self.log.warning("Deferred task %s notification failed: %s", task.id, type(notify_exc).__name__)
                     return
             if current is None or current.status != "cancelled":
                 await self.repository.finish(

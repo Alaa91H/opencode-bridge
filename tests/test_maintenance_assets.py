@@ -13,6 +13,47 @@ INSTALLER = PROJECT_DIR / "maintenance" / "install-root-assets.sh"
 
 
 class MaintenanceAssetTests(unittest.TestCase):
+    def test_deferred_task_files_survive_daily_retention_cleanup(self):
+        import os
+        import shlex
+        import sqlite3
+        import subprocess
+        import sys
+        import tempfile
+        import time
+
+        content = SCRIPT.read_text(encoding="utf-8")
+        start = content.index("cleanup_managed_attachments()")
+        end = content.index('\nrecord_step ', start)
+        function = content[start:end]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            attachments = root / "runtime" / "attachments"
+            attachments.mkdir(parents=True)
+            saved = attachments / "saved-input.txt"
+            saved.write_text("required by suspended task")
+            old = time.time() - 10 * 86400
+            os.utime(saved, (old, old))
+            with sqlite3.connect(root / "sessions.db") as db:
+                db.execute("CREATE TABLE agent_tasks(status TEXT)")
+                db.execute("INSERT INTO agent_tasks VALUES ('retrying')")
+            script = (
+                f"BRIDGE_DIR={shlex.quote(str(root))}\n"
+                f"PYTHON_BIN={shlex.quote(sys.executable)}\n"
+                f"ATTACHMENT_ROOT={shlex.quote(str(attachments))}\n"
+                'run_as_bridge_user() { "$@"; }\n'
+                'resolve_retention_minutes() { echo 1440; }\n'
+                + function + '\ncleanup_managed_attachments\n'
+            )
+            result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(saved.exists())
+            with sqlite3.connect(root / "sessions.db") as db:
+                db.execute("UPDATE agent_tasks SET status='completed'")
+            result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(saved.exists())
+
     def test_routine_maintenance_is_silent_and_limited(self) -> None:
         content = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("Routine maintenance is deliberately silent", content)

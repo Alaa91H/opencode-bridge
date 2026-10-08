@@ -3,11 +3,13 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 
+from opencode_client import OpenCodeClient
 from workspace_manager import GitWorkspaceManager, WorkspaceError
-from workspace_runtime import WorkspaceOpenCodeClient, workspace_from_prompt
+from workspace_runtime import WorkspaceOpenCodeClient, install, workspace_from_prompt
 
 
 class WorkspaceOpenCodeClientTests(unittest.IsolatedAsyncioTestCase):
@@ -37,6 +39,32 @@ class WorkspaceOpenCodeClientTests(unittest.IsolatedAsyncioTestCase):
             request = httpx.Request("POST", "http://127.0.0.1:4096/session/ses_test/message")
             await self.client._inject_directory(request)
             self.assertEqual(request.headers["x-opencode-directory"], expected)
+
+    async def test_restart_rebinds_checkpoint_without_aborting_saved_session(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = GitWorkspaceManager(Path(temp_dir), ["Alaa91H/opencode-bridge"])
+            directory = manager.repo_path("Alaa91H/opencode-bridge")
+            old = OpenCodeClient()
+            calls = []
+
+            async def fresh(owner):
+                calls.append("fresh")
+                return "new-session"
+
+            async def execute(task, bot):
+                calls.append(task.checkpoint["session_id"])
+
+            core = SimpleNamespace(client=old, OPENCODE_HOST="127.0.0.1", OPENCODE_PORT=4096,
+                                   OPENCODE_PASSWORD=None, _agent_service=SimpleNamespace(client=old),
+                                   _create_fresh_session=fresh, _execute_agent_task=execute)
+            await install(core, None, manager)
+            self.client = core.client
+            task = SimpleNamespace(owner_id="a", checkpoint={"session_id": "saved"}, prompt=(
+                "ACTIVE_WORKSPACE (trusted bridge context)\nrepository: Alaa91H/opencode-bridge\n"
+                f"directory: {directory}\npolicy: trusted\nEND_ACTIVE_WORKSPACE\nwork"))
+            await core._execute_agent_task(task, None)
+            self.assertEqual(calls, ["saved"])
+            self.assertEqual(core.client._session_directories["saved"], str(directory))
 
 
 class WorkspacePromptTests(unittest.TestCase):
