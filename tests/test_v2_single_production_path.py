@@ -12,6 +12,6 @@ class SingleProductionPathTests(unittest.TestCase):
         self.assertFalse(Path("opencode-v3.json").exists())
 
     def test_ci_validates_only_canonical_config(self):
-        workflow = Path(".github/workflows/ci.yml").read_text()
+        workflow = Path(".github/workflows/quality-gate.yml").read_text()
         self.assertIn("python -m json.tool opencode.json", workflow)
         self.assertNotIn("opencode-v3.json", workflow)
