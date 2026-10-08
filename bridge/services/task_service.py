@@ -10,6 +10,7 @@ from prompt_enhancer import ResearchMode, enhance_prompt
 
 
 class TaskRepository(Protocol):
+    async def get(self, task_id: int) -> Any | None: ...
     async def enqueue(
         self,
         owner_id: str,
@@ -126,11 +127,25 @@ class TaskApplicationService:
         target = await self.repository.latest_active_for_owner(owner_id)
         if target is None:
             return None
+        return await self._cancel_target(target, owner_id)
+
+    async def cancel(self, task_id: int, owner_id: str) -> Any | None:
+        target = await self.repository.get(task_id)
+        if target is None or target.owner_id != owner_id:
+            return None
+        return await self._cancel_target(target, owner_id)
+
+    async def _cancel_target(self, target: Any, owner_id: str) -> Any | None:
+        previous_status = target.status
         cancelled = await self.repository.cancel(target.id, owner_id)
         if cancelled is None:
             return None
-        if target.status == "running":
-            await self.agent_service.abort_current(owner_id)
-        elif target.attachments:
+        if previous_status in {"running", "leased", "retrying"}:
+            checkpoint = getattr(target, "checkpoint", None) or {}
+            if checkpoint.get("session_id"):
+                await self.agent_service.client.abort_session(checkpoint["session_id"])
+            else:
+                await self.agent_service.abort_current(owner_id)
+        if previous_status != "running" and target.attachments:
             self.attachment_store.delete_input_records(target.attachments)
         return cancelled

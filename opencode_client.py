@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 import httpx
 
+from bridge.domain.tasks.retry_policy import ProviderTaskError, TaskCancelledError
+
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 4096
-TIMEOUT = 600.0
+TIMEOUT = 60.0
 
 
 def message_model_reference(model: dict[str, str] | str) -> dict[str, str]:
@@ -43,12 +45,12 @@ class OpenCodeClient:
         timeout: float = TIMEOUT,
     ) -> None:
         self.base_url = f"http://{host}:{port}"
-        self.timeout = timeout
+        self.timeout = max(1.0, min(60.0, timeout))
         auth = ("opencode", password) if password else None
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             auth=auth,
-            timeout=httpx.Timeout(timeout, connect=15.0, write=60.0, pool=60.0),
+            timeout=httpx.Timeout(self.timeout, connect=15.0, write=60.0, pool=60.0),
             follow_redirects=False,
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
@@ -109,6 +111,8 @@ class OpenCodeClient:
         agent: str | None = None,
         parts: list[dict[str, Any]] | None = None,
         variant: str | None = None,
+        message_id: str | None = None,
+        should_continue: Callable[[], Awaitable[bool]] | None = None,
     ) -> dict[str, Any]:
         message_parts = list(parts or [])
         if text:
@@ -122,6 +126,9 @@ class OpenCodeClient:
             body["agent"] = agent
         if variant:
             body["variant"] = variant
+        if message_id:
+            body["messageID"] = message_id
+            return await self._send_resumable(session_id, message_id, body, should_continue)
         response = await self._client.post(f"/session/{session_id}/message", json=body)
         response.raise_for_status()
         payload = response.json()
@@ -129,8 +136,70 @@ class OpenCodeClient:
             payload = {}
         return payload
 
+    async def _task_request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        """Every durable-task HTTP operation has a one-minute wall-clock limit."""
+        try:
+            async with asyncio.timeout(60.0):
+                return await self._client.request(method, path, timeout=60.0, **kwargs)
+        except TimeoutError as exc:
+            raise httpx.ReadTimeout("OpenCode task request timed out") from exc
+
+    async def _send_resumable(
+        self, session_id: str, message_id: str, body: dict[str, Any],
+        should_continue: Callable[[], Awaitable[bool]] | None = None,
+    ) -> dict[str, Any]:
+        """Reconnect to persisted messages after restart without replaying a prompt.
+
+        Submit asynchronously, then inspect status at short intervals. Provider
+        retry states release the worker and retain the message ID for reconnection.
+        """
+        existing = await self._task_request("GET", f"/session/{session_id}/message/{message_id}")
+        if existing.status_code == 404:
+            if should_continue is not None and not await should_continue():
+                raise TaskCancelledError("task cancelled before submission")
+            accepted = await self._task_request("POST", f"/session/{session_id}/prompt_async", json=body)
+            accepted.raise_for_status()
+        else:
+            existing.raise_for_status()
+
+        idle_without_reply = 0
+        while True:
+            if should_continue is not None and not await should_continue():
+                await self.abort_session(session_id)
+                raise TaskCancelledError("task cancelled during execution")
+            status_response = await self._task_request("GET", "/session/status")
+            status_response.raise_for_status()
+            status = status_response.json().get(session_id, {})
+            state = status.get("type", status.get("state", "idle"))
+            messages_response = await self._task_request("GET", f"/session/{session_id}/message", params={"limit": 200})
+            messages_response.raise_for_status()
+            messages = messages_response.json()
+            if isinstance(messages, dict):
+                messages = messages.get("items", [])
+            replies = [item for item in messages if isinstance(item, dict)
+                       and item.get("info", {}).get("role") == "assistant"
+                       and item.get("info", {}).get("parentID") == message_id]
+            replies.sort(key=lambda item: item.get("info", {}).get("time", {}).get("created", 0))
+            if replies:
+                latest = replies[-1]
+                info = latest.get("info", {})
+                if info.get("error"):
+                    raise ProviderTaskError(info["error"])
+                if state == "idle" and info.get("time", {}).get("completed"):
+                    return latest
+            if state == "retry":
+                message = str(status.get("message", "provider temporarily unavailable"))
+                raise ProviderTaskError({"data": {"statusCode": 503, "message": message}}, pending=True)
+            if state == "idle":
+                idle_without_reply += 1
+                if idle_without_reply >= 3:
+                    raise ProviderTaskError({"data": {"statusCode": 503, "message": "idle session interrupted before completion"}})
+            else:
+                idle_without_reply = 0
+            await asyncio.sleep(5.0)
+
     async def abort_session(self, session_id: str) -> bool:
-        response = await self._client.post(f"/session/{session_id}/abort")
+        response = await self._task_request("POST", f"/session/{session_id}/abort")
         return response.status_code in (200, 204)
 
     async def share_session(self, session_id: str) -> str | None:

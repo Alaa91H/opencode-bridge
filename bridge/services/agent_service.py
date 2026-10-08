@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -258,6 +258,8 @@ class AgentService:
         *,
         audit_write: Callable[..., None] | None = None,
         task_id: int | None = None,
+        message_id: str | None = None,
+        should_continue: Callable[[], Awaitable[bool]] | None = None,
     ) -> tuple[dict, str | None]:
         """Send through OpenCode with variant, file-transport, and model fallback."""
 
@@ -272,6 +274,9 @@ class AgentService:
 
         async def send_for_model(model_id: str | None) -> dict:
             variant = await self.resolve_variant(owner_id, model_id)
+            resume_options = {"message_id": message_id} if message_id else {}
+            if should_continue is not None:
+                resume_options["should_continue"] = should_continue
             try:
                 return await self.client.send_prompt(
                     session_id,
@@ -280,6 +285,7 @@ class AgentService:
                     agent=self.default_agent,
                     parts=parts,
                     variant=variant,
+                    **resume_options,
                 )
             except httpx.HTTPStatusError as exc:
                 if variant and exc.response.status_code in {400, 404, 422}:
@@ -297,6 +303,7 @@ class AgentService:
                             agent=self.default_agent,
                             parts=parts,
                             variant=None,
+                            **resume_options,
                         )
                     except httpx.HTTPStatusError as retry_exc:
                         exc = retry_exc
@@ -320,6 +327,7 @@ class AgentService:
                             agent=self.default_agent,
                             parts=[],
                             variant=variant,
+                            **resume_options,
                         )
                     except httpx.HTTPStatusError as retry_exc:
                         exc = retry_exc

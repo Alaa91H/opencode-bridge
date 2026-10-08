@@ -976,7 +976,7 @@ async def post_init(app: Application) -> None:
         interrupted = await task_service.start()
         if interrupted:
             audit.write("task_recovery", "interrupted", details={"count": interrupted})
-            log.warning("تم تعليم %s مهمة كفاشلة بعد انقطاع سابق.", interrupted)
+            log.warning("تمت معالجة %s مهمة منقطعة: استئناف المهام المحفوظة وفحص المهام القديمة.", interrupted)
     if pending_cleanup_task is None or pending_cleanup_task.done():
         pending_cleanup_task = asyncio.create_task(_pending_attachment_cleanup_loop())
     _schedule_download_cleanup()

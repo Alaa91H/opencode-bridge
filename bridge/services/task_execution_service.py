@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import uuid
 from collections.abc import Callable
 from typing import Any, Protocol
 
 from attachments import AttachmentError, attachment_prompt_note
+from bridge.domain.tasks.retry_policy import ProviderTaskError, classify_retry
 from messages import empty_response_message
 from opencode_client import extract_file_response, extract_text_response
 from prompt_enhancer import ResearchMode, enhance_prompt
@@ -17,6 +19,8 @@ from prompt_enhancer import ResearchMode, enhance_prompt
 class TaskRepositoryPort(Protocol):
     async def get(self, task_id: int) -> Any | None: ...
     async def finish(self, task_id: int, success: bool, error: str | None = None) -> None: ...
+    async def save_checkpoint(self, task_id: int, checkpoint: dict[str, Any]) -> None: ...
+    async def retry_or_dead_letter(self, task_id: int, error: str, **kwargs: Any) -> Any: ...
 
 
 class AttachmentStorePort(Protocol):
@@ -81,6 +85,11 @@ class TaskExecutionService:
 
         reporter = await delivery.begin(task)
         event_task: asyncio.Task[None] | None = None
+        checkpoint = dict(getattr(current, "checkpoint", None) or {})
+
+        async def should_continue() -> bool:
+            active = await self.repository.get(task.id)
+            return active is not None and active.status != "cancelled"
         try:
             requested_mode: ResearchMode | None = None
             if task.execution_mode:
@@ -125,7 +134,16 @@ class TaskExecutionService:
                 if attachment.is_direct_model_visible()
             ]
 
-            session_id, selected_model = await self.agent_service.current_model(task.owner_id)
+            if checkpoint.get("session_id"):
+                session_id = checkpoint["session_id"]
+                selected_model = checkpoint.get("model")
+                prompt = (
+                    "Resume the existing task from its saved progress. Inspect the session history, "
+                    "working tree, branches, pull requests, issue state and CI before acting. "
+                    "Continue unfinished work in order; do not repeat completed operations.\n\n" + prompt
+                )
+            else:
+                session_id, selected_model = await self.agent_service.current_model(task.owner_id)
             needs_image_input = any(
                 attachment.mime.startswith("image/")
                 or attachment.mime == "application/pdf"
@@ -151,6 +169,10 @@ class TaskExecutionService:
                     )
                     selected_model = media_model
 
+            checkpoint.update(session_id=session_id, model=selected_model)
+            checkpoint.setdefault("message_id", "msg_" + uuid.uuid4().hex)
+            await self.repository.save_checkpoint(task.id, checkpoint)
+
             await reporter.record(
                 "session",
                 "تم تجهيز جلسة الوكيل. عم نبدأ التنفيذ.",
@@ -173,12 +195,18 @@ class TaskExecutionService:
                     selected_model,
                     audit_write=self.audit_write,
                     task_id=task.id,
+                    message_id=checkpoint["message_id"],
+                    should_continue=should_continue,
                 )
             )
+            if response.get("info", {}).get("error"):
+                raise ProviderTaskError(response["info"]["error"])
             reply_text = extract_text_response(response)
             output_files = self.attachment_store.collect_task_outputs(task.id)
 
             if not reply_text and not output_files:
+                checkpoint["message_id"] = "msg_" + uuid.uuid4().hex
+                await self.repository.save_checkpoint(task.id, checkpoint)
                 await reporter.record(
                     "retry",
                     "ما وصل ناتج واضح؛ عم نجرب مرة أخيرة.",
@@ -194,8 +222,12 @@ class TaskExecutionService:
                         selected_model,
                         audit_write=self.audit_write,
                         task_id=task.id,
+                        message_id=checkpoint["message_id"],
+                        should_continue=should_continue,
                     )
                 )
+                if response.get("info", {}).get("error"):
+                    raise ProviderTaskError(response["info"]["error"])
                 reply_text = extract_text_response(response)
                 output_files = self.attachment_store.collect_task_outputs(task.id)
 
@@ -287,6 +319,37 @@ class TaskExecutionService:
             )
         except Exception as exc:
             current = await self.repository.get(task.id)
+            decision = classify_retry(exc)
+            if current is not None and current.status != "cancelled" and decision is not None:
+                # A confirmed provider failure permits a continuation message; an
+                # ambiguous transport failure must reconnect to the same message.
+                if not decision.pending:
+                    checkpoint.pop("message_id", None)
+                notify = checkpoint.get("retry_category") != decision.category
+                checkpoint["retry_category"] = decision.category
+                checkpoint["resume"] = True
+                failures = 0 if decision.unlimited else int(checkpoint.get("transient_failures", 0)) + 1
+                checkpoint["transient_failures"] = failures
+                deferred = await self.repository.retry_or_dead_letter(
+                    task.id, decision.category, retryable=decision.unlimited or failures < 5,
+                    max_attempts=None,
+                    retry_after=decision.delay_seconds, checkpoint=checkpoint,
+                )
+                if deferred is not None and deferred.status == "retrying":
+                    try:
+                        if notify:
+                            await reporter.finalize_text(
+                                "المهمة محفوظة وستُستأنف تلقائيًا عند عودة الرصيد أو الخدمة. "
+                                "لن يتم تجاوزها إلى المهمة التالية. يمكنك إلغاءها من قائمة المهام.",
+                                status="retrying", message="بانتظار عودة الرصيد أو الخدمة.",
+                            )
+                        self.audit_write(
+                            "task_deferred", decision.category, actor_id=task.owner_id,
+                            details={"task_id": task.id, "next_attempt_at": deferred.next_attempt_at.isoformat()},
+                        )
+                    except Exception as notify_exc:
+                        self.log.warning("Deferred task %s notification failed: %s", task.id, type(notify_exc).__name__)
+                    return
             if current is None or current.status != "cancelled":
                 await self.repository.finish(
                     task.id,
@@ -314,15 +377,18 @@ class TaskExecutionService:
                     message="تم إلغاء الطلب أثناء التنفيذ.",
                 )
         finally:
+            current = await self.repository.get(task.id)
+            preserve = current is not None and current.status in {"queued", "leased", "running", "retrying"}
             try:
-                self.attachment_store.cleanup_task_work(task.id)
+                if not preserve:
+                    self.attachment_store.cleanup_task_work(task.id)
             except Exception as exc:
                 self.log.warning(
                     "تعذر تنظيف مساحة العمل المؤقتة للمهمة %s: %s",
                     task.id,
                     type(exc).__name__,
                 )
-            if task.attachments and not task.is_recurring:
+            if not preserve and task.attachments and not task.is_recurring:
                 try:
                     self.attachment_store.delete_input_records(task.attachments)
                 except Exception as exc:

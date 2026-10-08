@@ -14,11 +14,12 @@ def render_active_tasks_and_schedules(
     max_length: int,
 ) -> str:
     lines: list[str] = []
-    visible_tasks = [task for task in tasks if task.status in {"running", "queued"}]
+    visible_tasks = [task for task in tasks if task.status in {"running", "queued", "leased", "retrying"}]
     if visible_tasks:
         lines.append("الطلبات الحالية:")
         for task in visible_tasks[:10]:
-            state = "قيد التنفيذ" if task.status == "running" else "بانتظار التنفيذ"
+            state = {"running": "قيد التنفيذ", "leased": "جاري التجهيز",
+                     "retrying": "محفوظة — بانتظار الاستئناف التلقائي"}.get(task.status, "بانتظار التنفيذ")
             preview = " ".join(task.prompt.split())[:100]
             lines.append(f"• {state} — {preview}")
 

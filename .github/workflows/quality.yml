@@ -1,7 +1,9 @@
 name: Code Quality
 
 # Strict hygiene gate. Nothing here is advisory: a check that cannot fail the
-# job is a report, not a gate, so there are no "|| true" escapes.
+# job is a report, not a gate, so the blocking path uses no exit-zero fallback
+# operator. The "Confirm the gate has no advisory escapes" step below greps this
+# workflow too, which is why this comment avoids spelling the pattern out.
 on:
   push:
     branches: [main]

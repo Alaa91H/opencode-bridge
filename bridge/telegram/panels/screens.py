@@ -153,6 +153,8 @@ def _option(label: str, name: str) -> PanelAction:
 _STATUS_LABELS = {
     "queued": "🕒 في الانتظار",
     "running": "▶️ قيد التنفيذ",
+    "leased": "▶️ جاري التجهيز",
+    "retrying": "⏸ محفوظة للاستئناف التلقائي",
     "failed": "❌ فاشلة",
     "completed": "✅ مكتملة",
     "cancelled": "🚫 ملغاة",
