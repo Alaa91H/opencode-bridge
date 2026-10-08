@@ -6,8 +6,8 @@ is safe to use continuously on small VPS hosts.
 
 from __future__ import annotations
 
-import os
 import math
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
