@@ -123,6 +123,64 @@ class CredentialPool:
         return tuple(result)
 
 
+    def export_state(self) -> dict:
+        """Export runtime metadata only; credential secrets are never persisted."""
+        with self._lock:
+            return {
+                "version": 1,
+                "credentials": {
+                    name: {
+                        "successes": state.successes,
+                        "failures": state.failures,
+                        "consecutive_failures": state.consecutive_failures,
+                        "cooldown_until": state.cooldown_until.isoformat() if state.cooldown_until else None,
+                        "last_used_at": state.last_used_at.isoformat() if state.last_used_at else None,
+                        "disabled": state.disabled,
+                    }
+                    for name, state in self._state.items()
+                },
+            }
+
+    def import_state(self, payload: dict) -> None:
+        if payload.get("version") != 1 or not isinstance(payload.get("credentials"), dict):
+            return
+        with self._lock:
+            for name, raw in payload["credentials"].items():
+                if name not in self._state or not isinstance(raw, dict):
+                    continue
+                state = self._state[name]
+                state.successes = max(0, int(raw.get("successes", 0)))
+                state.failures = max(0, int(raw.get("failures", 0)))
+                state.consecutive_failures = max(0, int(raw.get("consecutive_failures", 0)))
+                state.disabled = bool(raw.get("disabled", False))
+                state.cooldown_until = _parse_datetime(raw.get("cooldown_until"))
+                state.last_used_at = _parse_datetime(raw.get("last_used_at"))
+
+    def save_state(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_text(json.dumps(self.export_state(), sort_keys=True), encoding="utf-8")
+        temporary.replace(path)
+
+    def load_state(self, path: Path) -> None:
+        if path.is_file():
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                self.import_state(payload)
+
+
+def _parse_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
 def parse_credential_pool(value: str | None) -> tuple[OpenCodeCredential, ...]:
     """Parse name=secret entries separated by newlines or semicolons."""
     if not value or not value.strip():
