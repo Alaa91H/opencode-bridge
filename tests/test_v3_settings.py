@@ -13,7 +13,7 @@ class BridgeSettingsTests(unittest.TestCase):
         settings = BridgeSettings.load(env={})
         self.assertEqual(settings.opencode.host, "127.0.0.1")
         self.assertEqual(settings.opencode.port, 4096)
-        self.assertEqual(settings.agent.task_workers, 2)
+        self.assertEqual(settings.agent.task_workers, 3)
         self.assertTrue(settings.features.adaptive_workers)
 
     def test_environment_overrides_config_file(self) -> None:
@@ -36,7 +36,7 @@ port = 5000
                 },
                 config_path=path,
             )
-        self.assertEqual(settings.agent.task_workers, 5)
+        self.assertEqual(settings.agent.task_workers, 3)
         self.assertEqual(settings.opencode.port, 6000)
 
     def test_env_file_is_fallback_below_process_environment(self) -> None:
@@ -50,7 +50,7 @@ port = 5000
                 env={"AGENT_TASK_WORKERS": "4"},
                 env_file=env_file,
             )
-        self.assertEqual(settings.agent.task_workers, 4)
+        self.assertEqual(settings.agent.task_workers, 3)
         self.assertEqual(settings.opencode.port, 5000)
 
     def test_json_config_is_supported(self) -> None:
@@ -115,7 +115,7 @@ port = 5000
                 "opencode": {"default_model": "task/model"},
             },
         )
-        self.assertEqual(task.agent.task_workers, 4)
+        self.assertEqual(task.agent.task_workers, 3)
         self.assertEqual(task.opencode.default_model, "task/model")
 
     def test_secret_or_admin_override_is_rejected(self) -> None:

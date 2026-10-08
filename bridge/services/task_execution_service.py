@@ -7,10 +7,16 @@ import logging
 import time
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from attachments import AttachmentError, attachment_prompt_note
-from bridge.domain.tasks.retry_policy import ProviderTaskError, classify_retry
+from bridge.domain.tasks.retry_policy import (
+    ProviderTaskError,
+    classify_retry,
+    is_zen_free_model,
+    next_utc_midnight,
+)
 from messages import empty_response_message
 from opencode_client import extract_file_response, extract_text_response
 from prompt_enhancer import ResearchMode, enhance_prompt
@@ -21,6 +27,8 @@ class TaskRepositoryPort(Protocol):
     async def finish(self, task_id: int, success: bool, error: str | None = None) -> None: ...
     async def save_checkpoint(self, task_id: int, checkpoint: dict[str, Any]) -> None: ...
     async def retry_or_dead_letter(self, task_id: int, error: str, **kwargs: Any) -> Any: ...
+    async def get_provider_quota_pause(self, provider_key: str) -> Any: ...
+    async def set_provider_quota_pause(self, provider_key: str, reset_at: datetime) -> None: ...
 
 
 class AttachmentStorePort(Protocol):
@@ -86,6 +94,7 @@ class TaskExecutionService:
         reporter = await delivery.begin(task)
         event_task: asyncio.Task[None] | None = None
         checkpoint = dict(getattr(current, "checkpoint", None) or {})
+        selected_model: str | None = checkpoint.get("model")
 
         async def should_continue() -> bool:
             active = await self.repository.get(task.id)
@@ -172,6 +181,46 @@ class TaskExecutionService:
             checkpoint.update(session_id=session_id, model=selected_model)
             checkpoint.setdefault("message_id", "msg_" + uuid.uuid4().hex)
             await self.repository.save_checkpoint(task.id, checkpoint)
+
+            if is_zen_free_model(selected_model):
+                get_pause = getattr(self.repository, "get_provider_quota_pause", None)
+                reset_at = await get_pause("opencode_zen_free") if callable(get_pause) else None
+                if reset_at is not None and reset_at > datetime.now(UTC):
+                    delay = max(1.0, (reset_at - datetime.now(UTC)).total_seconds())
+                    checkpoint["retry_category"] = "zen_free_quota"
+                    checkpoint["resume"] = True
+                    deferred = await self.repository.retry_or_dead_letter(
+                        task.id,
+                        "zen_free_quota",
+                        retryable=True,
+                        max_attempts=None,
+                        retry_after=delay,
+                        checkpoint=checkpoint,
+                    )
+                    if deferred is not None and deferred.status == "retrying":
+                        try:
+                            await reporter.finalize_text(
+                                "حصة OpenCode Zen المجانية مستنفدة. حُفظت المهمة وستُستأنف تلقائيًا "
+                                "بعد التجديد عند 00:00 UTC.",
+                                status="retrying",
+                                message="بانتظار تجديد الحصة اليومية عند 00:00 UTC.",
+                            )
+                            self.audit_write(
+                                "task_deferred",
+                                "zen_free_quota",
+                                actor_id=task.owner_id,
+                                details={
+                                    "task_id": task.id,
+                                    "next_attempt_at": deferred.next_attempt_at.isoformat(),
+                                },
+                            )
+                        except Exception as notify_exc:
+                            self.log.warning(
+                                "Quota-paused task %s notification failed: %s",
+                                task.id,
+                                type(notify_exc).__name__,
+                            )
+                        return
 
             await reporter.record(
                 "session",
@@ -319,7 +368,7 @@ class TaskExecutionService:
             )
         except Exception as exc:
             current = await self.repository.get(task.id)
-            decision = classify_retry(exc)
+            decision = classify_retry(exc, model_id=selected_model)
             if current is not None and current.status != "cancelled" and decision is not None:
                 # A confirmed provider failure permits a continuation message; an
                 # ambiguous transport failure must reconnect to the same message.
@@ -328,6 +377,13 @@ class TaskExecutionService:
                 notify = checkpoint.get("retry_category") != decision.category
                 checkpoint["retry_category"] = decision.category
                 checkpoint["resume"] = True
+                if decision.category == "zen_free_quota":
+                    set_pause = getattr(self.repository, "set_provider_quota_pause", None)
+                    if callable(set_pause):
+                        await set_pause(
+                            "opencode_zen_free",
+                            decision.retry_at or next_utc_midnight(),
+                        )
                 failures = 0 if decision.unlimited else int(checkpoint.get("transient_failures", 0)) + 1
                 checkpoint["transient_failures"] = failures
                 deferred = await self.repository.retry_or_dead_letter(

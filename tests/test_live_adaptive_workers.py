@@ -55,6 +55,29 @@ class LiveAdaptiveWorkerAdmissionTests(unittest.TestCase):
         self.assertFalse(service.worker_can_claim(1))
         self.assertFalse(service.worker_can_claim(2))
 
+    def test_resource_snapshot_is_refreshed_before_worker_admission(self) -> None:
+        snapshots = []
+
+        class Policy:
+            def snapshot(self, force=False):
+                snapshots.append(force)
+
+        class WorkerLimit:
+            policy = Policy()
+
+            def __call__(self):
+                return 3
+
+        service = TaskServiceV3(
+            store=None,  # type: ignore[arg-type]
+            executor=_executor,
+            max_workers=8,
+            worker_limit_provider=WorkerLimit(),
+        )
+
+        self.assertEqual(service.active_worker_limit(), 3)
+        self.assertEqual(snapshots, [True])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -44,7 +44,7 @@ class TaskService(TaskServiceV3):
         recovery_seconds: float | None = None,
         audit_logger: AuditLogger | None = None,
     ) -> None:
-        configured_workers = _configured_workers() if max_workers is None else max_workers
+        configured_workers = max(1, min(_configured_workers() if max_workers is None else int(max_workers), 3))
         self.audit_logger = audit_logger or AuditLogger(Path(__file__).resolve().parent / "runtime" / "audit.jsonl")
         base_resource_policy = resource_policy or HostResourcePolicy()
         self.resource_policy = AuditedShadowPolicy(base_resource_policy, self.audit_logger)

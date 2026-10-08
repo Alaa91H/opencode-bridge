@@ -1,3 +1,12 @@
+## [Unreleased]
+
+### OpenCode Zen free quota recovery and worker admission
+
+- A confirmed OpenCode Zen free-model daily limit now opens a durable provider-wide pause until the next 00:00 UTC reset. Queued work resumes automatically after the pause, including after a service restart, without repeatedly calling the exhausted model.
+- New Zen free-model tasks check the saved pause before sending a model request; unrelated paid or non-Zen models remain available.
+- Task admission is capped at three active leases globally in SQLite and three workers per process. The resource-aware controller refreshes host measurements before each claim, reduces concurrency for memory/CPU/disk pressure, and fails closed if sampling fails.
+- The production resource policy already limits hosts with less than 1.5 GiB RAM to one worker; polling remains bounded to 60 seconds so due work is picked up promptly after UTC reset.
+
 ## [2.0.0-rc.6] - 2026-09-30
 
 ### Managed downloads

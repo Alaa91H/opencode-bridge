@@ -195,6 +195,13 @@ MIGRATIONS = (
         "CREATE INDEX IF NOT EXISTS idx_attachment_refs_blob ON attachment_refs(blob_sha256)",
         "CREATE INDEX IF NOT EXISTS idx_attachment_refs_retention ON attachment_refs(retention_until)",
     )),
+    Migration(8, "provider_quota_pauses", (
+        """CREATE TABLE IF NOT EXISTS provider_quota_pauses (
+            provider_key TEXT PRIMARY KEY,
+            reset_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""",
+    )),
 )
 
 

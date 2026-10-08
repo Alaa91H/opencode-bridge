@@ -200,6 +200,38 @@ class TaskQueueStore:
             )
             await db.commit()
 
+    async def set_provider_quota_pause(self, provider_key: str, reset_at: datetime) -> None:
+        """Persist a provider-wide quota circuit-breaker deadline across restarts."""
+        key = str(provider_key).strip().casefold()
+        if not key or len(key) > 80:
+            raise ValueError("invalid provider quota key")
+        reset = encode_time(reset_at)
+        now = encode_time(utc_now())
+        db = await self._get_db()
+        async with self._lock:
+            await db.execute(
+                """INSERT INTO provider_quota_pauses(provider_key,reset_at,updated_at)
+                   VALUES(?,?,?)
+                   ON CONFLICT(provider_key) DO UPDATE SET
+                       reset_at=MAX(provider_quota_pauses.reset_at,excluded.reset_at),
+                       updated_at=excluded.updated_at""",
+                (key, reset, now),
+            )
+            await db.commit()
+
+    async def get_provider_quota_pause(self, provider_key: str) -> datetime | None:
+        """Return the active pause deadline, ignoring expired breaker records."""
+        key = str(provider_key).strip().casefold()
+        db = await self._get_db()
+        async with self._lock:
+            async with db.execute(
+                "SELECT reset_at FROM provider_quota_pauses WHERE provider_key=?",
+                (key,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        reset_at = decode_time(str(row["reset_at"])) if row else None
+        return reset_at if reset_at is not None and reset_at > utc_now() else None
+
     @staticmethod
     def _scheduled_from_row(row: aiosqlite.Row) -> ScheduledJob:
         return ScheduledJob(
@@ -1052,7 +1084,12 @@ class TaskQueueStore:
         return promoted
 
 
-    async def claim_next(self, worker_id: str = "legacy-worker", lease_seconds: int = 120) -> QueuedTask | None:
+    async def claim_next(
+        self,
+        worker_id: str = "legacy-worker",
+        lease_seconds: int = 120,
+        max_active: int = 3,
+    ) -> QueuedTask | None:
         """Lease one claimable task atomically, recovering expired leases first."""
         now_dt = utc_now()
         now = encode_time(now_dt)
@@ -1069,6 +1106,13 @@ class TaskQueueStore:
                          AND lease_expires_at <= ?""",
                     (now, now),
                 )
+                async with db.execute(
+                    "SELECT COUNT(*) AS active FROM agent_tasks WHERE status IN ('leased','running')"
+                ) as cursor:
+                    active = int((await cursor.fetchone())["active"])
+                if active >= max(1, min(int(max_active), 3)):
+                    await db.commit()
+                    return None
                 async with db.execute(
                     """SELECT q.id FROM agent_tasks q
                        WHERE q.status IN ('queued','retrying')
