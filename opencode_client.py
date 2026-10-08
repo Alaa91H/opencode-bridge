@@ -348,4 +348,18 @@ def extract_text_response(response: dict[str, Any]) -> str:
             text = part.get("text", "")
             if text:
                 texts.append(str(text))
-    return "\\n\\n".join(texts)
+    return "\n\n".join(texts)
+
+
+def extract_file_response(response: dict[str, Any]) -> list[dict[str, str]]:
+    """Return only well-formed file parts; path authorization happens in the bridge."""
+    files: list[dict[str, str]] = []
+    for part in response.get("parts", []):
+        if not isinstance(part, dict) or part.get("type") != "file":
+            continue
+        url = part.get("url")
+        mime = part.get("mime")
+        filename = part.get("filename")
+        if isinstance(url, str) and url:
+            files.append({"url": url, "mime": str(mime or ""), "filename": str(filename or "")})
+    return files
