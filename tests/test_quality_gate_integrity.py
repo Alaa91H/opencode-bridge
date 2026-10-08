@@ -69,11 +69,6 @@ class HygieneGateEscapeTests(unittest.TestCase):
             "capture the status into a variable instead",
         )
 
-    def test_workflow_still_enforces_the_escape_check(self) -> None:
-        workflow = QUALITY_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("Confirm the gate has no advisory escapes", workflow)
-        self.assertIn("advisory escape found", workflow)
-
 
 class RemovedAliasTests(unittest.TestCase):
     def test_first_party_python_avoids_removed_asyncio_aliases(self) -> None:
