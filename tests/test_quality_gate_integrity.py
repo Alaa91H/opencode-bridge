@@ -28,7 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 QUALITY_SCRIPT = ROOT / "scripts" / "quality.sh"
-QUALITY_WORKFLOW = ROOT / ".github" / "workflows" / "quality.yml"
+QUALITY_WORKFLOW = ROOT / ".github" / "workflows" / "quality-gate.yml"
 
 # The exact pattern the workflow step greps for. Kept identical on purpose: if
 # the workflow ever widens it, this test must widen with it.
