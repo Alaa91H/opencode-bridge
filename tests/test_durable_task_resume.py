@@ -108,3 +108,25 @@ class DurableTaskResumeTests(unittest.IsolatedAsyncioTestCase):
                          (encode_time(utc_now() - timedelta(seconds=1)), first.id))
         await db.commit()
         self.assertEqual((await self.store.claim_next()).id, first.id)
+
+    async def test_quota_retry_remains_durable_after_thousands_of_attempts(self):
+        first, _ = await self.store.enqueue("a", 1, "work")
+        await self.store.claim_next()
+        db = await self.store._get_db()
+        await db.execute("UPDATE agent_tasks SET attempt=2000 WHERE id=?", (first.id,))
+        await db.commit()
+        task = await self.store.retry_or_dead_letter(first.id, "quota", retryable=True, max_attempts=None, retry_after=60)
+        self.assertEqual(task.status, "retrying")
+        self.assertLessEqual((task.next_attempt_at - utc_now()).total_seconds(), 60)
+        await self.store.close()
+        self.store = TaskQueueStore(Path(self.tmp.name) / "queue.db")
+        await self.store.init()
+        await self.store.recover_interrupted()
+        self.assertEqual((await self.store.get(first.id)).status, "retrying")
+
+    async def test_cancellation_cannot_be_undone_by_deferred_failure(self):
+        first, _ = await self.store.enqueue("a", 1, "work")
+        await self.store.claim_next()
+        await self.store.cancel(first.id, "a")
+        current = await self.store.retry_or_dead_letter(first.id, "quota", retryable=True, max_attempts=None)
+        self.assertEqual(current.status, "cancelled")

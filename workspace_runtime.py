@@ -154,6 +154,15 @@ async def install(core: Any, workspace_store: Any, manager: GitWorkspaceManager)
         _, directory_path = workspace
         directory = str(directory_path)
         with scoped_client.directory_scope(directory):
+            checkpoint = getattr(task, "checkpoint", None) or {}
+            saved_session = checkpoint.get("session_id")
+            if saved_session:
+                # Rebind a durable session after restart without creating a fresh
+                # session (which would abort the provider work we must reconnect to).
+                scoped_client._session_directories[saved_session] = directory
+                session_bindings[task.owner_id] = (directory, saved_session)
+                await original_execute_agent_task(task, bot)
+                return
             current = await core.store.get_session(task.owner_id)
             binding = session_bindings.get(task.owner_id)
             current_id = current.opencode_session_id if current else None

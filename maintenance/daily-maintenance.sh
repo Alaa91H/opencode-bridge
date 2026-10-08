@@ -173,6 +173,14 @@ resolve_retention_minutes() {
 }
 
 cleanup_managed_attachments() {
+  # Deferred work may outlive retention. Keep files if queue state is unreadable.
+  local active_tasks
+  active_tasks="$(run_as_bridge_user "$PYTHON_BIN" -c 'import sqlite3,sys; db=sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True); print(db.execute("SELECT COUNT(*) FROM agent_tasks WHERE status IN (?,?,?,?,?)", ("queued","leased","running","retrying","scheduled")).fetchone()[0])' "${BRIDGE_DIR}/sessions.db")" || return 1
+  if [[ "$active_tasks" != "0" ]]; then
+    ATTACHMENT_CLEANUP_SUMMARY="محفوظة لوجود مهام غير مكتملة"
+    echo "Attachment retention deferred: unfinished tasks still need managed files."
+    return 0
+  fi
   local retention_minutes
   retention_minutes="$(resolve_retention_minutes)"
   ATTACHMENT_CLEANUP_SUMMARY="0 ملف (0B)"

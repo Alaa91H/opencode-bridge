@@ -190,6 +190,16 @@ class TaskQueueStore:
             )
             await db.commit()
 
+    async def save_checkpoint(self, task_id: int, checkpoint: dict[str, Any]) -> None:
+        """Persist the session/message identity before submitting external work."""
+        db = await self._get_db()
+        async with self._lock:
+            await db.execute(
+                "UPDATE agent_tasks SET checkpoint_json=?,updated_at=? WHERE id=? AND status IN ('leased','running','retrying','queued')",
+                (json.dumps(checkpoint, ensure_ascii=False), encode_time(utc_now()), task_id),
+            )
+            await db.commit()
+
     @staticmethod
     def _scheduled_from_row(row: aiosqlite.Row) -> ScheduledJob:
         return ScheduledJob(
@@ -842,8 +852,8 @@ class TaskQueueStore:
             async with db.execute(
                 """
                 SELECT * FROM agent_tasks
-                WHERE owner_id = ? AND status IN ('running', 'queued', 'scheduled')
-                ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
+                WHERE owner_id = ? AND status IN ('running', 'leased', 'retrying', 'queued', 'scheduled')
+                ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'leased' THEN 0 WHEN 'retrying' THEN 1 WHEN 'queued' THEN 2 ELSE 3 END,
                          CASE WHEN status = 'scheduled' THEN due_at ELSE created_at END,
                          sequence, id
                 LIMIT 1
@@ -897,8 +907,8 @@ class TaskQueueStore:
             async with db.execute(
                 """
                 SELECT * FROM agent_tasks
-                WHERE owner_id = ? AND status IN ('queued', 'scheduled', 'running')
-                ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
+                WHERE owner_id = ? AND status IN ('queued', 'scheduled', 'running', 'leased', 'retrying')
+                ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'leased' THEN 0 WHEN 'retrying' THEN 1 WHEN 'queued' THEN 2 ELSE 3 END,
                          CASE WHEN status = 'scheduled' THEN due_at ELSE created_at END,
                          sequence, id
                 LIMIT ?
@@ -915,7 +925,7 @@ class TaskQueueStore:
             cursor = await db.execute(
                 """
                 UPDATE agent_tasks SET status = 'cancelled', updated_at = ?, completed_at = ?
-                WHERE id = ? AND owner_id = ? AND status IN ('queued', 'scheduled', 'running')
+                WHERE id = ? AND owner_id = ? AND status IN ('queued', 'scheduled', 'running', 'leased', 'retrying')
                 """,
                 (now, now, task_id, owner_id),
             )
@@ -1067,6 +1077,11 @@ class TaskQueueStore:
                            SELECT 1 FROM agent_tasks r
                            WHERE r.owner_id=q.owner_id AND r.status IN ('leased','running')
                              AND (r.lease_expires_at IS NULL OR r.lease_expires_at > ?))
+                         AND NOT EXISTS (
+                           SELECT 1 FROM agent_tasks earlier
+                           WHERE earlier.owner_id=q.owner_id
+                             AND earlier.status IN ('queued','retrying','leased','running')
+                             AND earlier.id < q.id)
                        ORDER BY q.priority DESC, q.created_at, q.id LIMIT 1""",
                     (now, now),
                 ) as cursor:
@@ -1113,28 +1128,30 @@ class TaskQueueStore:
         return bool(cursor.rowcount)
 
     async def retry_or_dead_letter(
-        self, task_id: int, error: str, *, retryable: bool, max_attempts: int = 5,
-        retry_after: float | None = None,
+        self, task_id: int, error: str, *, retryable: bool, max_attempts: int | None = 5,
+        retry_after: float | None = None, checkpoint: dict[str, Any] | None = None,
     ) -> QueuedTask | None:
         task = await self.get(task_id)
         if task is None or task.status == "cancelled":
             return task
         now_dt = utc_now()
-        terminal = (not retryable) or task.attempt >= max(1, int(max_attempts))
+        terminal = (not retryable) or (max_attempts is not None and task.attempt >= max(1, int(max_attempts)))
         if terminal:
             status, next_attempt = "dead_letter", None
         else:
-            base = max(float(retry_after or 0), min(300.0, 2.0 ** max(0, task.attempt - 1)))
-            delay = base + random.uniform(0.0, max(0.1, base * 0.2))
+            base = min(60.0, 2.0 ** min(6, max(0, task.attempt - 1)))
+            delay = max(float(retry_after), base) if retry_after is not None else min(60.0, base + random.uniform(0.0, 0.2 * base))
             status, next_attempt = "retrying", encode_time(now_dt + timedelta(seconds=delay))
         db = await self._get_db()
         async with self._lock:
             await db.execute(
                 """UPDATE agent_tasks SET status=?, next_attempt_at=?, retry_after_seconds=?,
                    lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL,
-                   updated_at=?, completed_at=?, last_error=? WHERE id=?""",
+                           updated_at=?, completed_at=?, last_error=?, checkpoint_json=?
+                   WHERE id=? AND status IN ('leased','running','retrying','queued')""",
                 (status, next_attempt, retry_after, encode_time(now_dt),
-                 encode_time(now_dt) if terminal else None, error, task_id),
+                 encode_time(now_dt) if terminal else None, error,
+                 json.dumps(checkpoint if checkpoint is not None else (task.checkpoint or {})), task_id),
             )
             await db.commit()
         return await self.get(task_id)
@@ -1179,7 +1196,8 @@ class TaskQueueStore:
                     """
                     UPDATE agent_tasks
                     SET status = 'scheduled', due_at = ?, updated_at = ?, started_at = NULL,
-                        completed_at = ?, last_error = ?
+                        completed_at = ?, last_error = ?, checkpoint_json='{}',
+                        lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL, next_attempt_at=NULL
                     WHERE id = ?
                     """,
                     (encode_time(next_due), now, now, None if success else error, task_id),
@@ -1188,7 +1206,8 @@ class TaskQueueStore:
                 await db.execute(
                     """
                     UPDATE agent_tasks
-                    SET status = ?, updated_at = ?, completed_at = ?, last_error = ?
+                    SET status = ?, updated_at = ?, completed_at = ?, last_error = ?,
+                        lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL, next_attempt_at=NULL
                     WHERE id = ?
                     """,
                     ("completed" if success else "failed", now, now, error, task_id),
@@ -1206,16 +1225,18 @@ class TaskQueueStore:
         return await self.get(task_id)
 
     async def recover_interrupted(self) -> int:
-        """Mark work interrupted by a process restart as failed; never replay it silently."""
+        """Resume checkpointed work; legacy uncheckpointed running work needs review."""
         now = encode_time(utc_now())
         db = await self._get_db()
         async with self._lock:
             cursor = await db.execute(
                 """
                 UPDATE agent_tasks
-                SET status = 'failed', completed_at = ?, updated_at = ?,
+                SET status = CASE WHEN status='leased' OR checkpoint_json!='{}' THEN 'queued' ELSE 'failed' END,
+                    completed_at = CASE WHEN status='leased' OR checkpoint_json!='{}' THEN NULL ELSE ? END,
+                    updated_at = ?, lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL,
                     last_error = 'انقطع تشغيل البوت قبل اكتمال المهمة'
-                WHERE status = 'running'
+                WHERE status IN ('running','leased')
                 """,
                 (now, now),
             )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 
@@ -32,7 +33,7 @@ class TaskServiceV3:
     ) -> None:
         self.store = store
         self.executor = executor
-        self.poll_seconds = max(0.5, float(poll_seconds))
+        self.poll_seconds = max(0.5, min(60.0, float(poll_seconds)))
         self.max_workers = max(1, min(int(max_workers), 8))
         self.worker_limit_provider = worker_limit_provider
         self._wake = asyncio.Event()
@@ -105,6 +106,11 @@ class TaskServiceV3:
                 await asyncio.sleep(min(self.poll_seconds, 5.0))
 
     async def _execute(self, task: QueuedTask) -> None:
+        worker = task.lease_owner or 'legacy-worker'
+        task = await self.store.mark_running(task.id, worker)
+        if task is None:
+            return
+        heartbeat = asyncio.create_task(self._heartbeat(task.id, worker))
         try:
             await self.executor(task)
         except asyncio.CancelledError:
@@ -116,3 +122,13 @@ class TaskServiceV3:
             current = await self.store.get(task.id)
             if current and current.status == "running":
                 await self.store.finish(task.id, success=True)
+        finally:
+            heartbeat.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat
+
+    async def _heartbeat(self, task_id: int, worker: str) -> None:
+        while True:
+            await asyncio.sleep(30.0)
+            if not await self.store.heartbeat(task_id, worker):
+                return

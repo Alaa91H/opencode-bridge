@@ -55,6 +55,9 @@ class FakeRepository:
     async def get(self, task_id):
         return self.task
 
+    async def save_checkpoint(self, task_id, checkpoint):
+        self.task.checkpoint = dict(checkpoint)
+
     async def finish(self, task_id, success, error=None):
         self.finishes.append((task_id, success, error))
         self.task.status = "completed" if success else "failed"
