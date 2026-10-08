@@ -105,7 +105,23 @@ class CredentialPool:
                 return True
         return False
 
-    def record_success(self, name: str, *, now: datetime | None = None) -> None:\n        current = (now or datetime.now(UTC)).astimezone(UTC)\n        with self._lock:\n            runtime = self._state[name]\n            runtime.successes += 1\n            runtime.consecutive_failures = 0\n            runtime.cooldown_until = None\n            runtime.last_used_at = current\n\n    def enable(self, name: str) -> None:\n        with self._lock:\n            runtime = self._state[name]\n            runtime.disabled = False\n            runtime.consecutive_failures = 0\n            runtime.cooldown_until = None\n\n    def snapshots(self, *, now: datetime | None = None) -> tuple[CredentialSnapshot, ...]:
+    def record_success(self, name: str, *, now: datetime | None = None) -> None:
+        current = (now or datetime.now(UTC)).astimezone(UTC)
+        with self._lock:
+            runtime = self._state[name]
+            runtime.successes += 1
+            runtime.consecutive_failures = 0
+            runtime.cooldown_until = None
+            runtime.last_used_at = current
+
+    def enable(self, name: str) -> None:
+        with self._lock:
+            runtime = self._state[name]
+            runtime.disabled = False
+            runtime.consecutive_failures = 0
+            runtime.cooldown_until = None
+
+    def snapshots(self, *, now: datetime | None = None) -> tuple[CredentialSnapshot, ...]:
         current = (now or datetime.now(UTC)).astimezone(UTC)
         result: list[CredentialSnapshot] = []
         with self._lock:
@@ -186,7 +202,10 @@ def parse_credential_pool(value: str | None) -> tuple[OpenCodeCredential, ...]:
     if not value or not value.strip():
         return ()
     credentials: list[OpenCodeCredential] = []
-    normalized = value.replace("\r\n", "\n").replace(";", "\n")
+    normalized = value.replace("\r
+", "
+").replace(";", "
+")
     for raw in normalized.splitlines():
         entry = raw.strip()
         if not entry:
