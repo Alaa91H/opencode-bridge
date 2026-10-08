@@ -51,6 +51,14 @@ class DurableTaskResumeTests(unittest.IsolatedAsyncioTestCase):
             reset_at,
         )
 
+        await self.store.close()
+        self.store = TaskQueueStore(Path(self.tmp.name) / "queue.db")
+        await self.store.init()
+        self.assertEqual(
+            await self.store.get_provider_quota_pause("opencode_zen_free"),
+            reset_at,
+        )
+
     async def test_sqlite_claims_never_exceed_three_active_tasks_globally(self):
         for owner in ("a", "b", "c", "d"):
             await self.store.enqueue(owner, 1, f"work for {owner}")
@@ -59,14 +67,6 @@ class DurableTaskResumeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(all(task is not None for task in claimed))
         self.assertIsNone(await self.store.claim_next(max_active=99))
-
-        await self.store.close()
-        self.store = TaskQueueStore(Path(self.tmp.name) / "queue.db")
-        await self.store.init()
-        self.assertEqual(
-            await self.store.get_provider_quota_pause("opencode_zen_free"),
-            reset_at,
-        )
 
     async def test_task_is_held_without_model_request_during_zen_free_pause(self):
         first, _ = await self.store.enqueue("a", 1, "continue work")
