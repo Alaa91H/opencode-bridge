@@ -38,27 +38,32 @@ jobs:
           ref: ${{ steps.commit.outputs.sha }}
           fetch-depth: 0
 
-      - name: Enforce 2.0 release evidence
-        shell: bash
-        run: |
-          if [[ "$(tr -d '[:space:]' < VERSION)" == "2.0.0" ]]; then
-            python scripts/release_readiness.py release-evidence-2.0.json
-          fi
-
-      - name: Read and validate version
+      - name: Classify release version
         id: version
         shell: bash
         run: |
           VERSION="$(tr -d '[:space:]' < VERSION)"
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Invalid semantic version: $VERSION" >&2
-            exit 1
-          fi
+          CLASS="$(python scripts/release_version.py "$VERSION")"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "class=$CLASS" >> "$GITHUB_OUTPUT"
+          if [[ "$CLASS" == "preview" ]]; then
+            echo "VERSION=$VERSION is a preview; stable publication is skipped."
+            echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Skip stable publication for preview
+        if: steps.version.outputs.class == 'preview'
+        run: echo "Preview versions are published only by the dedicated Preview Release workflow."
+
+      - name: Enforce 2.0 release evidence
+        if: steps.version.outputs.class == 'stable' && steps.version.outputs.version == '2.0.0'
+        shell: bash
+        run: python scripts/release_readiness.py release-evidence-2.0.json
+
       - name: Wait for 2.0 quality and supply-chain gates
-        if: steps.version.outputs.version == '2.0.0'
+        if: steps.version.outputs.class == 'stable' && steps.version.outputs.version == '2.0.0'
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.commit.outputs.sha }}
@@ -88,6 +93,7 @@ jobs:
           done
 
       - name: Verify release notes source
+        if: steps.version.outputs.class == 'stable'
         shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
@@ -96,12 +102,13 @@ jobs:
             echo "Using $NOTES_FILE"
             exit 0
           fi
-          grep -q "^## \[${VERSION}\]" CHANGELOG.md || {
+          grep -q "^## \\[${VERSION}\\]" CHANGELOG.md || {
             echo "No release notes file or CHANGELOG.md entry for ${VERSION}" >&2
             exit 1
           }
 
       - name: Extract release notes
+        if: steps.version.outputs.class == 'stable'
         shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
@@ -118,6 +125,7 @@ jobs:
           test -s RELEASE_NOTES.md
 
       - name: Create tag and GitHub Release if needed
+        if: steps.version.outputs.class == 'stable'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
