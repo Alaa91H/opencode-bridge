@@ -89,7 +89,9 @@ class HostResourcePolicy:
         load1 = self._read_load1()
         if not math.isfinite(load1) or load1 < 0:
             raise RuntimeError("host load sample unavailable")
-        cpu_count = max(1, os.cpu_count() or 1)
+        cpu_count = os.cpu_count()
+        if cpu_count is None or cpu_count <= 0:
+            raise RuntimeError("host CPU sample unavailable")
         stat = os.statvfs(self.root_path)
         disk_total = stat.f_blocks * stat.f_frsize
         disk_free = stat.f_bavail * stat.f_frsize
