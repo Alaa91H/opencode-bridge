@@ -11,7 +11,8 @@ import sqlite3
 import tarfile
 import tempfile
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
 _VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[0-9]+)?\Z")
@@ -93,12 +94,10 @@ class ArtifactActivator:
 
         backup: Path | None = None
         switched = False
-        quiesced = False
         database_may_have_changed = False
         try:
             if quiesce is not None:
                 quiesce()
-            quiesced = True
             backup = self._ensure_database_backup(expected_sha)
             prepare(target)
             if previous != target.resolve():

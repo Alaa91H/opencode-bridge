@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -40,7 +40,7 @@ def assert_latest_main(source_sha: str) -> None:
         f"https://api.github.com/repos/{REPOSITORY}/commits/main",
         headers={"Accept": "application/vnd.github+json", "User-Agent": "opencode-bridge-deployer"},
     )
-    with urlopen(request, timeout=15) as response:
+    with urlopen(request, timeout=15) as response:  # noqa: S310 - URL is a fixed HTTPS GitHub API endpoint.
         latest = json.load(response).get("sha")
     if latest != source_sha:
         raise DeploymentError("artifact is stale; main has advanced since its CI run")
@@ -105,7 +105,7 @@ def activate(archive: Path, manifest: Path, source_sha: str, version: str) -> Pa
             "tag": f"v{version}",
             "version": version,
             "commit": source_sha,
-            "deployed_at": datetime.now(timezone.utc).isoformat(),
+            "deployed_at": datetime.now(UTC).isoformat(),
         }
         temporary = RUNTIME / ".deployment-identity.tmp"
         identity = RUNTIME / "deployment-identity"
