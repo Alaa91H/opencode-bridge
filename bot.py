@@ -131,6 +131,8 @@ client = OpenCodeClient(
     host=OPENCODE_HOST,
     port=OPENCODE_PORT,
     password=OPENCODE_PASSWORD,
+    credential_pool=credential_pool,
+    credential_state_path=credential_state_path,
 )
 audit = AuditLogger(BRIDGE_DIR / "runtime" / "audit.jsonl")
 attachment_store = AttachmentStore(
