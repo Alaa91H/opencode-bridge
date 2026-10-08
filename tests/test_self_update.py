@@ -17,7 +17,7 @@ class SelfUpdatePolicyTests(unittest.TestCase):
         expected = "alaa91h/opencode-bridge"
         self.assertEqual(self_update.normalize_github_repository("https://github.com/Alaa91H/opencode-bridge.git"), expected)
         self.assertEqual(self_update.normalize_github_repository("git@github.com:Alaa91H/opencode-bridge.git"), expected)
-        self.assertEqual(self_update.normalize_github_repository("ssh://git@github.com:Alaa91H/opencode-bridge.git"), expected)
+        self.assertEqual(self_update.normalize_github_repository("ssh://git@github.com/Alaa91H/opencode-bridge.git"), expected)
 
     def test_rejects_non_github_and_wrong_repository(self) -> None:
         self.assertIsNone(self_update.normalize_github_repository("https://example.com/Alaa91H/opencode-bridge.git"))
