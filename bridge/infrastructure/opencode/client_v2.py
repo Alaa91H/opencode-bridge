@@ -58,7 +58,53 @@ class OpenCodeClientV2:
     async def close(self) -> None:
         await self.http.aclose()
 
-    async def request(self, method: str, endpoint: str, *, json_body: dict[str, Any] | None = None,\n                      correlation_id: str | None = None, model_id: str | None = None) -> OpenCodeResponse:\n        cid = correlation_id or str(uuid.uuid4())\n        last: Exception | None = None\n        excluded: set[str] = set()\n        for attempt in range(self.config.max_retries + 1):\n            headers = {"X-Correlation-ID": cid}\n            credential = self.credential_pool.select(exclude=excluded) if self.credential_pool is not None else None\n            if credential is not None:\n                headers["Authorization"] = f"Bearer {credential.secret}"\n            self.metrics.requests += 1\n            try:\n                response = await self.http.request(method, endpoint, json=json_body, headers=headers)\n                response.raise_for_status()\n                if credential is not None:\n                    self.credential_pool.record_success(credential.name)\n                payload = response.json() if response.content else {}\n                return OpenCodeResponse(payload, cid, response.status_code)\n            except httpx.HTTPStatusError as exc:\n                last = exc\n                classified = classify_credential_failure(exc, model_id=model_id)\n                if credential is not None and classified is not None:\n                    category, delay = classified\n                    rotate = self.credential_pool.record_failure(credential.name, category, retry_after=delay)\n                    if rotate:\n                        excluded.add(credential.name)\n                        if self.credential_pool.select(exclude=excluded) is not None and attempt < self.config.max_retries:\n                            self.metrics.retries += 1\n                            continue\n                if response.status_code in {429, 502, 503, 504} and attempt < self.config.max_retries:\n                    self.metrics.retries += 1\n                    retry_after = response.headers.get("Retry-After")\n                    delay = float(retry_after) if retry_after and retry_after.replace(".", "", 1).isdigit() else self.config.retry_backoff * (2 ** attempt)\n                    await __import__("asyncio").sleep(delay)\n                    continue\n                break\n            except (httpx.TimeoutException, httpx.NetworkError) as exc:\n                last = exc\n                if attempt >= self.config.max_retries:\n                    break\n                self.metrics.retries += 1\n                await __import__("asyncio").sleep(self.config.retry_backoff * (2 ** attempt))\n        self.metrics.failures += 1\n        if last is None:\n            raise RuntimeError("opencode request failed without a recorded cause")\n        raise last\n
+    async def request(self, method: str, endpoint: str, *, json_body: dict[str, Any] | None = None,
+                      correlation_id: str | None = None, model_id: str | None = None) -> OpenCodeResponse:
+        cid = correlation_id or str(uuid.uuid4())
+        last: Exception | None = None
+        excluded: set[str] = set()
+        for attempt in range(self.config.max_retries + 1):
+            headers = {"X-Correlation-ID": cid}
+            credential = self.credential_pool.select(exclude=excluded) if self.credential_pool is not None else None
+            if credential is not None:
+                headers["Authorization"] = f"Bearer {credential.secret}"
+            self.metrics.requests += 1
+            try:
+                response = await self.http.request(method, endpoint, json=json_body, headers=headers)
+                response.raise_for_status()
+                if credential is not None:
+                    self.credential_pool.record_success(credential.name)
+                payload = response.json() if response.content else {}
+                return OpenCodeResponse(payload, cid, response.status_code)
+            except httpx.HTTPStatusError as exc:
+                last = exc
+                classified = classify_credential_failure(exc, model_id=model_id)
+                if credential is not None and classified is not None:
+                    category, delay = classified
+                    rotate = self.credential_pool.record_failure(credential.name, category, retry_after=delay)
+                    if rotate:
+                        excluded.add(credential.name)
+                        if self.credential_pool.select(exclude=excluded) is not None and attempt < self.config.max_retries:
+                            self.metrics.retries += 1
+                            continue
+                if response.status_code in {429, 502, 503, 504} and attempt < self.config.max_retries:
+                    self.metrics.retries += 1
+                    retry_after = response.headers.get("Retry-After")
+                    delay = float(retry_after) if retry_after and retry_after.replace(".", "", 1).isdigit() else self.config.retry_backoff * (2 ** attempt)
+                    await __import__("asyncio").sleep(delay)
+                    continue
+                break
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                last = exc
+                if attempt >= self.config.max_retries:
+                    break
+                self.metrics.retries += 1
+                await __import__("asyncio").sleep(self.config.retry_backoff * (2 ** attempt))
+        self.metrics.failures += 1
+        if last is None:
+            raise RuntimeError("opencode request failed without a recorded cause")
+        raise last
+
     async def create_message(self, request: OpenCodeRequest, *, correlation_id: str | None = None) -> OpenCodeResponse:
         body = {"prompt": request.prompt}
         if request.model is not None:
