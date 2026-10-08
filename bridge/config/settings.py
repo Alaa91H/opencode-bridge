@@ -181,6 +181,7 @@ _ALLOWED_SECTION_KEYS: dict[str, set[str]] = {
         "pin_default_model",
         "agent",
         "model_sync_seconds",
+        "credentials",
     },
     "agent": {
         "scout_interval_seconds",
@@ -271,6 +272,7 @@ class OpenCodeSettings:
     pin_default_model: bool = False
     agent: str = "telegram-operator"
     model_sync_seconds: int = 900
+    credentials: str = ""
 
 
 @dataclass(frozen=True)
@@ -494,6 +496,10 @@ class BridgeSettings:
                 merged_env, config, "OPENCODE_AGENT",
                 "opencode.agent", "telegram-operator"
             )).strip() or "telegram-operator",
+            credentials=str(_source_value(
+                merged_env, config, "OPENCODE_CREDENTIALS",
+                "opencode.credentials", ""
+            )).strip(),
             model_sync_seconds=_parse_int(
                 _source_value(
                     merged_env, config, "OPENCODE_MODEL_SYNC_SECONDS",
@@ -835,6 +841,9 @@ class BridgeSettings:
         )
         data["opencode"]["server_password"] = (
             "<redacted>" if settings.opencode.server_password else None
+        )
+        data["opencode"]["credentials"] = (
+            "<redacted>" if settings.opencode.credentials else ""
         )
         data["github"]["token"] = "<redacted>" if settings.github.token else ""
         data["workspace"]["root"] = str(settings.workspace.root)

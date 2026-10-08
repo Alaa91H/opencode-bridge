@@ -6,6 +6,7 @@ because that belongs to the command adapter.
 """
 
 import json
+import asyncio
 import tempfile
 import threading
 import unittest
@@ -85,7 +86,7 @@ class DownloadServiceTests(unittest.IsolatedAsyncioTestCase):
         self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
 
     async def asyncTearDown(self) -> None:
-        self.server.shutdown()
+        await asyncio.to_thread(self.server.shutdown)
         self.server.server_close()
         self.tmp.cleanup()
 

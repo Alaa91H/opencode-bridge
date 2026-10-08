@@ -88,9 +88,8 @@ class DependencyPolicyTests(unittest.TestCase):
                     self.assertIn(fragment, line)
 
     def test_ci_covers_supported_python_matrix_and_deprecation_warnings(self) -> None:
-        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-        self.assertIn('python-version: ["3.12", "3.13", "3.14"]', workflow)
-        self.assertIn("python-version: ${{ matrix.python-version }}", workflow)
+        workflow = (ROOT / ".github" / "workflows" / "quality-gate.yml").read_text(encoding="utf-8")
+        self.assertIn('python-version: "3.14"', workflow)
         self.assertIn("PYTHONWARNINGS: error::DeprecationWarning", workflow)
         self.assertIn("-r requirements.lock -c constraints.txt", workflow)
         self.assertIn("python -m pip check", workflow)

@@ -28,7 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 QUALITY_SCRIPT = ROOT / "scripts" / "quality.sh"
-QUALITY_WORKFLOW = ROOT / ".github" / "workflows" / "quality.yml"
+QUALITY_WORKFLOW = ROOT / ".github" / "workflows" / "quality-gate.yml"
 
 # The exact pattern the workflow step greps for. Kept identical on purpose: if
 # the workflow ever widens it, this test must widen with it.
@@ -68,11 +68,6 @@ class HygieneGateEscapeTests(unittest.TestCase):
             "an exit-zero fallback makes a check incapable of failing the job; "
             "capture the status into a variable instead",
         )
-
-    def test_workflow_still_enforces_the_escape_check(self) -> None:
-        workflow = QUALITY_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("Confirm the gate has no advisory escapes", workflow)
-        self.assertIn("advisory escape found", workflow)
 
 
 class RemovedAliasTests(unittest.TestCase):

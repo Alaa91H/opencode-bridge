@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -32,6 +33,7 @@ from bridge.domain.schedules import (
 )
 from bridge.infrastructure.database.draft_store import DraftStore
 from bridge.infrastructure.database.user_settings_store import UserSettingsStore
+from bridge.infrastructure.opencode.credential_pool import CredentialPool, parse_credential_pool
 from bridge.services.agent_service import AgentService
 from bridge.services.config_service import ConfigurationService
 from bridge.services.download_service import DownloadService
@@ -103,6 +105,7 @@ ALLOWED_CHAT_IDS = set(SETTINGS.telegram.allowed_chat_ids)
 OPENCODE_HOST = SETTINGS.opencode.host
 OPENCODE_PORT = SETTINGS.opencode.port
 OPENCODE_PASSWORD = SETTINGS.opencode.password
+OPENCODE_CREDENTIALS = SETTINGS.opencode.credentials
 DEFAULT_MODEL = SETTINGS.opencode.default_model
 DEFAULT_MODEL_VARIANT = SETTINGS.opencode.model_variant
 VARIANT_MODEL = SETTINGS.opencode.variant_model
@@ -117,11 +120,19 @@ ATTACHMENT_PENDING_SECONDS = SETTINGS.telegram.attachment_pending_seconds
 MEDIA_GROUP_DEBOUNCE_SECONDS = SETTINGS.telegram.media_group_debounce_seconds
 
 store = SessionStore(BRIDGE_DIR / "sessions.db")
+credential_pool = CredentialPool(parse_credential_pool(OPENCODE_CREDENTIALS))
+credential_state_path = BRIDGE_DIR / "runtime" / "opencode-credential-state.json"
+try:
+    credential_pool.load_state(credential_state_path)
+except (OSError, ValueError, json.JSONDecodeError):
+    log.warning("تعذر استعادة حالة OpenCode credentials؛ سيبدأ الـpool بحالة نظيفة")
 task_store = TaskQueueStore(BRIDGE_DIR / "sessions.db")
 client = OpenCodeClient(
     host=OPENCODE_HOST,
     port=OPENCODE_PORT,
     password=OPENCODE_PASSWORD,
+    credential_pool=credential_pool,
+    credential_state_path=credential_state_path,
 )
 audit = AuditLogger(BRIDGE_DIR / "runtime" / "audit.jsonl")
 attachment_store = AttachmentStore(

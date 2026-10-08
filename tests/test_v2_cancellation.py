@@ -48,8 +48,13 @@ class CancellationTests(unittest.IsolatedAsyncioTestCase):
         process.terminate = Mock()
         process.kill = Mock()
         process.wait = AsyncMock(side_effect=[TimeoutError(), 0])
-        with patch("bridge.infrastructure.processes.cancellable.asyncio.wait_for", side_effect=asyncio.TimeoutError):
-            # use a fresh wait mock because wait_for times out before consuming it
+        async def timeout_after_closing(awaitable, *, timeout):
+            del timeout
+            awaitable.close()
+            raise asyncio.TimeoutError
+
+        with patch("bridge.infrastructure.processes.cancellable.asyncio.wait_for", side_effect=timeout_after_closing):
+            # Closing the synthetic coroutine mirrors wait_for cancellation without leaking it.
             process.wait = AsyncMock(return_value=0)
             await terminate_process(process, grace_seconds=.001)
         process.terminate.assert_called_once()

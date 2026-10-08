@@ -154,3 +154,47 @@ def classify_retry(
     if status in {408, 500, 502, 503, 504}:
         return RetryDecision("provider_unavailable", delay, pending=pending)
     return None
+
+
+def classify_credential_failure(
+    exc: Exception,
+    *,
+    model_id: str | None = None,
+    now: datetime | None = None,
+) -> tuple[str, float] | None:
+    """Classify failures that may be applied to one credential only."""
+    decision = classify_retry(exc, model_id=model_id, now=now)
+    if decision is not None and decision.category == "zen_free_quota":
+        return ("zen_free_quota", decision.delay_seconds)
+
+    status = 0
+    body = ""
+    delay = 60.0
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        body = exc.response.text.casefold()
+        delay = retry_after_seconds(exc.response.headers.get("Retry-After"))
+    elif isinstance(exc, ProviderTaskError):
+        data = exc.error.get("data", exc.error)
+        if not isinstance(data, dict):
+            data = {}
+        try:
+            status = int(data.get("statusCode") or 0)
+        except (TypeError, ValueError):
+            status = 0
+        body = json.dumps(exc.error, ensure_ascii=False).casefold()
+        headers = data.get("responseHeaders") or {}
+        if isinstance(headers, dict):
+            value = next((v for k, v in headers.items() if k.casefold() == "retry-after"), None)
+            delay = retry_after_seconds(str(value) if value is not None else None)
+
+    if status == 401 or any(marker in body for marker in ("invalid api key", "invalid_api_key", "unauthorized credential")):
+        return ("invalid_credential", delay)
+    if status == 429:
+        return ("credential_rate_limit", delay)
+    if status == 402 or any(marker in body for marker in (
+        "insufficient_quota", "quota_exceeded", "quota exceeded", "credit balance",
+        "out of credits", "spending limit", "billing limit", "insufficient balance",
+    )):
+        return ("credential_quota", delay)
+    return None

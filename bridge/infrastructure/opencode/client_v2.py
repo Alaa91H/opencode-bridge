@@ -10,6 +10,8 @@ from typing import Any
 
 import httpx
 
+from bridge.domain.tasks.retry_policy import classify_credential_failure
+
 
 @dataclass(frozen=True)
 class OpenCodeHttpConfig:
@@ -45,9 +47,10 @@ class OpenCodeMetrics:
 
 
 class OpenCodeClientV2:
-    def __init__(self, config: OpenCodeHttpConfig, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(self, config: OpenCodeHttpConfig, *, transport: httpx.AsyncBaseTransport | None = None, credential_pool: Any | None = None) -> None:
         self.config = config
         self.metrics = OpenCodeMetrics()
+        self.credential_pool = credential_pool
         timeout = httpx.Timeout(config.read_timeout, connect=config.connect_timeout,
                                 write=config.write_timeout, pool=config.pool_timeout)
         self.http = httpx.AsyncClient(base_url=config.base_url.rstrip("/"), timeout=timeout, transport=transport)
@@ -56,23 +59,41 @@ class OpenCodeClientV2:
         await self.http.aclose()
 
     async def request(self, method: str, endpoint: str, *, json_body: dict[str, Any] | None = None,
-                      correlation_id: str | None = None) -> OpenCodeResponse:
+                      correlation_id: str | None = None, model_id: str | None = None) -> OpenCodeResponse:
         cid = correlation_id or str(uuid.uuid4())
-        headers = {"X-Correlation-ID": cid}
         last: Exception | None = None
+        excluded: set[str] = set()
         for attempt in range(self.config.max_retries + 1):
+            headers = {"X-Correlation-ID": cid}
+            credential = self.credential_pool.select(exclude=excluded) if self.credential_pool is not None else None
+            if credential is not None:
+                headers["Authorization"] = f"Bearer {credential.secret}"
             self.metrics.requests += 1
             try:
                 response = await self.http.request(method, endpoint, json=json_body, headers=headers)
+                response.raise_for_status()
+                if credential is not None:
+                    self.credential_pool.record_success(credential.name)
+                payload = response.json() if response.content else {}
+                return OpenCodeResponse(payload, cid, response.status_code)
+            except httpx.HTTPStatusError as exc:
+                last = exc
+                classified = classify_credential_failure(exc, model_id=model_id)
+                if credential is not None and classified is not None:
+                    category, delay = classified
+                    rotate = self.credential_pool.record_failure(credential.name, category, retry_after=delay)
+                    if rotate:
+                        excluded.add(credential.name)
+                        if self.credential_pool.select(exclude=excluded) is not None and attempt < self.config.max_retries:
+                            self.metrics.retries += 1
+                            continue
                 if response.status_code in {429, 502, 503, 504} and attempt < self.config.max_retries:
                     self.metrics.retries += 1
                     retry_after = response.headers.get("Retry-After")
                     delay = float(retry_after) if retry_after and retry_after.replace(".", "", 1).isdigit() else self.config.retry_backoff * (2 ** attempt)
                     await __import__("asyncio").sleep(delay)
                     continue
-                response.raise_for_status()
-                payload = response.json() if response.content else {}
-                return OpenCodeResponse(payload, cid, response.status_code)
+                break
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
                 last = exc
                 if attempt >= self.config.max_retries:
@@ -90,7 +111,7 @@ class OpenCodeClientV2:
             body["model"] = request.model
         if request.session_id is not None:
             body["session_id"] = request.session_id
-        return await self.request("POST", "/messages", json_body=body, correlation_id=correlation_id)
+        return await self.request("POST", "/messages", json_body=body, correlation_id=correlation_id, model_id=request.model)
 
     async def events(self, endpoint: str = "/events", *, reconnects: int = 3) -> AsyncIterator[dict[str, Any]]:
         last_event_id: str | None = None

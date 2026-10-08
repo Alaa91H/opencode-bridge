@@ -10,6 +10,7 @@ Bot API cannot be called from a unit test.
 """
 
 import json
+import asyncio
 import tempfile
 import threading
 import unittest
@@ -174,7 +175,7 @@ class PanelEndToEndTests(unittest.IsolatedAsyncioTestCase):
         self.routers = self._build_routers()
 
     async def asyncTearDown(self) -> None:
-        self.server.shutdown()
+        await asyncio.to_thread(self.server.shutdown)
         self.server.server_close()
         await self.client.close()
         await self.stores.close()

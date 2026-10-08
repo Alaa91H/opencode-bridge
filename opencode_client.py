@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from bridge.domain.tasks.retry_policy import ProviderTaskError, TaskCancelledError
+from bridge.domain.tasks.retry_policy import ProviderTaskError, TaskCancelledError, classify_credential_failure
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 4096
@@ -43,9 +43,13 @@ class OpenCodeClient:
         port: int = DEFAULT_PORT,
         password: str | None = None,
         timeout: float = TIMEOUT,
+        credential_pool: Any | None = None,
+        credential_state_path: Any | None = None,
     ) -> None:
         self.base_url = f"http://{host}:{port}"
         self.timeout = max(1.0, min(60.0, timeout))
+        self.credential_pool = credential_pool
+        self.credential_state_path = credential_state_path
         auth = ("opencode", password) if password else None
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
@@ -56,7 +60,45 @@ class OpenCodeClient:
         )
 
     async def close(self) -> None:
+        self._save_credential_state()
         await self._client.aclose()
+
+    def _save_credential_state(self) -> None:
+        if self.credential_pool is not None and self.credential_state_path is not None:
+            self.credential_pool.save_state(self.credential_state_path)
+
+    async def _credential_request(self, method: str, path: str, *, model_id: str | None = None, **kwargs: Any) -> httpx.Response:
+        """Apply credential failover only to provider-facing message submission."""
+        if self.credential_pool is None or len(self.credential_pool) == 0:
+            return await self._client.request(method, path, **kwargs)
+        excluded: set[str] = set()
+        last_response: httpx.Response | None = None
+        for _ in range(len(self.credential_pool)):
+            credential = self.credential_pool.select(exclude=excluded)
+            if credential is None:
+                break
+            headers = dict(kwargs.pop("headers", {}) or {})
+            headers["Authorization"] = f"Bearer {credential.secret}"
+            response = await self._client.request(method, path, headers=headers, **kwargs)
+            last_response = response
+            if response.is_success:
+                self.credential_pool.record_success(credential.name)
+                self._save_credential_state()
+                return response
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                classified = classify_credential_failure(exc, model_id=model_id)
+                if classified is None:
+                    return response
+                category, delay = classified
+                if not self.credential_pool.record_failure(credential.name, category, retry_after=delay):
+                    return response
+                excluded.add(credential.name)
+                self._save_credential_state()
+        if last_response is not None:
+            return last_response
+        return await self._client.request(method, path, **kwargs)
 
     async def health(self) -> dict[str, Any]:
         response = await self._client.get("/global/health")
@@ -129,7 +171,8 @@ class OpenCodeClient:
         if message_id:
             body["messageID"] = message_id
             return await self._send_resumable(session_id, message_id, body, should_continue)
-        response = await self._client.post(f"/session/{session_id}/message", json=body)
+        model_id = model if isinstance(model, str) else None
+        response = await self._credential_request("POST", f"/session/{session_id}/message", json=body, model_id=model_id)
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):
@@ -316,27 +359,7 @@ def extract_file_response(response: dict[str, Any]) -> list[dict[str, str]]:
             continue
         url = part.get("url")
         mime = part.get("mime")
-        if isinstance(url, str) and isinstance(mime, str):
-            item = {"url": url, "mime": mime}
-            filename = part.get("filename")
-            if isinstance(filename, str):
-                item["filename"] = filename
-            files.append(item)
+        filename = part.get("filename")
+        if isinstance(url, str) and url:
+            files.append({"url": url, "mime": str(mime or ""), "filename": str(filename or "")})
     return files
-
-
-async def wait_for_session_idle(
-    client: OpenCodeClient,
-    session_id: str,
-    poll_interval: float = 1.0,
-    timeout: float = 300.0,
-) -> dict[str, Any]:
-    elapsed = 0.0
-    while elapsed < timeout:
-        status = await client.get_session_status()
-        state = status.get(session_id, {}).get("state", "")
-        if state in {"idle", "complete", "done", ""}:
-            break
-        await asyncio.sleep(poll_interval)
-        elapsed += poll_interval
-    return {"state": status.get(session_id, {}).get("state", "unknown")}
