@@ -4,7 +4,7 @@ from email.utils import format_datetime
 
 import httpx
 
-from bridge.domain.tasks.retry_policy import ProviderTaskError, classify_retry, retry_after_seconds
+from bridge.domain.tasks.retry_policy import ProviderTaskError, classify_credential_failure, classify_retry, retry_after_seconds
 
 
 class ProviderRetryPolicyTests(unittest.TestCase):
