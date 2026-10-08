@@ -348,40 +348,4 @@ def extract_text_response(response: dict[str, Any]) -> str:
             text = part.get("text", "")
             if text:
                 texts.append(str(text))
-    return "
-
-".join(texts)
-
-
-def extract_file_response(response: dict[str, Any]) -> list[dict[str, str]]:
-    """Return only well-formed file parts; path authorization happens in the bridge."""
-    files: list[dict[str, str]] = []
-    for part in response.get("parts", []):
-        if not isinstance(part, dict) or part.get("type") != "file":
-            continue
-        url = part.get("url")
-        mime = part.get("mime")
-        if isinstance(url, str) and isinstance(mime, str):
-            item = {"url": url, "mime": mime}
-            filename = part.get("filename")
-            if isinstance(filename, str):
-                item["filename"] = filename
-            files.append(item)
-    return files
-
-
-async def wait_for_session_idle(
-    client: OpenCodeClient,
-    session_id: str,
-    poll_interval: float = 1.0,
-    timeout: float = 300.0,
-) -> dict[str, Any]:
-    elapsed = 0.0
-    while elapsed < timeout:
-        status = await client.get_session_status()
-        state = status.get(session_id, {}).get("state", "")
-        if state in {"idle", "complete", "done", ""}:
-            break
-        await asyncio.sleep(poll_interval)
-        elapsed += poll_interval
-    return {"state": status.get(session_id, {}).get("state", "unknown")}
+    return "\\n\\n".join(texts)
