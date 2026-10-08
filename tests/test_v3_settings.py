@@ -137,11 +137,14 @@ port = 5000
                 "TELEGRAM_BOT_TOKEN": "token",
                 "OPENCODE_PASSWORD": "password",
                 "GITHUB_TOKEN": "github",
+                "OPENCODE_CREDENTIALS": "primary=secret-a;backup=secret-b",
             }
         )
         public = settings.public_dict()
         self.assertEqual(public["telegram"]["bot_token"], "<redacted>")
         self.assertEqual(public["opencode"]["password"], "<redacted>")
+        self.assertEqual(public["opencode"]["credentials"], "<redacted>")
+        self.assertNotIn("secret-a", repr(public))
         self.assertEqual(public["github"]["token"], "<redacted>")
         self.assertNotIn("user_policies", public)
 
