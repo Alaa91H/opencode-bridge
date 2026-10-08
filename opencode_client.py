@@ -59,7 +59,47 @@ class OpenCodeClient:
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
 
-    async def close(self) -> None:\n        self._save_credential_state()\n        await self._client.aclose()\n\n    def _save_credential_state(self) -> None:\n        if self.credential_pool is not None and self.credential_state_path is not None:\n            self.credential_pool.save_state(self.credential_state_path)\n\n    async def _credential_request(self, method: str, path: str, *, model_id: str | None = None, **kwargs: Any) -> httpx.Response:\n        """Apply credential failover only to provider-facing message submission."""\n        if self.credential_pool is None or len(self.credential_pool) == 0:\n            return await self._client.request(method, path, **kwargs)\n        excluded: set[str] = set()\n        last_response: httpx.Response | None = None\n        for _ in range(len(self.credential_pool)):\n            credential = self.credential_pool.select(exclude=excluded)\n            if credential is None:\n                break\n            headers = dict(kwargs.pop("headers", {}) or {})\n            headers["Authorization"] = f"Bearer {credential.secret}"\n            response = await self._client.request(method, path, headers=headers, **kwargs)\n            last_response = response\n            if response.is_success:\n                self.credential_pool.record_success(credential.name)\n                self._save_credential_state()\n                return response\n            try:\n                response.raise_for_status()\n            except httpx.HTTPStatusError as exc:\n                classified = classify_credential_failure(exc, model_id=model_id)\n                if classified is None:\n                    return response\n                category, delay = classified\n                if not self.credential_pool.record_failure(credential.name, category, retry_after=delay):\n                    return response\n                excluded.add(credential.name)\n                self._save_credential_state()\n        if last_response is not None:\n            return last_response\n        return await self._client.request(method, path, **kwargs)\n
+    async def close(self) -> None:
+        self._save_credential_state()
+        await self._client.aclose()
+
+    def _save_credential_state(self) -> None:
+        if self.credential_pool is not None and self.credential_state_path is not None:
+            self.credential_pool.save_state(self.credential_state_path)
+
+    async def _credential_request(self, method: str, path: str, *, model_id: str | None = None, **kwargs: Any) -> httpx.Response:
+        """Apply credential failover only to provider-facing message submission."""
+        if self.credential_pool is None or len(self.credential_pool) == 0:
+            return await self._client.request(method, path, **kwargs)
+        excluded: set[str] = set()
+        last_response: httpx.Response | None = None
+        for _ in range(len(self.credential_pool)):
+            credential = self.credential_pool.select(exclude=excluded)
+            if credential is None:
+                break
+            headers = dict(kwargs.pop("headers", {}) or {})
+            headers["Authorization"] = f"Bearer {credential.secret}"
+            response = await self._client.request(method, path, headers=headers, **kwargs)
+            last_response = response
+            if response.is_success:
+                self.credential_pool.record_success(credential.name)
+                self._save_credential_state()
+                return response
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                classified = classify_credential_failure(exc, model_id=model_id)
+                if classified is None:
+                    return response
+                category, delay = classified
+                if not self.credential_pool.record_failure(credential.name, category, retry_after=delay):
+                    return response
+                excluded.add(credential.name)
+                self._save_credential_state()
+        if last_response is not None:
+            return last_response
+        return await self._client.request(method, path, **kwargs)
+
     async def health(self) -> dict[str, Any]:
         response = await self._client.get("/global/health")
         response.raise_for_status()
@@ -308,7 +348,9 @@ def extract_text_response(response: dict[str, Any]) -> str:
             text = part.get("text", "")
             if text:
                 texts.append(str(text))
-    return "\n\n".join(texts)
+    return "
+
+".join(texts)
 
 
 def extract_file_response(response: dict[str, Any]) -> list[dict[str, str]]:
