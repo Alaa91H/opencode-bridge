@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from bridge.domain.tasks.retry_policy import ProviderTaskError, TaskCancelledError
+from bridge.domain.tasks.retry_policy import ProviderTaskError, TaskCancelledError, classify_credential_failure
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 4096
@@ -43,9 +43,13 @@ class OpenCodeClient:
         port: int = DEFAULT_PORT,
         password: str | None = None,
         timeout: float = TIMEOUT,
+        credential_pool: Any | None = None,
+        credential_state_path: Any | None = None,
     ) -> None:
         self.base_url = f"http://{host}:{port}"
         self.timeout = max(1.0, min(60.0, timeout))
+        self.credential_pool = credential_pool
+        self.credential_state_path = credential_state_path
         auth = ("opencode", password) if password else None
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
@@ -55,9 +59,7 @@ class OpenCodeClient:
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
 
-    async def close(self) -> None:
-        await self._client.aclose()
-
+    async def close(self) -> None:\n        self._save_credential_state()\n        await self._client.aclose()\n\n    def _save_credential_state(self) -> None:\n        if self.credential_pool is not None and self.credential_state_path is not None:\n            self.credential_pool.save_state(self.credential_state_path)\n\n    async def _credential_request(self, method: str, path: str, *, model_id: str | None = None, **kwargs: Any) -> httpx.Response:\n        """Apply credential failover only to provider-facing message submission."""\n        if self.credential_pool is None or len(self.credential_pool) == 0:\n            return await self._client.request(method, path, **kwargs)\n        excluded: set[str] = set()\n        last_response: httpx.Response | None = None\n        for _ in range(len(self.credential_pool)):\n            credential = self.credential_pool.select(exclude=excluded)\n            if credential is None:\n                break\n            headers = dict(kwargs.pop("headers", {}) or {})\n            headers["Authorization"] = f"Bearer {credential.secret}"\n            response = await self._client.request(method, path, headers=headers, **kwargs)\n            last_response = response\n            if response.is_success:\n                self.credential_pool.record_success(credential.name)\n                self._save_credential_state()\n                return response\n            try:\n                response.raise_for_status()\n            except httpx.HTTPStatusError as exc:\n                classified = classify_credential_failure(exc, model_id=model_id)\n                if classified is None:\n                    return response\n                category, delay = classified\n                if not self.credential_pool.record_failure(credential.name, category, retry_after=delay):\n                    return response\n                excluded.add(credential.name)\n                self._save_credential_state()\n        if last_response is not None:\n            return last_response\n        return await self._client.request(method, path, **kwargs)\n
     async def health(self) -> dict[str, Any]:
         response = await self._client.get("/global/health")
         response.raise_for_status()
@@ -129,7 +131,8 @@ class OpenCodeClient:
         if message_id:
             body["messageID"] = message_id
             return await self._send_resumable(session_id, message_id, body, should_continue)
-        response = await self._client.post(f"/session/{session_id}/message", json=body)
+        model_id = model if isinstance(model, str) else None
+        response = await self._credential_request("POST", f"/session/{session_id}/message", json=body, model_id=model_id)
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):
