@@ -62,6 +62,7 @@ class CredentialPool:
             raise ValueError("credential weight must be >= 1")
         self._state = {item.name: _RuntimeState() for item in self._credentials}
         self._lock = Lock()
+        self._cursor = 0
 
     def __len__(self) -> int:
         return len(self._credentials)
@@ -83,6 +84,7 @@ class CredentialPool:
                     continue
                 runtime.cooldown_until = None
                 runtime.last_used_at = current
+                self._cursor = (index + 1) % len(self._credentials)
                 return item
         return None
 
@@ -202,7 +204,7 @@ def parse_credential_pool(value: str | None) -> tuple[OpenCodeCredential, ...]:
     if not value or not value.strip():
         return ()
     credentials: list[OpenCodeCredential] = []
-    normalized = value.replace("\\r\\n", "\\n").replace(";", "\\n")
+    normalized = value.replace("\r\n", "\n").replace(";", "\n")
     for raw in normalized.splitlines():
         entry = raw.strip()
         if not entry:
