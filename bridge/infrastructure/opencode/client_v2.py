@@ -45,9 +45,10 @@ class OpenCodeMetrics:
 
 
 class OpenCodeClientV2:
-    def __init__(self, config: OpenCodeHttpConfig, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(self, config: OpenCodeHttpConfig, *, transport: httpx.AsyncBaseTransport | None = None, credential_pool: Any | None = None) -> None:
         self.config = config
         self.metrics = OpenCodeMetrics()
+        self.credential_pool = credential_pool
         timeout = httpx.Timeout(config.read_timeout, connect=config.connect_timeout,
                                 write=config.write_timeout, pool=config.pool_timeout)
         self.http = httpx.AsyncClient(base_url=config.base_url.rstrip("/"), timeout=timeout, transport=transport)
@@ -59,6 +60,9 @@ class OpenCodeClientV2:
                       correlation_id: str | None = None) -> OpenCodeResponse:
         cid = correlation_id or str(uuid.uuid4())
         headers = {"X-Correlation-ID": cid}
+        credential = self.credential_pool.select() if self.credential_pool is not None else None
+        if credential is not None:
+            headers["Authorization"] = f"Bearer {credential.secret}"
         last: Exception | None = None
         for attempt in range(self.config.max_retries + 1):
             self.metrics.requests += 1
@@ -71,6 +75,8 @@ class OpenCodeClientV2:
                     await __import__("asyncio").sleep(delay)
                     continue
                 response.raise_for_status()
+                if credential is not None:
+                    self.credential_pool.record_success(credential.name)
                 payload = response.json() if response.content else {}
                 return OpenCodeResponse(payload, cid, response.status_code)
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
