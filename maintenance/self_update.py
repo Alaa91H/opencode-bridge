@@ -110,8 +110,8 @@ def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
         if candidate <= current:
             return {"status": "up_to_date", "tag": tag}
         # Never trust a tag name from an arbitrary repository or branch.
-        git_run("fetch", "--no-tags", "origin", f"refs/tags/{tag}", cwd=root)
-        commit = git_run("rev-parse", "FETCH_HEAD^{commit}", cwd=root)
+        git_run("fetch", "--no-tags", "origin", f"refs/tags/{tag}:refs/tags/{tag}", cwd=root)
+        commit = git_run("rev-parse", f"refs/tags/{tag}^{{commit}}", cwd=root)
         if not re.fullmatch(r"[0-9a-f]{40}", commit):
             raise ValueError("bad tag commit")
         actual = git_run("show", f"{commit}:VERSION", cwd=root).strip()
@@ -122,6 +122,7 @@ def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
         command = [str(root / "scripts" / "deploy.sh"), tag]
         if deploy is None:
             subprocess.run(command, cwd=root, check=True, timeout=240,
+                           env={**os.environ, "OPENCODE_EXPECTED_RELEASE_COMMIT": commit},
                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         else:
             deploy(command)

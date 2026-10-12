@@ -17,9 +17,10 @@ class ReleaseServiceUnitTests(unittest.TestCase):
         telegram = (ROOT / "deploy" / "opencode-bridge-telegram.service").read_text(encoding="utf-8")
         opencode = (ROOT / "deploy" / "opencode-serve.service").read_text(encoding="utf-8")
         for unit in (telegram, opencode):
-            self.assertIn("WorkingDirectory=/home/ubuntu/opencode-releases/current", unit)
+            self.assertIn("WorkingDirectory=/home/ubuntu/opencode-bridge", unit)
             self.assertIn("EnvironmentFile=-/home/ubuntu/opencode-bridge/.env", unit)
-        self.assertIn("Environment=OPENCODE_CONFIG=/home/ubuntu/opencode-releases/current/opencode.json", opencode)
+        self.assertIn("Environment=OPENCODE_CONFIG=/home/ubuntu/opencode-bridge/opencode.json", opencode)
+        self.assertIn("Environment=OPENCODE_CONFIG_DIR=/home/ubuntu/opencode-bridge", opencode)
 
     def test_deployed_tag_is_derived_from_release_version_without_git_metadata(self) -> None:
         with patch.object(systemd, "read_version", return_value="2.0.0-rc.9"):

@@ -42,6 +42,7 @@ if ! [[ "$TARGET_TAG" =~ $RELEASE_TAG_PATTERN ]]; then
 fi
 
 # A tag must exist locally and be fetched, so a typo cannot silently deploy HEAD.
+# Services run from the shared checkout: runtime/ and sessions.db persist across tags.
 git fetch --prune --tags origin >/dev/null 2>&1 || true
 
 if ! git rev-parse --verify --quiet "refs/tags/${TARGET_TAG}" >/dev/null; then
@@ -51,6 +52,10 @@ if ! git rev-parse --verify --quiet "refs/tags/${TARGET_TAG}" >/dev/null; then
 fi
 
 TARGET_COMMIT="$(git rev-parse --verify "refs/tags/${TARGET_TAG}^{commit}")"
+if [[ -n "${OPENCODE_EXPECTED_RELEASE_COMMIT:-}" && "${OPENCODE_EXPECTED_RELEASE_COMMIT}" != "${TARGET_COMMIT}" ]]; then
+  echo "Verified CI commit does not match the fetched release tag" >&2
+  exit 65
+fi
 TARGET_VERSION="$(git show "${TARGET_COMMIT}:VERSION" 2>/dev/null | tr -d '[:space:]' || true)"
 if [[ -z "$TARGET_VERSION" ]]; then
   echo "الوسم ${TARGET_TAG} لا يحتوي ملف VERSION." >&2
@@ -97,6 +102,7 @@ rollback() {
   echo "فشل النشر؛ تجري استعادة الإصدار السابق ${DEPLOYED_COMMIT:0:12}." >&2
   git checkout --detach --quiet "$DEPLOYED_COMMIT" || true
   sudo -n "${BRIDGE_DIR}/maintenance/install-root-assets.sh" || true
+  systemctl --user restart opencode-serve.service || true
   systemctl --user restart "$SERVICE_NAME" || true
   exit "$code"
 }
@@ -113,6 +119,7 @@ git checkout --detach --quiet "$TARGET_COMMIT"
 "$PYTHON_BIN" systemd.py
 sudo -n "${BRIDGE_DIR}/maintenance/install-root-assets.sh"
 
+systemctl --user restart opencode-serve.service
 systemctl --user restart "$SERVICE_NAME"
 for _attempt in {1..15}; do
   if [[ "$(systemctl --user is-active "$SERVICE_NAME")" == "active" ]]; then
@@ -121,6 +128,7 @@ for _attempt in {1..15}; do
   sleep 1
 done
 [[ "$(systemctl --user is-active "$SERVICE_NAME")" == "active" ]]
+[[ "$(systemctl --user is-active opencode-serve.service)" == "active" ]]
 
 set -a
 # shellcheck disable=SC1091

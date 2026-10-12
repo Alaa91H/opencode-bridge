@@ -1,3 +1,22 @@
+## [3.0.0] - 2026-10-12
+
+### Telegram operation
+- Bilingual Arabic/English Telegram keyboards and owner-only panels for agents, models, reasoning, long-running jobs, scheduling, files, server controls and diagnostics.
+- Provider-specific API key inventory: add, activate, remove, and rotate on credential-scoped errors.
+- Strict one-task default and two-task ceiling; durable continuation after the 12:00 UTC quota reset.
+
+### Deployment and resources
+- Stable GitHub Release updater gated by successful tagged CI, matching commit and semantic version, with rollback on deployment failure.
+- First-install development CLI provisioner without local application builds; restricted GitHub-only agent shell permissions.
+- Adaptive disk swap, configurable ZRAM, recurring memory policy timer, and Telegram controls.
+- Align service working directory and configuration with the deployment checkout so version updates activate the correct code and preserve persistent state.
+
+### Upgrade notes
+- Release upgrades run from the /home/ubuntu/opencode-bridge checkout. The deploy script refreshes systemd units.
+- Python environments must already be provisioned; builds and dependency compilation stay on GitHub Actions.
+- Configure dedicated GitHub access and scoped sudo permissions for unattended deployment.
+- Never send API keys into public Telegram chats.
+
 ## [Unreleased]
 
 ### OpenCode Zen free quota recovery and worker admission
