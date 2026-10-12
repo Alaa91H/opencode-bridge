@@ -3,6 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import hashlib
+import shutil
+import subprocess
+import tarfile
 import sqlite3
 import tempfile
 import uuid
@@ -72,3 +76,38 @@ class AdminBackups:
         path = self.get(name)
         path.unlink()
         path.with_suffix(".json").unlink(missing_ok=True)
+
+    async def create_encrypted(self) -> dict:
+        """Secret-inclusive backup is never sent or stored unencrypted."""
+        async with self.lock:
+            return await asyncio.to_thread(self._encrypted_snapshot)
+
+    def _encrypted_snapshot(self) -> dict:
+        recipient = self.project / "runtime" / "backup-age-recipient"
+        if recipient.is_symlink() or not recipient.is_file():
+            raise ValueError("Configure runtime/backup-age-recipient with your age public key")
+        key = recipient.read_text(encoding="ascii").strip()
+        if not key.startswith("age1") or len(key) > 160 or not shutil.which("age"):
+            raise ValueError("A valid age recipient and the age program are required")
+        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        name = datetime.now(UTC).strftime("backup-%Y%m%dT%H%M%S-") + uuid.uuid4().hex[:8]
+        with tempfile.TemporaryDirectory(dir=self.root) as temporary:
+            folder = Path(temporary)
+            plaintext = folder / "snapshot.tar.gz"
+            with tarfile.open(plaintext, "w:gz") as archive:
+                for rel in ("sessions.db", ".env", "runtime/private/provider-keys.json",
+                            "runtime/private/host-credentials.json",
+                            "runtime/memory-policy.json", "runtime/auto-update-enabled"):
+                    file = self.project / rel
+                    if file.is_file() and not file.is_symlink():
+                        archive.add(file, arcname=rel)
+            encrypted = folder / (name + ".age")
+            subprocess.run(["age", "-r", key, "-o", str(encrypted), str(plaintext)],
+                           check=True, capture_output=True, timeout=120)
+            output = self.root / encrypted.name
+            secure_write(output, encrypted.read_bytes())
+        metadata = {
+            "created_utc": datetime.now(UTC).isoformat(), "includes_keys": True,
+            "encrypted": True, "sha256": hashlib.sha256(output.read_bytes()).hexdigest()}
+        secure_write(output.with_name(output.name + ".json"), json.dumps(metadata).encode())
+        return {"name": output.name, "bytes": output.stat().st_size, **metadata}
