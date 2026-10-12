@@ -11,7 +11,6 @@ import os
 import re
 from pathlib import Path
 
-
 AUTOPILOT_MODES = ("off", "notify", "auto-safe", "maintenance-window")
 MAINTENANCE_WINDOW_UTC = (2, 4)
 
