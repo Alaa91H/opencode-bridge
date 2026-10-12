@@ -597,6 +597,18 @@ class ControlUI:
         if not text:
             await message.reply_text(t["input"])
             return True
+        if waiting == "age_recipient":
+            if not self.admin_allowed(update) or getattr(
+                getattr(update, "effective_chat", None), "type", None) != "private":
+                return True
+            from bridge.services.host_credentials import secure_write
+            if not text.startswith("age1") or len(text) > 160:
+                await message.reply_text(t["error"])
+                return True
+            secure_write(self.project / "runtime/backup-age-recipient",
+                         (text + "\n").encode("ascii"))
+            await message.reply_text(t["saved"])
+            return True
         if isinstance(waiting, str) and waiting.startswith("mirror:"):
             if not self.admin_allowed(update) or getattr(
                 getattr(update, "effective_chat", None), "type", None) != "private":
