@@ -101,7 +101,7 @@ def verify_encrypted_backup(
                  "--output", str(plaintext), str(encrypted_path)],
                 check=True, capture_output=True, timeout=120,
             )
-        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
             # Do not disclose stderr: the archive could contain secret material.
             raise ValueError("Unable to decrypt backup using supplied identity") from None
         if plaintext.is_symlink() or not plaintext.is_file():
