@@ -41,6 +41,24 @@ if ! [[ "$TARGET_TAG" =~ $RELEASE_TAG_PATTERN ]]; then
   exit 64
 fi
 
+# Serialize both manual and automatic deployments. A failed try must never race
+# with another checkout, snapshot, service restart, or rollback on this host.
+if [[ ! -d "$DEPLOY_STATE_DIR" ]]; then
+  echo "مجلد حالة النشر غير موجود؛ إيقاف النشر." >&2
+  exit 1
+fi
+readonly DEPLOY_LOCK="${DEPLOY_STATE_DIR}/deploy.lock"
+if [[ -L "$DEPLOY_LOCK" ]]; then
+  echo "رفض ملف قفل نشر من نوع symlink." >&2
+  exit 1
+fi
+exec 9>"$DEPLOY_LOCK"
+if ! flock -n 9; then
+  echo "هناك عملية نشر أو تراجع أخرى نشطة؛ أعد المحاولة لاحقًا." >&2
+  exit 75
+fi
+
+
 # A tag must exist locally and be fetched, so a typo cannot silently deploy HEAD.
 # Services run from the shared checkout: runtime/ and sessions.db persist across tags.
 git fetch --prune --tags origin >/dev/null 2>&1 || true
