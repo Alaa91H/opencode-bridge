@@ -43,10 +43,10 @@ from bridge.services.draft_service import DraftService
 from bridge.services.host_credentials import HostCredentialManager
 from bridge.services.maintenance_service import MaintenanceReportService
 from bridge.services.media_service import MediaTaskService
+from bridge.services.mirrors import MirrorService
 from bridge.services.model_selection_service import ModelSelectionService
 from bridge.services.provider_keys import ProviderKeyManager
 from bridge.services.runtime_controls import RuntimeControls
-from bridge.services.mirrors import MirrorService
 from bridge.services.schedule_service import ScheduleService
 from bridge.services.task_execution_service import TaskExecutionService
 from bridge.services.task_service import TaskApplicationService
