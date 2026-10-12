@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
-import urllib.request
 import urllib.error
+import urllib.request
+from pathlib import Path
 from urllib.parse import urlparse
 
 EXPECTED_REPOSITORY = "alaa91h/opencode-bridge"
@@ -48,11 +48,13 @@ def version_of(tag: str) -> tuple[int, int, int] | None:
 
 
 def api_json(url: str) -> dict:
+    if not url.startswith("https://api.github.com/repos/Alaa91H/opencode-bridge/"):
+        raise ValueError("Untrusted update API URL")
     request = urllib.request.Request(
         url, headers={"Accept": "application/vnd.github+json",
                       "User-Agent": "opencode-bridge-release-updater",
                       "X-GitHub-Api-Version": "2022-11-28"})
-    with urllib.request.urlopen(request, timeout=15) as response:
+    with urllib.request.urlopen(request, timeout=15) as response:  # noqa: S310 -- trusted GitHub HTTPS endpoint
         payload = json.load(response)
     if not isinstance(payload, dict):
         raise ValueError("GitHub returned an invalid response")

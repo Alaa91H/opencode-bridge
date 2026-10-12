@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from urllib.parse import quote
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 

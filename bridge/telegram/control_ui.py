@@ -255,7 +255,7 @@ class ControlUI:
             if not entries:
                 text += t["empty"]
             rows.append([button(t["key_add"], "input", "key_add")])
-            providers = sorted(set(item["provider"] for item in entries))
+            providers = sorted({item["provider"] for item in entries})
             for i, provider in enumerate(providers[:20]):
                 auto = any(item["auto"] for item in entries if item["provider"] == provider)
                 rows.append([button(t["key_auto"] + " " + provider + (" ✅" if auto else ""), "keyauto", i)])
@@ -310,7 +310,7 @@ class ControlUI:
                 try:
                     validate_name(text)
                 except ValueError:
-                    await message.reply_text(t["error"] if "t" in locals() else WORDS[await self._lang(owner)]["error"])
+                    await message.reply_text(WORDS[await self._lang(owner)]["error"])
                     return True
                 wizard[stage] = text
                 wizard["step"] = "label" if stage == "provider" else "secret"
@@ -456,7 +456,7 @@ class ControlUI:
                 screen = "keys"
             elif action == "keyauto":
                 entries = self.provider_keys.catalog()
-                providers = sorted(set(item["provider"] for item in entries))
+                providers = sorted({item["provider"] for item in entries})
                 idx = int(parts[2])
                 if not 0 <= idx < len(providers):
                     raise ValueError("stale provider")

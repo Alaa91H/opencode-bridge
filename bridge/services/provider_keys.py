@@ -11,8 +11,8 @@ import asyncio
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Any
 
 _TOKEN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
