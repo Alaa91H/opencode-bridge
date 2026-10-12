@@ -343,6 +343,31 @@ class UIFlowTests(unittest.IsolatedAsyncioTestCase):
         await self.press(callback("execute", "updatebridge", 0))
         self.assertEqual(self.message.reply_text.await_count, 0)
 
+    async def test_server_submenu_contains_services_without_extra_root_buttons(self):
+        from unittest.mock import patch
+
+        from bridge.services.service_monitor import ServiceState
+
+        text, markup = await self.ui.render("1", "server")
+        self.assertTrue(text)
+        buttons = [item.callback_data for row in markup.inline_keyboard for item in row]
+        self.assertIn(callback("go", "services"), buttons)
+        self.assertEqual(buttons.count(callback("go", "services")), 1)
+        fake = [ServiceState("opencode-serve.service", "active"),
+                ServiceState("opencode-bridge-telegram.service", "failed")]
+        with patch("bridge.services.service_monitor.service_overview", new=AsyncMock(return_value=fake)):
+            message, detail = await self.ui.render("1", "services")
+        self.assertIn("opencode-serve.service", message)
+        self.assertIn("failed", message)
+        self.assertIn(callback("go", "services"),
+                      [item.callback_data for row in detail.inline_keyboard for item in row])
+
+        self.update.effective_chat.type = "group"
+        await self.press(callback("go", "services"))
+        self.query.answer.assert_awaited()
+        self.assertEqual(self.bot.edit_message_text.await_count, 0)
+
+
 
 if __name__ == "__main__":
     unittest.main()
