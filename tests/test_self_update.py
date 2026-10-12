@@ -195,5 +195,53 @@ class SelfUpdatePolicyTests(unittest.TestCase):
             self.assertEqual(self_update.deployment_mode(root), "auto-safe")
 
 
+    def test_check_only_ignores_disabled_deployment_but_never_activates(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "runtime").mkdir()
+            (root / "runtime" / "autopilot-mode").write_text("off\n", encoding="ascii")
+            (root / "VERSION").write_text("3.2.0\n", encoding="ascii")
+            commit = "b" * 40
+            called = []
+
+            def git(*args, cwd):
+                if args[0] == "remote":
+                    return "https://github.com/Alaa91H/opencode-bridge.git"
+                if args[0] == "status":
+                    return ""
+                if args[0] == "rev-parse":
+                    return commit
+                if args[0] == "show":
+                    return "3.3.0"
+                if args[0] == "fetch":
+                    return ""
+                self.fail(str(args))
+
+            def api(url):
+                if url == self_update.RELEASE_API:
+                    return {"tag_name": "v3.3.0", "draft": False, "prerelease": False}
+                return {"workflow_runs": [{"head_sha": commit, "head_branch": "v3.3.0",
+                                          "event": "push", "status": "completed",
+                                          "conclusion": "success"}]}
+
+            result = self_update.update(root=root, api=api, git_run=git,
+                                        deploy=lambda args: called.append(args), check_only=True)
+            self.assertEqual(result["status"], "available")
+            self.assertEqual(result["tag"], "v3.3.0")
+            self.assertEqual(called, [])
+            self.assertFalse((root / "runtime" / "auto-update-quarantine.json").exists())
+
+    def test_new_notify_mode_disables_legacy_updater_on_rollback(self):
+        from bridge.services.runtime_controls import RuntimeControls
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            controls = RuntimeControls(root)
+            controls.set_autopilot_mode("notify")
+            self.assertEqual((root / "auto-update-enabled").read_text().strip(), "0")
+            self.assertEqual(controls.autopilot_mode(), "notify")
+            self.assertFalse(controls.auto_update())
+
+
 if __name__ == "__main__":
     unittest.main()
