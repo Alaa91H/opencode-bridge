@@ -47,9 +47,9 @@ def deployment_mode(root: Path) -> str:
 
 
 def maintenance_window_open(now: datetime | None = None) -> bool:
-    """Daily 02:00–04:00 UTC, independent of local DST and server timezone."""
+    """Daily 08:00–10:00 UTC, independent of local DST and server timezone."""
     hour = (now or datetime.now(UTC)).astimezone(UTC).hour
-    return 2 <= hour < 4
+    return 8 <= hour < 10
 
 
 
@@ -170,7 +170,7 @@ def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
         if mode == "off":
             return {"status": "skipped", "reason": "automatic updates disabled"}
         if mode == "maintenance-window" and not maintenance_window_open():
-            return {"status": "skipped", "reason": "outside 02:00–04:00 UTC maintenance window"}
+            return {"status": "skipped", "reason": "outside 08:00–10:00 UTC maintenance window"}
         remote = git_run("remote", "get-url", "origin", cwd=root)
         if normalize_github_repository(remote) != EXPECTED_REPOSITORY:
             return {"status": "skipped", "reason": "unexpected Git remote"}
