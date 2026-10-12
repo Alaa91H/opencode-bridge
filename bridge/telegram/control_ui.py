@@ -962,7 +962,7 @@ class ControlUI:
                     notice = await update.effective_message.reply_text(t["pending_update"])
                     kind_name = "agent" if kind == "updateagent" else "system"
                     async def complete_update() -> None:
-                        result = await update_now(kind_name)
+                        result = await update_now(kind_name, progress=lambda chunk: notice.edit_text((kind_name + ': ' + chunk)[-3500:]))
                         await notice.edit_text(result[-3500:])
                     task = asyncio.create_task(complete_update())
                     self._running_updates.add(task)
