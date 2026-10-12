@@ -1,3 +1,23 @@
+## [3.1.0] - 2026-10-12
+
+### Telegram task controls
+- Delete queued or finished tasks from owner-scoped Telegram buttons after confirmation; running tasks must be stopped first.
+- Promote or demote queued work; the SQLite leasing scheduler honors priority while preserving blocked deferred tasks.
+
+### Managed media
+- yt-dlp video and audio extractor for supported public services, plus the existing guarded HTTP downloads.
+- Automatic multipart file re-delivery under the normal Telegram Bot API upload limit.
+- Managed storage capped at 20 GiB, default 72-hour expiration, and optional yt-dlp/aria2/ffmpeg tools provisioned during initial host setup.
+
+### Memory and local scheduling
+- Automatic ZRAM sizing scaled with available RAM, configurable from Telegram.
+- Country/IANA timezone selection for the user's scheduled local time, converted to UTC without changing the server clock.
+- Regression tests covering IANA daylight saving, queue priorities and multipart uploads.
+
+### Operational notes
+- Site restrictions, DRM and authentication can prevent yt-dlp from downloading some media; no universal-site guarantee.
+- The bot does not compile application projects on the server. All application verification stays on GitHub Actions.
+
 ## [3.0.0] - 2026-10-12
 
 ### Telegram operation
