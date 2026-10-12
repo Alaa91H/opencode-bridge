@@ -32,7 +32,8 @@ class DraftService:
     async def save(self, owner_id: str, name: str):
         return await self.store.save(owner_id, name)
 
-    async def run(self, owner_id: str, chat_id: int, name: str, *, idempotency_key: str | None = None):
+    async def run(self, owner_id: str, chat_id: int, name: str, *, idempotency_key: str | None = None,
+                  daily: bool = False, direct: bool = False):
         draft = await self.show(owner_id, name)
         if self.task_service is None:
             raise RuntimeError("task service unavailable")
@@ -41,6 +42,7 @@ class DraftService:
             owner_id, chat_id, draft.prompt_text,
             idempotency_scope="draft",
             idempotency_key=idempotency_key,
+            direct_dispatch=bool(direct or daily), daily_continuation=daily,
         )
 
     async def schedule(self, owner_id: str, chat_id: int, name: str, schedule_name: str, due_text: str):

@@ -15,7 +15,7 @@ from bridge.domain.tasks.retry_policy import (
     ProviderTaskError,
     classify_retry,
     is_zen_free_model,
-    next_utc_midnight,
+    next_daily_reset_utc,
 )
 from messages import empty_response_message
 from opencode_client import extract_file_response, extract_text_response
@@ -110,6 +110,8 @@ class TaskExecutionService:
                         task.id,
                     )
 
+            direct_dispatch = bool(checkpoint.get("direct_dispatch"))
+            daily_continuation = bool(checkpoint.get("daily_continuation"))
             enhanced = enhance_prompt(task.prompt, requested_mode=requested_mode)
             self.audit_write(
                 "task_started",
@@ -132,7 +134,7 @@ class TaskExecutionService:
             attachments = self.attachment_store.validate_input_records(task.attachments)
             output_directory = self.attachment_store.task_output_directory(task.id)
             work_directory = self.attachment_store.task_work_directory(task.id)
-            prompt = enhanced.text + "\n\n" + attachment_prompt_note(
+            prompt = (task.prompt if direct_dispatch else enhanced.text) + "\n\n" + attachment_prompt_note(
                 attachments,
                 output_directory,
                 work_directory,
@@ -143,6 +145,16 @@ class TaskExecutionService:
                 if attachment.is_direct_model_visible()
             ]
 
+            if daily_continuation:
+                prompt += (
+                    "\n\nPersistent multi-day job protocol: Continue the original instruction until "
+                    "it is fully finished. Save actual work and progress in the workspace. "
+                    "When the original job is COMPLETELY finished, end your final answer with "
+                    "a separate line containing exactly [[BRIDGE_TASK_COMPLETE]]. "
+                    "If not finished, provide a brief checkpoint report of what has been done "
+                    "and what remains, without the completion marker. Never claim work is done "
+                    "before checking results."
+                )
             if checkpoint.get("session_id"):
                 session_id = checkpoint["session_id"]
                 selected_model = checkpoint.get("model")
@@ -201,9 +213,9 @@ class TaskExecutionService:
                         try:
                             await reporter.finalize_text(
                                 "حصة OpenCode Zen المجانية مستنفدة. حُفظت المهمة وستُستأنف تلقائيًا "
-                                "بعد التجديد عند 00:00 UTC.",
+                                "بعد التجديد عند 12:00 UTC.",
                                 status="retrying",
-                                message="بانتظار تجديد الحصة اليومية عند 00:00 UTC.",
+                                message="بانتظار تجديد الحصة اليومية عند 12:00 UTC.",
                             )
                             self.audit_write(
                                 "task_deferred",
@@ -330,6 +342,32 @@ class TaskExecutionService:
                 if delivered_files
                 else empty_response_message()
             )
+            # Multi-day tasks remain the SAME durable task and OpenCode session.
+            # A successful turn is a checkpoint, not completion, unless the
+            # agent explicitly emits the task-complete sentinel.
+            from bridge.domain.tasks.daily_continuation import (
+                COMPLETION_SENTINEL, continuation_delay_seconds, is_task_complete,
+            )
+            if daily_continuation and not is_task_complete(reply_text):
+                checkpoint.pop("message_id", None)  # next day = NEW turn, same session
+                checkpoint["continuation_count"] = int(checkpoint.get("continuation_count", 0)) + 1
+                checkpoint["resume"] = True
+                deferred = await self.repository.retry_or_dead_letter(
+                    task.id, "daily_continuation", retryable=True,
+                    max_attempts=None, retry_after=continuation_delay_seconds(),
+                    checkpoint=checkpoint,
+                )
+                if deferred is not None and deferred.status == "retrying":
+                    await reporter.finalize_text(
+                        delivery.final_text(
+                            (reply_text or "أحرز الوكيل تقدماً في المهمة.") +
+                            "\n\n⏸ تم حفظ التقدم. سيستكمل الوكيل المهمة تلقائيًا عند 12:00 UTC."
+                        ),
+                        status="retrying", message="استكمال المهمة عند 12:00 UTC.",
+                    )
+                    return
+            reply_text = reply_text.replace(COMPLETION_SENTINEL, "").strip()
+            final_body = reply_text or final_body
             await self.repository.finish(task.id, success=True)
             await reporter.finalize_text(
                 delivery.final_text(final_body),
@@ -382,14 +420,19 @@ class TaskExecutionService:
                     if callable(set_pause):
                         await set_pause(
                             "opencode_zen_free",
-                            decision.retry_at or next_utc_midnight(),
+                            decision.retry_at or next_daily_reset_utc(),
                         )
+                retry_delay = decision.delay_seconds
+                if daily_continuation and decision.category in {"quota", "zen_free_quota"}:
+                    from bridge.domain.tasks.daily_continuation import continuation_delay_seconds
+                    retry_delay = max(retry_delay if decision.category == "zen_free_quota" else 0.0,
+                                      continuation_delay_seconds())
                 failures = 0 if decision.unlimited else int(checkpoint.get("transient_failures", 0)) + 1
                 checkpoint["transient_failures"] = failures
                 deferred = await self.repository.retry_or_dead_letter(
                     task.id, decision.category, retryable=decision.unlimited or failures < 5,
                     max_attempts=None,
-                    retry_after=decision.delay_seconds, checkpoint=checkpoint,
+                    retry_after=retry_delay, checkpoint=checkpoint,
                 )
                 if deferred is not None and deferred.status == "retrying":
                     try:

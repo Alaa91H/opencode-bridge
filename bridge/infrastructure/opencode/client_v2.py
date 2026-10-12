@@ -53,7 +53,7 @@ class OpenCodeClientV2:
         self.credential_pool = credential_pool
         timeout = httpx.Timeout(config.read_timeout, connect=config.connect_timeout,
                                 write=config.write_timeout, pool=config.pool_timeout)
-        self.http = httpx.AsyncClient(base_url=config.base_url.rstrip("/"), timeout=timeout, transport=transport)
+        self.http = httpx.AsyncClient(base_url=config.base_url.rstrip("/"), timeout=timeout, transport=transport, trust_env=False)
 
     async def close(self) -> None:
         await self.http.aclose()

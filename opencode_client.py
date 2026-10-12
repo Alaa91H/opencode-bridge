@@ -56,6 +56,7 @@ class OpenCodeClient:
             auth=auth,
             timeout=httpx.Timeout(self.timeout, connect=15.0, write=60.0, pool=60.0),
             follow_redirects=False,
+            trust_env=False,  # Credentials for loopback must never transit a host proxy.
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
 
@@ -72,12 +73,13 @@ class OpenCodeClient:
         if self.credential_pool is None or len(self.credential_pool) == 0:
             return await self._client.request(method, path, **kwargs)
         excluded: set[str] = set()
+        original_headers = dict(kwargs.pop("headers", {}) or {})
         last_response: httpx.Response | None = None
         for _ in range(len(self.credential_pool)):
             credential = self.credential_pool.select(exclude=excluded)
             if credential is None:
                 break
-            headers = dict(kwargs.pop("headers", {}) or {})
+            headers = dict(original_headers)
             headers["Authorization"] = f"Bearer {credential.secret}"
             response = await self._client.request(method, path, headers=headers, **kwargs)
             last_response = response
@@ -300,45 +302,70 @@ class OpenCodeClient:
         session_id: str,
         timeout: float | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
-        """Yield normalized, non-duplicated events for one OpenCode session.
+        """Receive live OpenCode events with bounded SSE reconnections.
 
-        OpenCode wraps each Server-Sent Event inside a ``payload`` object and may
-        emit a second ``sync`` representation of the same event. This method
-        unwraps the primary payload and filters it by session ID, leaving callers
-        with only the stable event type and properties structure.
+        The SSE stream is best effort; agents keep running independently if it
+        fails. Retried streams may replay snapshots, deduplicated by the relay.
         """
         import json
 
-        request_timeout = self.timeout if timeout is None else timeout
-        async with self._client.stream("GET", "/global/event", timeout=request_timeout) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if not line.startswith("data:"):
-                    continue
-                try:
-                    data = json.loads(line[5:].strip())
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(data, dict):
-                    continue
-                payload = data.get("payload", data)
-                if not isinstance(payload, dict) or payload.get("type") == "sync":
-                    continue
-                properties = payload.get("properties", {})
-                if not isinstance(properties, dict):
-                    continue
-                candidate_session_id = properties.get("sessionID")
-                part = properties.get("part")
-                info = properties.get("info")
-                if not candidate_session_id and isinstance(part, dict):
-                    candidate_session_id = part.get("sessionID")
-                if not candidate_session_id and isinstance(info, dict):
-                    candidate_session_id = info.get("sessionID") or info.get("id")
-                if session_id and candidate_session_id != session_id:
-                    continue
-                event_type = payload.get("type")
-                if isinstance(event_type, str) and event_type:
-                    yield {"type": event_type, "properties": properties}
+        # SSE connections can be idle between long model/tool calls. A normal
+        # 60-second response timeout is inappropriate for this channel.
+        stream_timeout = httpx.Timeout(None, connect=15.0) if timeout is None else timeout
+        last_id: str | None = None
+        failures = 0
+        while True:
+            headers = {"Accept": "text/event-stream"}
+            if last_id:
+                headers["Last-Event-ID"] = last_id
+            try:
+                async with self._client.stream(
+                    "GET", "/global/event", headers=headers, timeout=stream_timeout,
+                ) as response:
+                    response.raise_for_status()
+                    failures = 0
+                    async for line in response.aiter_lines():
+                        if line.startswith("id:"):
+                            last_id = line[3:].strip()
+                            continue
+                        if not line.startswith("data:"):
+                            continue
+                        try:
+                            data = json.loads(line[5:].strip())
+                        except json.JSONDecodeError:
+                            continue
+                        if not isinstance(data, dict):
+                            continue
+                        payload = data.get("payload", data)
+                        if not isinstance(payload, dict) or payload.get("type") == "sync":
+                            continue
+                        properties = payload.get("properties", {})
+                        if not isinstance(properties, dict):
+                            continue
+                        candidate_session_id = properties.get("sessionID")
+                        part = properties.get("part")
+                        info = properties.get("info")
+                        if not candidate_session_id and isinstance(part, dict):
+                            candidate_session_id = part.get("sessionID")
+                        if not candidate_session_id and isinstance(info, dict):
+                            candidate_session_id = info.get("sessionID")
+                        if session_id and candidate_session_id != session_id:
+                            continue
+                        event_type = payload.get("type")
+                        if isinstance(event_type, str) and event_type:
+                            yield {"type": event_type, "properties": properties}
+            except (httpx.TransportError, httpx.TimeoutException) as exc:
+                failures += 1
+                if failures > 5:
+                    raise exc
+                await asyncio.sleep(min(8.0, 0.5 * (2 ** (failures - 1))))
+            else:
+                # Cleanly terminated streams may also reconnect, at a bounded
+                # rate to avoid hot-spinning against a broken server.
+                failures += 1
+                if failures > 5:
+                    return
+                await asyncio.sleep(min(8.0, 0.5 * (2 ** (failures - 1))))
 
 
 def extract_text_response(response: dict[str, Any]) -> str:

@@ -276,6 +276,38 @@ class TaskCommands:
             else:
                 await self.reply(update.message, error_text)
 
+    async def direct(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *, daily: bool = False) -> None:
+        """Send exact owner instruction to OpenCode, or keep one job across days."""
+        if not update.message or not update.effective_chat or not update.effective_user:
+            return
+        prompt = " ".join(context.args).strip()
+        command = "/daily" if daily else "/direct"
+        if not prompt:
+            await self.reply(update.message, f"الاستخدام: {command} نص الأمر الطويل")
+            return
+        try:
+            self.task_service.ensure_allowed(prompt)
+        except RequestRejected as exc:
+            await self.reply(update.message, f"رُفض الأمر بسبب سياسة الخادم: {exc}")
+            return
+        message_id = await self.create_status(
+            context.bot, update.effective_chat.id,
+            "تم تسجيل المهمة المستمرة…" if daily else "تم إرسال الأمر إلى طابور الوكيل…",
+        )
+        try:
+            queued = await self.task_service.enqueue_prompt(
+                self._owner(update), self._chat_id(update), prompt,
+                status_message_id=message_id,
+                idempotency_scope="telegram_update", idempotency_key=str(update.update_id),
+                direct_dispatch=True, daily_continuation=daily,
+            )
+            self.wake_tasks()
+            self.audit_write("direct_agent_command", "accepted", actor_id=self._owner(update),
+                             details={"task_id": queued.task.id, "daily": daily})
+        except Exception as exc:
+            self.log.exception("تعذر تسجيل أمر الوكيل المباشر")
+            await self.reply(update.message, self.error_message(exc, "تسجيل الأمر المباشر"))
+
     async def text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message or not update.message.text or not update.effective_chat:
             return

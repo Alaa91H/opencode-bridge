@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from bridge.config.runtime_flags import enabled as runtime_flag_enabled
+
+from bridge.domain.tasks.live_output import AgentLiveAssembler
 import logging
 import time
 from collections.abc import Callable
@@ -58,6 +61,12 @@ class LiveProgressReporter:
         self._display = display_preferences
         self._last_rendered = 0.0
         self._last_message = ""
+        self._live_enabled = runtime_flag_enabled("AGENT_LIVE_OUTPUT", default=True)
+        self._live_parser = AgentLiveAssembler()
+        self._live_buffer = ""
+        self._live_message_id: int | None = None
+        self._live_message_text = ""
+        self._live_last_sent = 0.0
 
     async def _preferences(self) -> DisplayPreferences:
         """Read the owner's display choices, never failing a task over them.
@@ -130,19 +139,70 @@ class LiveProgressReporter:
         await self._persist()
         await self.refresh(force=force)
 
+    async def _publish_live(self, *, flush: bool = False) -> None:
+        """Rate-limit Telegram edits and segment live assistant output by message."""
+        if not self._live_enabled or not self._live_buffer:
+            return
+        if not flush and time.monotonic() - self._live_last_sent < 1.5 and len(self._live_buffer) < 2600:
+            return
+        try:
+            while self._live_buffer:
+                room = 3400 - len(self._live_message_text)
+                if room <= 0:
+                    self._live_message_id = None
+                    self._live_message_text = ""
+                    room = 3400
+                segment = self._live_buffer[:room]
+                updated = self._live_message_text + segment
+                if self._live_message_id is None:
+                    sent = await self.bot.send_message(
+                        chat_id=self.task.chat_id,
+                        text="📡 مخرجات الوكيل المباشرة:\n" + updated,
+                        disable_web_page_preview=True,
+                    )
+                    self._live_message_id = int(sent.message_id)
+                else:
+                    await self.bot.edit_message_text(
+                        chat_id=self.task.chat_id,
+                        message_id=self._live_message_id,
+                        text="📡 مخرجات الوكيل المباشرة:\n" + updated,
+                        disable_web_page_preview=True,
+                    )
+                self._live_buffer = self._live_buffer[len(segment):]
+                self._live_message_text = updated
+                self._live_last_sent = time.monotonic()
+                if not flush:
+                    break
+        except Exception as exc:
+            # Streaming must never fail the actual agent operation.
+            log.warning("تعذر إرسال البث المباشر للمهمة %s: %s", self.task.id, type(exc).__name__)
+
     async def consume_events(self, client: OpenCodeClient, session_id: str) -> None:
         try:
             async for event in client.stream_events(session_id):
+                if self._live_enabled:
+                    chunk = self._live_parser.consume(event)
+                    if chunk:
+                        self._live_buffer += chunk
+                        if len(self._live_buffer) > 50000:
+                            # Bounded backlog if Telegram is throttling or offline.
+                            self._live_buffer = (
+                                "\n[تنبيه: تم تجاوز حد انتظار البث وفُقد بعض النص السابق]\n"
+                                + self._live_buffer[-45000:]
+                            )
+                        await self._publish_live()
+                    if event.get("type") == "session.idle":
+                        await self._publish_live(flush=True)
                 summary = summarize_agent_event(event)
-                if summary is None:
-                    continue
-                phase, message, kind = summary
-                await self.record(phase, message, kind)
+                if summary is not None:
+                    phase, message, kind = summary
+                    await self.record(phase, message, kind)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            # Progress visibility is additive; loss of the stream must never stop the task.
             log.info("توقف بث تقدم المهمة %s: %s", self.task.id, type(exc).__name__)
+        finally:
+            await self._publish_live(flush=True)
 
     async def refresh(self, force: bool = False, detail: bool = False, final: bool = False) -> None:
         if self.progress.message_id is None:

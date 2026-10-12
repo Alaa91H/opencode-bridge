@@ -24,7 +24,8 @@ import os
 import re
 import shutil
 import socket
-import time
+import tempfile
+import uuid
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -149,10 +150,23 @@ def validate_url(raw: str, *, allow_private_hosts: bool = False) -> str:
         raise DownloadError("أرسل رابطًا صحيحًا")
     if len(value) > 2048:
         raise DownloadError("الرابط طويل جدًا")
-    parsed = urlparse(value)
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise DownloadError("الرابط يحتوي على محارف تحكم غير مسموحة")
+    try:
+        parsed = urlparse(value)
+        port = parsed.port  # Reject malformed ports before making any request.
+    except ValueError as exc:
+        raise DownloadError("منفذ أو عنوان رابط غير صحيح") from exc
+    if parsed.username is not None or parsed.password is not None:
+        raise DownloadError("الروابط التي تحتوي على بيانات دخول غير مسموحة")
+    if port is not None and port == 0:
+        raise DownloadError("منفذ غير صحيح")
     if parsed.scheme.lower() not in ALLOWED_SCHEMES:
         raise DownloadError("المسموح بروابط http أو https فقط")
-    host = (parsed.hostname or "").strip()
+    try:
+        host = (parsed.hostname or "").strip()
+    except ValueError as exc:
+        raise DownloadError("عنوان مضيف غير صحيح") from exc
     if not host:
         raise DownloadError("الرابط ما فيه اسم مضيف")
     if not _is_public_host(host, allow_private=allow_private_hosts):
@@ -215,6 +229,9 @@ class DownloadService:
         self.timeout_seconds = float(timeout_seconds)
         self.ytdlp_path = ytdlp_path or shutil.which("yt-dlp")
         self.allow_private_hosts = bool(allow_private_hosts)
+        # Serialize state-changing downloads so concurrent requests cannot both
+        # spend the same remaining disk budget or overwrite index changes.
+        self._transfer_lock = asyncio.Lock()
 
     # ------------------------------------------------------------- storage
 
@@ -249,10 +266,16 @@ class DownloadService:
 
     def _write_index(self, payload: dict[str, dict[str, Any]]) -> None:
         self.ensure_directories()
-        temporary = self.index_path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.chmod(temporary, 0o600)
-        temporary.replace(self.index_path)
+        fd, name = tempfile.mkstemp(prefix=".index-", suffix=".tmp", dir=self.root)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                os.fchmod(handle.fileno(), 0o600)
+                json.dump(payload, handle, ensure_ascii=False, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(name, self.index_path)
+        finally:
+            Path(name).unlink(missing_ok=True)
 
     def used_bytes(self) -> int:
         return sum(int(entry.get("size_bytes", 0)) for entry in self._read_index().values())
@@ -281,26 +304,51 @@ class DownloadService:
     # ------------------------------------------------------------ transfer
 
     async def fetch(self, owner_id: str, url: str, *, filename: str | None = None) -> DownloadRecord:
-        """Download one URL into the managed root and register it."""
+        """Download safely without admitting concurrent transfers over the quota."""
+        async with self._transfer_lock:
+            return await self._fetch_locked(owner_id, url, filename=filename)
+
+    async def _request_public(self, client: httpx.AsyncClient, url: str) -> httpx.Response:
+        """Validate each redirect *before* opening its network connection.
+
+        This prevents the previous unsafe sequence where httpx followed a
+        redirect to a private host and only then inspected response.history.
+        The hostname lookup and the actual TCP dial are still distinct; a
+        network egress firewall is needed for complete DNS-rebinding defense.
+        """
+        current = url
+        for hop in range(6):
+            current = validate_url(current, allow_private_hosts=self.allow_private_hosts)
+            await _assert_resolved_public(current, allow_private=self.allow_private_hosts)
+            response = await client.send(client.build_request("GET", current), stream=True)
+            if response.status_code not in (301, 302, 303, 307, 308):
+                return response
+            location = response.headers.get("Location")
+            next_url = str(response.url.join(location)) if location else None
+            await response.aclose()
+            if not next_url:
+                raise DownloadError("إعادة توجيه بدون عنوان صالح")
+            if hop == 5:
+                raise DownloadError("تجاوز الرابط الحد المسموح لإعادات التوجيه")
+            current = next_url
+        raise DownloadError("تجاوز الرابط الحد المسموح لإعادات التوجيه")
+
+    async def _fetch_locked(self, owner_id: str, url: str, *, filename: str | None) -> DownloadRecord:
         self.ensure_directories()
         normalized = validate_url(url, allow_private_hosts=self.allow_private_hosts)
-        await _assert_resolved_public(normalized, allow_private=self.allow_private_hosts)
-
         directory = self._owner_directory(owner_id)
-        record_id = f"{int(time.time())}-{abs(hash(normalized)) % 10**8:08d}"
+        record_id = uuid.uuid4().hex
         target = self._resolve_inside(directory / f"{record_id}.part")
 
         async with httpx.AsyncClient(
-            follow_redirects=True,
+            follow_redirects=False,
+            trust_env=False,  # Host proxy environment must not bypass SSRF checks.
             timeout=httpx.Timeout(self.timeout_seconds, connect=15.0),
-            max_redirects=5,
         ) as client:
-            request = client.build_request("GET", normalized)
-            response = await client.send(request, stream=True)
+            response = await self._request_public(client, normalized)
             try:
                 if response.status_code >= 400:
                     raise DownloadError(f"الرابط رجّع حالة {response.status_code}")
-                await self._assert_redirects_public(response)
                 declared = response.headers.get("Content-Length")
                 if declared and declared.isdigit() and int(declared) > self.max_file_bytes:
                     raise DownloadTooLarge("حجم الملف يتجاوز الحد المسموح")
@@ -338,15 +386,19 @@ class DownloadService:
             expires_at=(now + timedelta(hours=self.ttl_hours)).isoformat(),
             direct_send_limit=self.direct_send_limit,
         )
-        index = self._read_index()
-        index[record.id] = record.to_dict()
-        self._write_index(index)
+        try:
+            index = self._read_index()
+            index[record.id] = record.to_dict()
+            self._write_index(index)
+        except BaseException:
+            final.unlink(missing_ok=True)
+            raise
         return record
 
     async def _stream_to_file(self, response: httpx.Response, target: Path, budget: int) -> int:
         written = 0
         try:
-            with target.open("wb") as handle:
+            with target.open("xb") as handle:
                 async for chunk in response.aiter_bytes(CHUNK_BYTES):
                     written += len(chunk)
                     if written > budget:
@@ -356,13 +408,6 @@ class DownloadService:
             target.unlink(missing_ok=True)
             raise
         return written
-
-    async def _assert_redirects_public(self, response: httpx.Response) -> None:
-        """A redirect must not walk the transfer into the internal network."""
-        for redirect in response.history:
-            await _assert_resolved_public(
-                str(redirect.url), allow_private=self.allow_private_hosts
-            )
 
     # -------------------------------------------------------------- removal
 

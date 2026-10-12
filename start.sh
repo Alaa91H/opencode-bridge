@@ -20,7 +20,7 @@ set -a
 source "$BRIDGE_DIR/.env"
 set +a
 
-if ! curl --fail --silent --show-error --max-time 10 \
+if ! curl --fail --silent --show-error --max-time 10 --noproxy '*' \
   --user "${OPENCODE_SERVER_USERNAME:-opencode}:${OPENCODE_SERVER_PASSWORD:?OPENCODE_SERVER_PASSWORD مطلوب}" \
   "http://${OPENCODE_HOST:-127.0.0.1}:${OPENCODE_PORT:-4096}/global/health" >/dev/null; then
   echo "وكيل OpenCode غير متاح أو أن مصادقته غير صحيحة. شغّل خدمة opencode-serve ثم أعد المحاولة."

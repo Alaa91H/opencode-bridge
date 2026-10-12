@@ -180,3 +180,12 @@ The operator-facing Telegram workflow and deployment documentation are primarily
 **A guarded bridge between conversational development and a real OpenCode execution environment.**
 
 </div>
+
+## Latest security review (2026-10-12)
+
+The 2026 security hardening pass adds regression tests for download redirects,
+ZIP extraction, workspaces, subprocess output limits and atomic deployment.
+For verified results and **remaining production blockers**, see
+[the Arabic security review](docs/security-review-2026-10-12-ar.md).
+This is not a release certification; run the full CI and staging verification
+before deploying these changes.

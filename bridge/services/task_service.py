@@ -81,6 +81,8 @@ class TaskApplicationService:
         status_message_id: int | None = None,
         execution_mode: ResearchMode | None = None,
         stored_prompt: str | None = None,
+        direct_dispatch: bool = False,
+        daily_continuation: bool = False,
         idempotency_scope: str | None = None,
         idempotency_key: str | None = None,
     ) -> QueuedRequest:
@@ -104,6 +106,12 @@ class TaskApplicationService:
             )
         else:
             task, position = await self.repository.enqueue(owner_id, chat_id, stored, **enqueue_kwargs)
+        if direct_dispatch or daily_continuation:
+            # Queue checkpoint is committed before wake_tasks() starts a worker.
+            persisted = getattr(task, "checkpoint", None) or {}
+            checkpoint = dict(persisted)
+            checkpoint.update(direct_dispatch=bool(direct_dispatch), daily_continuation=bool(daily_continuation))
+            await self.repository.save_checkpoint(task.id, checkpoint)
         return QueuedRequest(task=task, queue_position=position, enhanced=enhanced)
 
     async def active(self, owner_id: str) -> list[Any]:

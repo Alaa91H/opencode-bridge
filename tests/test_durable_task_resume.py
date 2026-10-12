@@ -97,7 +97,7 @@ class DurableTaskResumeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(deferred.checkpoint["retry_category"], "zen_free_quota")
         self.assertGreater(deferred.next_attempt_at, reset_at - timedelta(seconds=2))
 
-    async def test_free_usage_limit_opens_global_pause_until_utc_midnight(self):
+    async def test_free_usage_limit_opens_global_pause_until_utc_noon(self):
         first, _ = await self.store.enqueue("a", 1, "continue work")
         task = await self.store.claim_next()
         await self.store.mark_running(task.id, task.lease_owner)
@@ -128,7 +128,7 @@ class DurableTaskResumeTests(unittest.IsolatedAsyncioTestCase):
         reset_at = await self.store.get_provider_quota_pause("opencode_zen_free")
         self.assertEqual(deferred.status, "retrying")
         self.assertEqual(deferred.checkpoint["retry_category"], "zen_free_quota")
-        self.assertEqual(reset_at.hour, 0)
+        self.assertEqual(reset_at.hour, 12)
         self.assertEqual(reset_at.minute, 0)
 
     async def test_worker_marks_running_before_executor_and_completes(self):

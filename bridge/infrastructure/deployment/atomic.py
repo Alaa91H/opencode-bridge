@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -19,9 +20,9 @@ class ReleaseArtifact:
 
 class AtomicDeployment:
     def __init__(self, root: Path) -> None:
-        self.root = root
-        self.releases = root / "releases"
-        self.current = root / "current"
+        self.root = root.resolve()
+        self.releases = self.root / "releases"
+        self.current = self.root / "current"
 
     async def deploy(
         self, artifact: ReleaseArtifact, *,
@@ -31,8 +32,17 @@ class AtomicDeployment:
         restart: Callable[[], Awaitable[None]],
         smoke: Callable[[Path], Awaitable[None]],
     ) -> Path:
-        payload = artifact.source.read_bytes()
-        if hashlib.sha256(payload).hexdigest() != artifact.sha256:
+        # Version is a directory component, never an arbitrary path. Reject
+        # traversal and special dot names before touching the release tree.
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", artifact.version):
+            raise ValueError("invalid release version")
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", artifact.sha256):
+            raise ValueError("invalid release checksum")
+        digest = hashlib.sha256()
+        with artifact.source.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+        if digest.hexdigest().lower() != artifact.sha256.lower():
             raise ValueError("release checksum mismatch")
         self.releases.mkdir(parents=True, exist_ok=True)
         target = self.releases / artifact.version
@@ -40,10 +50,23 @@ class AtomicDeployment:
         if target.exists():
             raise FileExistsError(target)
         target.mkdir()
-        shutil.copy2(artifact.source, target / artifact.source.name)
-        await test(target)
-        await migrate(target)
-        await health(target)
+        try:
+            copy = target / artifact.source.name
+            shutil.copy2(artifact.source, copy)
+            # Catch mutations to the source between the initial checksum and
+            # the copy; only an independently verified copy may be activated.
+            copied_digest = hashlib.sha256()
+            with copy.open("rb") as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    copied_digest.update(block)
+            if copied_digest.hexdigest().lower() != artifact.sha256.lower():
+                raise ValueError("copied release checksum mismatch")
+            await test(target)
+            await migrate(target)
+            await health(target)
+        except BaseException:
+            shutil.rmtree(target)
+            raise
         self._switch(target)
         try:
             await restart()
@@ -52,6 +75,9 @@ class AtomicDeployment:
             if previous is not None:
                 self._switch(previous)
                 await restart()
+            else:
+                # Never leave a failing first deployment marked as current.
+                self.current.unlink(missing_ok=True)
             raise
         return target
 

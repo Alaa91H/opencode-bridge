@@ -46,13 +46,21 @@ def is_zen_free_model(model_id: str | None) -> bool:
     )
 
 
-def next_utc_midnight(now: datetime | None = None) -> datetime:
-    """Return the next UTC day boundary used by the Zen free usage limiter."""
+def next_daily_reset_utc(now: datetime | None = None, *, hour: int = 12) -> datetime:
+    """Next daily quota reset in UTC (default 12:00), never in the local timezone."""
+    if not 0 <= hour <= 23:
+        raise ValueError("reset hour must be within 0..23")
     current = now or datetime.now(UTC)
     if current.tzinfo is None:
         current = current.replace(tzinfo=UTC)
     current = current.astimezone(UTC)
-    return (current + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    reset = current.replace(hour=hour, minute=0, second=0, microsecond=0)
+    return reset if reset > current else reset + timedelta(days=1)
+
+
+def next_utc_midnight(now: datetime | None = None) -> datetime:
+    """Compatibility helper for consumers explicitly requesting midnight."""
+    return next_daily_reset_utc(now, hour=0)
 
 
 def _retry_after_matches_reset(value: str | None, reset_at: datetime, now: datetime | None) -> bool:
@@ -127,7 +135,7 @@ def classify_retry(
     else:
         return None
 
-    reset_at = next_utc_midnight(now)
+    reset_at = next_daily_reset_utc(now)
     zen_free_quota = is_zen_free_model(model_id) and (
         any(marker in body for marker in (
             "freeusagelimiterror",

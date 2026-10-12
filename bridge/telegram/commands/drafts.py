@@ -4,9 +4,10 @@ from __future__ import annotations
 
 
 class DraftCommands:
-    def __init__(self, service, reply):
+    def __init__(self, service, reply, wake_tasks=None):
         self.service = service
         self.reply = reply
+        self.wake_tasks = wake_tasks or (lambda: None)
 
     @staticmethod
     def _owner(update):
@@ -15,7 +16,7 @@ class DraftCommands:
     async def handle(self, update, context):
         args = list(context.args)
         if not args:
-            await self.reply(update.message, "الصيغة: /draft new|show|clear|save|run|schedule ...")
+            await self.reply(update.message, "الصيغة: /draft new|show|clear|save|run|daily|direct|schedule ...")
             return
         action = args.pop(0).lower()
         owner = self._owner(update)
@@ -34,10 +35,15 @@ class DraftCommands:
                 draft = await self.service.save(owner, " ".join(args))
                 context.user_data.pop("active_draft", None)
                 text = f"تم حفظ «{draft.name}» v{draft.version}."
-            elif action == "run":
+            elif action in {"run", "daily", "direct"}:
                 name = " ".join(args)
-                await self.service.run(owner, update.effective_chat.id, name, idempotency_key=f"{update.update_id}:{name}")
-                text = f"تم إرسال Draft «{name}» للتنفيذ."
+                await self.service.run(owner, update.effective_chat.id, name,
+                                       idempotency_key=f"{update.update_id}:{name}",
+                                       daily=action == "daily", direct=action == "direct")
+                self.wake_tasks()
+                text = f"تم إرسال Draft «{name}» للتنفيذ" + (
+                    "، مع الاستكمال اليومي عند 12 UTC." if action == "daily" else "."
+                )
             elif action == "schedule":
                 raw = " ".join(args)
                 name, schedule_name, due = [part.strip() for part in raw.split("|", 2)]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -18,7 +19,12 @@ class SystemdCredentialSource:
         self.directory = directory or Path(os.environ.get("CREDENTIALS_DIRECTORY", "/run/credentials"))
 
     def read(self, name: str) -> str | None:
-        path = self.directory / name
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]{0,127}", name) or name in {".", ".."}:
+            raise ValueError("invalid credential name")
+        root = self.directory.resolve()
+        path = (root / name).resolve()
+        if not path.is_relative_to(root):
+            raise ValueError("credential path escapes credential directory")
         if not path.is_file():
             return None
         return path.read_text(encoding="utf-8").rstrip("\n")

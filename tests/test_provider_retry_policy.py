@@ -8,7 +8,7 @@ from bridge.domain.tasks.retry_policy import ProviderTaskError, classify_credent
 
 
 class ProviderRetryPolicyTests(unittest.TestCase):
-    def test_zen_free_usage_limit_waits_until_next_utc_midnight(self):
+    def test_zen_free_usage_limit_waits_until_next_utc_noon(self):
         now = datetime(2026, 10, 8, 23, 59, 30, tzinfo=UTC)
         error = ProviderTaskError({"name": "FreeUsageLimitError", "data": {"statusCode": 429}})
 
@@ -19,8 +19,8 @@ class ProviderRetryPolicyTests(unittest.TestCase):
         )
 
         self.assertEqual(decision.category, "zen_free_quota")
-        self.assertEqual(decision.retry_at, datetime(2026, 10, 9, 0, 0, tzinfo=UTC))
-        self.assertEqual(decision.delay_seconds, 30)
+        self.assertEqual(decision.retry_at, datetime(2026, 10, 9, 12, 0, tzinfo=UTC))
+        self.assertEqual(decision.delay_seconds, 43230)
         self.assertTrue(decision.unlimited)
 
     def test_zen_free_quota_requires_explicit_free_model_error(self):
@@ -29,7 +29,7 @@ class ProviderRetryPolicyTests(unittest.TestCase):
         self.assertNotEqual(decision.category, "zen_free_quota")
 
     def test_zen_free_daily_retry_after_confirms_wrapped_limit_error(self):
-        now = datetime(2026, 10, 8, 23, 59, 30, tzinfo=UTC)
+        now = datetime(2026, 10, 8, 11, 59, 30, tzinfo=UTC)
         error = ProviderTaskError(
             {"data": {"statusCode": 429, "message": "rate limit", "responseHeaders": {"Retry-After": "30"}}}
         )
@@ -41,7 +41,7 @@ class ProviderRetryPolicyTests(unittest.TestCase):
         )
 
         self.assertEqual(decision.category, "zen_free_quota")
-        self.assertEqual(decision.retry_at, datetime(2026, 10, 9, 0, 0, tzinfo=UTC))
+        self.assertEqual(decision.retry_at, datetime(2026, 10, 8, 12, 0, tzinfo=UTC))
 
     def test_quota_errors_retry_without_limit(self):
         for status, code in ((402, "billing"), (429, "limit"), (403, "insufficient_quota"), (400, "quota_exceeded")):

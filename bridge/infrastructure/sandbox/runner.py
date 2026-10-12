@@ -24,6 +24,7 @@ class SandboxLimits:
     wall_seconds: int = 900
     processes: int = 256
     network: bool = False
+    max_output_bytes: int = 2 * 1024 * 1024
 
 
 _DEFAULT_SANDBOXLIMITS = SandboxLimits()  # frozen config: safe to share as a default
@@ -89,13 +90,29 @@ class BuildSandbox:
     async def run(self, argv: list[str]) -> SandboxResult:
         process = await asyncio.create_subprocess_exec(
             *self.command(argv), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        async def read_bounded(stream: asyncio.StreamReader) -> str:
+            saved = bytearray()
+            truncated = False
+            while chunk := await stream.read(64 * 1024):
+                remaining = max(0, self.limits.max_output_bytes - len(saved))
+                saved.extend(chunk[:remaining])
+                if len(chunk) > remaining:
+                    truncated = True
+            return saved.decode(errors="replace") + ("\n[output truncated]" if truncated else "")
+
+        # Always drain both pipes concurrently even after reaching the display
+        # limit, so excessive child output cannot exhaust server RAM or deadlock.
         try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=self.limits.wall_seconds)
-        except TimeoutError:
-            process.kill()
-            await process.wait()
+            stdout, stderr, _ = await asyncio.wait_for(
+                asyncio.gather(read_bounded(process.stdout), read_bounded(process.stderr), process.wait()),
+                timeout=self.limits.wall_seconds,
+            )
+        except BaseException:
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
             raise
-        return SandboxResult(process.returncode, stdout.decode(errors="replace"), stderr.decode(errors="replace"))
+        return SandboxResult(process.returncode, stdout, stderr)
 
     async def python_tests(self) -> SandboxResult:
         return await self.run(["python", "-m", "pytest", "-q"])

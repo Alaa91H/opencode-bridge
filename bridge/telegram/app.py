@@ -19,6 +19,8 @@ def core_commands() -> list[BotCommand]:
         BotCommand("abort", "إيقاف الطلب الجاري"),
         BotCommand("stop", "إيقاف الطلب الجاري"),
         BotCommand("tasks", "عرض الطلبات الحالية"),
+        BotCommand("direct", "تمرير النص حرفياً إلى الوكيل"),
+        BotCommand("daily", "مهمة طويلة تُستأنف يومياً عند 12 UTC"),
         BotCommand("failed", "عرض المهام الفاشلة"),
         BotCommand("retry", "إعادة محاولة مهمة فاشلة"),
         BotCommand("progress", "عرض تقدم الطلب الحالي"),
@@ -77,6 +79,8 @@ def register_core_handlers(
     app.add_handler(CommandHandler("abort", handlers.cmd_abort))
     app.add_handler(CommandHandler("stop", handlers.cmd_abort))
     app.add_handler(CommandHandler("tasks", handlers.cmd_tasks))
+    app.add_handler(CommandHandler("direct", handlers.cmd_direct))
+    app.add_handler(CommandHandler("daily", handlers.cmd_daily))
     app.add_handler(CommandHandler("failed", handlers.cmd_failed))
     app.add_handler(CommandHandler("retry", handlers.cmd_retry))
     app.add_handler(CommandHandler("progress", handlers.cmd_progress))

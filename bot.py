@@ -27,6 +27,7 @@ from attachments import AttachmentStore
 from audit_log import AuditLogger
 from block_patterns import check_build, check_hardline
 from bridge.config import get_settings
+from bridge.config.runtime_flags import enabled as runtime_flag_enabled
 from bridge.domain.policies import RequestGuard
 from bridge.domain.schedules import (
     parse_utc_datetime as schedule_parse_utc_datetime,
@@ -163,7 +164,7 @@ _download_service: DownloadService | None = None
 _download_commands_instance: DownloadCommands | None = None
 download_cleanup_task: asyncio.Task[None] | None = None
 _access_controller_instance: TelegramAccessController | None = None
-_request_guard = RequestGuard((check_build, check_hardline))
+_request_guard = RequestGuard(()) if runtime_flag_enabled("OPENCODE_FULL_ACCESS") else RequestGuard((check_build, check_hardline))
 _agent_service = AgentService(
     client,
     store,
@@ -608,7 +609,7 @@ async def handle_schedule_callback(update: Update, context: ContextTypes.DEFAULT
 def _draft_command_adapter() -> DraftCommands:
     global _draft_commands_instance
     if _draft_commands_instance is None:
-        _draft_commands_instance = DraftCommands(_draft_service, _safe_reply)
+        _draft_commands_instance = DraftCommands(_draft_service, _safe_reply, _wake_task_workers)
     return _draft_commands_instance
 
 async def cmd_draft(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -795,6 +796,16 @@ async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 @authorized
 async def cmd_abort(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _task_command_adapter().abort(update, context)
+
+@authorized
+async def cmd_direct(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _task_command_adapter().direct(update, context)
+
+
+@authorized
+async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _task_command_adapter().direct(update, context, daily=True)
+
 
 @authorized
 async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

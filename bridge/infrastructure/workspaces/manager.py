@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,13 +42,17 @@ class WorkspaceManager:
         self._guard = asyncio.Lock()
 
     async def acquire(self, task_id: str, repository: Path) -> Workspace:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", task_id):
+            raise ValueError("invalid workspace task identifier")
         repo = repository.resolve()
         key = f"{repo}:{task_id}"
         async with self._guard:
             if key in self._locks:
                 raise WorkspaceBusy(key)
             self._locks.add(key)
-        path = self.root / task_id
+        path = (self.root / task_id).resolve()
+        if not path.is_relative_to(self.root):
+            raise ValueError("workspace path escapes root")
         try:
             if path.exists():
                 raise WorkspaceBusy(f"workspace already exists: {path}")
@@ -63,6 +68,8 @@ class WorkspaceManager:
             raise
 
     async def release(self, workspace: Workspace, *, failed: bool = False) -> None:
+        if not workspace.path.resolve().is_relative_to(self.root):
+            raise ValueError("workspace path escapes root")
         key = f"{workspace.repository}:{workspace.task_id}"
         try:
             if failed and self.policy.retain_failed:
