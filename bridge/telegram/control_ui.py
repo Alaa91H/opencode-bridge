@@ -92,6 +92,8 @@ WORDS = {
         "server_text": "إدارة الخادم: التحديثات والذاكرة وحالة النشر.",
         "memory_text": "إعدادات الذاكرة (تُطبّق بواسطة خدمة النظام خلال ساعة تقريبًا).",
         "updates_text": "تحديث GitHub Releases تلقائيًا: {state}",
+        "quarantine_text": "⚠️ فشل تفعيل إصدار Bridge {tag}؛ توقفت محاولات هذا الإصدار تلقائيًا. سيُجرَّب إصدار أحدث بعد اجتياز الاختبارات.",
+        "quarantine_invalid": "⚠️ سجل التحديث الفاشل تالف؛ تم إيقاف التفعيل تلقائيًا لحين معالجة الحالة.",
         "advanced_text": "أزرار لجميع أدوات الإدارة الإضافية؛ اختر الأداة ثم أرسل خياراتها دون /.",
         "advanced_args": "أرسل الخيارات المطلوبة دون /. استخدم | للفصل عند الجدولة.",
         "success": "تمت العملية.", "number_one": "1 — موصى به", "number_two": "2 — عند الحاجة",
@@ -160,6 +162,8 @@ WORDS = {
         "server_text": "Server controls: updates, memory and deployment status.",
         "memory_text": "Memory policy (root service applies updates within roughly an hour).",
         "updates_text": "Automatic GitHub Releases updates: {state}",
+        "quarantine_text": "⚠️ Bridge {tag} failed activation and is quarantined. A newer verified release can be tried automatically.",
+        "quarantine_invalid": "⚠️ Corrupt update quarantine state: automatic activation is blocked until repaired.",
         "advanced_text": "Additional administration tools. Choose an action and send arguments without /.",
         "advanced_args": "Send the required arguments without /. Use | for schedules.",
         "success": "Action completed.", "number_one": "1 — recommended", "number_two": "2 — if needed",
@@ -419,6 +423,14 @@ class ControlUI:
         elif screen == "updates":
             current = self.runtime_controls.auto_update() if self.runtime_controls else False
             text = t["updates_text"].format(state=t["on"] if current else t["off"])
+            if self.runtime_controls is not None:
+                try:
+                    held_tag = self.runtime_controls.failed_update_release()
+                except (ValueError, OSError):
+                    text += "\n" + t["quarantine_invalid"]
+                else:
+                    if held_tag:
+                        text += "\n" + t["quarantine_text"].format(tag=held_tag)
             rows.append([button(t["off"] if current else t["on"], "toggleupdate")])
             os_enabled = self.runtime_controls.system_auto_update()
             text += "\nOS: " + (t["on"] if os_enabled else t["off"])
