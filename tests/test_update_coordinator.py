@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,6 +31,38 @@ class UpdateCoordinatorTests(unittest.TestCase):
                          ["healthy", "applying", "verified"])
         with self.assertRaises(ValueError):
             restored.transition("v3.3.0", self.sha, "applying")
+
+    def test_only_one_concurrent_activation_claim_is_accepted(self) -> None:
+        self.coordinator.transition("v3.3.0", self.sha, "verified")
+        gate = Barrier(2)
+
+        def claim() -> str:
+            gate.wait(timeout=5)
+            try:
+                UpdateCoordinator(self.root / "runtime").transition(
+                    "v3.3.0", self.sha, "applying",
+                )
+            except ValueError:
+                return "rejected"
+            return "claimed"
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(claim) for _ in range(2)]
+            results = [future.result(timeout=10) for future in futures]
+        self.assertCountEqual(results, ["claimed", "rejected"])
+        self.assertEqual(self.coordinator.latest().phase, "applying")
+        self.assertEqual(
+            [event[1] for event in self.coordinator.history()],
+            ["applying", "verified"],
+        )
+
+    def test_restart_cannot_claim_same_applying_release(self) -> None:
+        self.coordinator.transition("v3.3.0", self.sha, "verified")
+        self.coordinator.transition("v3.3.0", self.sha, "applying")
+        with self.assertRaisesRegex(ValueError, "already claimed"):
+            UpdateCoordinator(self.root / "runtime").transition(
+                "v3.3.0", self.sha, "applying",
+            )
 
     def test_interrupted_application_remains_blocked(self) -> None:
         self.coordinator.transition("v3.3.0", self.sha, "verified")
