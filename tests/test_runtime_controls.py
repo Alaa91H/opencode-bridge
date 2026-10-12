@@ -14,7 +14,7 @@ class RuntimeControlsTests(unittest.TestCase):
             self.assertTrue(c.auto_update())
             c.set_auto_update(False)
             self.assertFalse(RuntimeControls(Path(temp)).auto_update())
-            self.assertEqual(c.memory(), {"zram_percent": 50, "swap_gib": "auto"})
+            self.assertEqual(c.memory(), {"zram_percent": "auto", "swap_gib": "auto"})
             self.assertEqual(c.set_memory(zram_percent=75, swap_gib=2),
                              {"zram_percent": 75, "swap_gib": 2})
             self.assertEqual(RuntimeControls(Path(temp)).memory()["swap_gib"], 2)

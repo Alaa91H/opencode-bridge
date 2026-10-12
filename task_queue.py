@@ -964,6 +964,48 @@ class TaskQueueStore:
             await db.commit()
         return await self.get(task_id) if cursor.rowcount else None
 
+    async def delete_user_task(self, task_id: int, owner_id: str) -> QueuedTask | None:
+        """Remove a queued or terminal task, never a running/leased task."""
+        db = await self._get_db()
+        async with self._lock:
+            async with db.execute(
+                "SELECT * FROM agent_tasks WHERE id=? AND owner_id=? AND status IN "
+                "('queued','scheduled','retrying','cancelled','completed','failed')",
+                (task_id, owner_id),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is None:
+                return None
+            await db.execute("DELETE FROM agent_tasks WHERE id=? AND owner_id=? AND "
+                             "status IN ('queued','scheduled','retrying','cancelled','completed','failed')",
+                             (task_id, owner_id))
+            await db.commit()
+        return self._from_row(row)
+
+    async def change_priority(self, task_id: int, owner_id: str, delta: int) -> QueuedTask | None:
+        """Atomic, owner-scoped priority editing for not-yet-started work."""
+        if delta not in (-1, 1):
+            raise ValueError("priority step must be -1 or 1")
+        db = await self._get_db()
+        async with self._lock:
+            cursor = await db.execute(
+                "UPDATE agent_tasks SET priority=MIN(100,MAX(-100,priority+?)),updated_at=? "
+                "WHERE id=? AND owner_id=? AND status IN ('queued','retrying')",
+                (delta, encode_time(utc_now()), task_id, owner_id),
+            )
+            await db.commit()
+        return await self.get(task_id) if cursor.rowcount else None
+
+    async def list_recent(self, owner_id: str, limit: int = 10) -> list[QueuedTask]:
+        db = await self._get_db()
+        async with self._lock:
+            async with db.execute(
+                "SELECT * FROM agent_tasks WHERE owner_id=? AND status IN ('cancelled','completed','failed') "
+                "ORDER BY updated_at DESC,id DESC LIMIT ?", (owner_id, limit)
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [self._from_row(row) for row in rows]
+
     async def cancel_running_for_owner(self, owner_id: str) -> QueuedTask | None:
         db = await self._get_db()
         async with self._lock:
@@ -1121,11 +1163,6 @@ class TaskQueueStore:
                            SELECT 1 FROM agent_tasks r
                            WHERE r.owner_id=q.owner_id AND r.status IN ('leased','running')
                              AND (r.lease_expires_at IS NULL OR r.lease_expires_at > ?))
-                         AND NOT EXISTS (
-                           SELECT 1 FROM agent_tasks earlier
-                           WHERE earlier.owner_id=q.owner_id
-                             AND earlier.status IN ('queued','retrying','leased','running')
-                             AND earlier.id < q.id)
                        ORDER BY q.priority DESC, q.created_at, q.id LIMIT 1""",
                     (now, now),
                 ) as cursor:

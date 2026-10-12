@@ -9,7 +9,7 @@ readonly RUNTIME_DIR="${BRIDGE_DIR}/runtime"
 readonly REPORT_PATH="${RUNTIME_DIR}/resource-latest.md"
 readonly LOCK_PATH="/run/lock/opencode-bridge-resource-optimizer.lock"
 readonly SWAPFILE="${OPENCODE_SWAPFILE_PATH:-/swapfile}"
-ZRAM_PERCENT="${OPENCODE_ZRAM_PERCENT:-50}"
+ZRAM_PERCENT="${OPENCODE_ZRAM_PERCENT:-auto}"
 # 0 means no artificial cap. The default target is exactly half of physical RAM.
 readonly ZRAM_MAX_MIB="${OPENCODE_ZRAM_MAX_MIB:-0}"
 SWAPFILE_GIB="${OPENCODE_SWAPFILE_GIB:-auto}"
@@ -22,9 +22,9 @@ if [[ -f "$POLICY_FILE" && ! -L "$POLICY_FILE" ]]; then
 import json,sys
 try:
     data=json.load(open(sys.argv[1], encoding="utf-8"))
-    zram=data.get("zram_percent",50)
+    zram=data.get("zram_percent","auto")
     swap=data.get("swap_gib","auto")
-    if type(zram) is int and zram in (25,50,75,100) and (
+    if (zram=="auto" or type(zram) is int and zram in (25,50,75,100)) and (
             swap=="auto" or type(swap) is int and swap in (0,1,2,4)):
         print(str(zram)+" "+str(swap))
 except (OSError,ValueError,TypeError,AttributeError):
@@ -57,6 +57,17 @@ clamp_int() {
   printf '%s' "$value"
 }
 
+if [[ "$ZRAM_PERCENT" == "auto" ]]; then
+  mem_kib="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)"
+  if [[ "$mem_kib" =~ ^[0-9]+$ ]]; then
+    if (( mem_kib <= 2097152 )); then ZRAM_PERCENT=100
+    elif (( mem_kib <= 4194304 )); then ZRAM_PERCENT=75
+    else ZRAM_PERCENT=50
+    fi
+  else
+    ZRAM_PERCENT=50
+  fi
+fi
 zram_percent="$(clamp_int "$ZRAM_PERCENT" 25 100)"
 if [[ "$ZRAM_MAX_MIB" =~ ^[0-9]+$ ]]; then
   zram_max_mib="$ZRAM_MAX_MIB"

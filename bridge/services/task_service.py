@@ -28,6 +28,9 @@ class TaskRepository(Protocol):
     async def latest_active_for_owner(self, owner_id: str) -> Any | None: ...
     async def cancel(self, task_id: int, owner_id: str) -> Any | None: ...
     async def cancel_running_for_owner(self, owner_id: str) -> Any | None: ...
+    async def delete_user_task(self, task_id: int, owner_id: str) -> Any | None: ...
+    async def change_priority(self, task_id: int, owner_id: str, delta: int) -> Any | None: ...
+    async def list_recent(self, owner_id: str, limit: int = 10) -> list[Any]: ...
     async def list_failed(self, owner_id: str, limit: int = 20) -> list[Any]: ...
     async def retry_failed(self, task_id: int, owner_id: str) -> Any | None: ...
 
@@ -116,6 +119,18 @@ class TaskApplicationService:
 
     async def active(self, owner_id: str) -> list[Any]:
         return await self.repository.list_active(owner_id)
+
+    async def change_priority(self, owner_id: str, task_id: int, delta: int) -> Any | None:
+        return await self.repository.change_priority(task_id, owner_id, delta)
+
+    async def remove(self, owner_id: str, task_id: int) -> Any | None:
+        deleted = await self.repository.delete_user_task(task_id, owner_id)
+        if deleted is not None and getattr(deleted, "attachments", None):
+            self.attachment_store.delete_input_records(deleted.attachments)
+        return deleted
+
+    async def recent(self, owner_id: str) -> list[Any]:
+        return await self.repository.list_recent(owner_id)
 
     async def latest_active(self, owner_id: str) -> Any | None:
         return await self.repository.latest_active_for_owner(owner_id)

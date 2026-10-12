@@ -35,7 +35,7 @@ class RuntimeControls:
             temp.unlink(missing_ok=True)
 
     def memory(self) -> dict[str, int | str]:
-        defaults: dict[str, int | str] = {"zram_percent": 50, "swap_gib": "auto"}
+        defaults: dict[str, int | str] = {"zram_percent": "auto", "swap_gib": "auto"}
         file = self.root / "memory-policy.json"
         if not file.exists():
             return defaults
@@ -44,15 +44,15 @@ class RuntimeControls:
         data = json.loads(file.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             raise ValueError("Invalid memory policy")
-        zram = data.get("zram_percent", 50)
+        zram = data.get("zram_percent", "auto")
         swap = data.get("swap_gib", "auto")
-        if type(zram) is not int or zram not in (25, 50, 75, 100):
+        if zram != "auto" and (type(zram) is not int or zram not in (25, 50, 75, 100)):
             raise ValueError("Invalid ZRAM percentage")
         if (swap != "auto" and (type(swap) is not int or swap not in (0, 1, 2, 4))):
             raise ValueError("Invalid disk swap size")
         return {"zram_percent": zram, "swap_gib": swap}
 
-    def set_memory(self, *, zram_percent: int | None = None,
+    def set_memory(self, *, zram_percent: int | str | None = None,
                    swap_gib: int | str | None = None) -> dict[str, int | str]:
         value = self.memory()
         if zram_percent is not None:
@@ -61,7 +61,7 @@ class RuntimeControls:
             value["swap_gib"] = swap_gib
         # Validate before writing.
         zram, swap = value["zram_percent"], value["swap_gib"]
-        if type(zram) is not int or zram not in (25, 50, 75, 100):
+        if zram != "auto" and (type(zram) is not int or zram not in (25, 50, 75, 100)):
             raise ValueError("Unsupported ZRAM setting")
         if swap != "auto" and (type(swap) is not int or swap not in (0, 1, 2, 4)):
             raise ValueError("Unsupported swap setting")
