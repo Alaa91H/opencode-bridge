@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from bridge.services.download_service import DownloadError
 from bridge.services.mirrors import PROVIDERS, MirrorService
 
 
@@ -15,9 +16,9 @@ class MirrorAdmissionTests(unittest.IsolatedAsyncioTestCase):
             service = MirrorService(Path(folder))
             with self.assertRaises(ValueError):
                 await service.mirror_url("tmpfiles", "https://example.com")
-            with self.assertRaises(ValueError):
+            with self.assertRaises(DownloadError):
                 await service.mirror_url("catbox", "http://127.0.0.1/private")
-            with self.assertRaises(ValueError):
+            with self.assertRaises(DownloadError):
                 await service.mirror_url("tempfile", "http://169.254.169.254/metadata")
 
     async def test_outside_managed_tree_is_denied(self):
