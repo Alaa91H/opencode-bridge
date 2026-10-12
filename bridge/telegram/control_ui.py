@@ -352,6 +352,16 @@ class ControlUI:
             for i, provider in enumerate(providers[:20]):
                 auto = any(item["auto"] for item in entries if item["provider"] == provider)
                 rows.append([button(t["key_auto"] + " " + provider + (" ✅" if auto else ""), "keyauto", i)])
+        elif screen == "backups":
+            text = t["backups"]
+            entries = self.backups.list() if self.backups else []
+            if not entries:
+                text += "\n" + t["empty"]
+            for i, item in enumerate(entries[:12]):
+                text += "\n• " + safe(item["name"]) + " (" + str(item["bytes"]) + " B)"
+                rows.append([button(t["backup_send"], "backupsend", i),
+                             button(t["backup_delete"], "confirm", "backup", i)])
+            rows.append([button(t["backup_create"], "backupcreate")])
         elif screen == "resources":
             from bridge.services.server_admin import resources
             values = resources(self.project)
