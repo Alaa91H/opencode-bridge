@@ -41,8 +41,8 @@ UTC = UTC
 SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._\- ]+")
 ALLOWED_SCHEMES = {"http", "https"}
 DEFAULT_MAX_FILE_BYTES = 2000 * 1024 * 1024
-DEFAULT_MAX_TOTAL_BYTES = 8 * 1024 * 1024 * 1024
-DEFAULT_TTL_HOURS = 24
+DEFAULT_MAX_TOTAL_BYTES = 20 * 1024 * 1024 * 1024
+DEFAULT_TTL_HOURS = 72
 CHUNK_BYTES = 1024 * 1024
 MAX_FILENAME = 120
 DIRECT_TELEGRAM_LIMIT = 50 * 1024 * 1024
@@ -222,8 +222,8 @@ class DownloadService:
         allow_private_hosts: bool = False,
     ) -> None:
         self.root = Path(root).resolve()
-        self.max_file_bytes = max(1, int(max_file_bytes))
-        self.max_total_bytes = max(self.max_file_bytes, int(max_total_bytes))
+        self.max_total_bytes = max(1, min(DEFAULT_MAX_TOTAL_BYTES, int(max_total_bytes)))
+        self.max_file_bytes = max(1, min(self.max_total_bytes, int(max_file_bytes)))
         self.ttl_hours = max(1, int(ttl_hours))
         self.direct_send_limit = max(1, int(direct_send_limit))
         self.timeout_seconds = float(timeout_seconds)
@@ -303,10 +303,98 @@ class DownloadService:
 
     # ------------------------------------------------------------ transfer
 
-    async def fetch(self, owner_id: str, url: str, *, filename: str | None = None) -> DownloadRecord:
-        """Download safely without admitting concurrent transfers over the quota."""
+    async def fetch(self, owner_id: str, url: str, *, filename: str | None = None,
+                    media: bool = False) -> DownloadRecord:
+        """Queue media (yt-dlp) or direct HTTP under a common 20 GiB quota."""
         async with self._transfer_lock:
+            self.cleanup_expired()
+            if media:
+                return await self._fetch_media_locked(owner_id, url)
             return await self._fetch_locked(owner_id, url, filename=filename)
+
+    async def _fetch_media_locked(self, owner_id: str, url: str) -> DownloadRecord:
+        """Run a bounded yt-dlp extractor without executing downloaded content.
+
+        This needs outbound network filtering on the host for complete SSRF
+        isolation: video extractors can contact other domains after URL checks.
+        """
+        if not self.ytdlp_path:
+            raise DownloadError("yt-dlp is not installed on this server")
+        normalized = validate_url(url, allow_private_hosts=self.allow_private_hosts)
+        await _assert_resolved_public(normalized, allow_private=self.allow_private_hosts)
+        self.ensure_directories()
+        owner_dir = self._owner_directory(owner_id)
+        budget = min(self.max_file_bytes, self.max_total_bytes - self.used_bytes())
+        free = shutil.disk_usage(self.root).free
+        budget = min(budget, max(0, free - 256 * 1024 * 1024))
+        if budget <= 0:
+            raise DownloadTooLarge("Managed download storage is full")
+        download_id = uuid.uuid4().hex
+        work = self._resolve_inside(owner_dir / (download_id + ".working"))
+        work.mkdir(mode=0o700)
+        command = [
+            self.ytdlp_path, "--ignore-config", "--no-playlist",
+            "--no-progress", "--no-warnings", "--no-overwrites",
+            "--restrict-filenames", "--socket-timeout", "15",
+            "--retries", "2", "--fragment-retries", "2",
+            "--max-filesize", str(budget),
+            "--format", "b/bv*+ba",
+            "--output", "%(title).80B.%(ext)s",
+            normalized,
+        ]
+        process = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command, cwd=work, stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL)
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 900
+            while True:
+                try:
+                    exit_code = await asyncio.wait_for(process.wait(), timeout=0.5)
+                    break
+                except TimeoutError:
+                    pass
+                size = sum(item.stat().st_size for item in work.rglob("*") if item.is_file())
+                if size > budget:
+                    raise DownloadTooLarge("Media download exceeds the file or storage quota")
+                if loop.time() >= deadline:
+                    raise DownloadError("Media downloader exceeded time limit")
+            if exit_code:
+                raise DownloadError("Media extractor could not download this URL")
+            outputs = [item for item in work.iterdir() if item.is_file()
+                       and item.suffix not in {".part", ".ytdl", ".temp"}]
+            if len(outputs) != 1 or not outputs[0].is_file():
+                raise DownloadError("Media extractor did not produce a single file")
+            result = outputs[0]
+            size = result.stat().st_size
+            if not 0 < size <= budget:
+                raise DownloadTooLarge("Media output exceeds permitted size")
+            name = _safe_filename(result.name, download_id)
+            destination = self._resolve_inside(owner_dir / (download_id + "-" + name))
+            result.replace(destination)
+            mime = mimetypes.guess_type(destination.name)[0] or "application/octet-stream"
+            now = datetime.now(UTC)
+            record = DownloadRecord(
+                id=download_id, owner_id=str(owner_id), filename=destination.name,
+                path=str(destination), size_bytes=size, mime=mime,
+                source_url=normalized, created_at=now.isoformat(),
+                expires_at=(now + timedelta(hours=self.ttl_hours)).isoformat(),
+                direct_send_limit=self.direct_send_limit)
+            try:
+                index = self._read_index()
+                index[download_id] = record.to_dict()
+                self._write_index(index)
+            except BaseException:
+                destination.unlink(missing_ok=True)
+                raise
+            return record
+        finally:
+            if process is not None and process.returncode is None:
+                process.kill()
+                await process.wait()
+            shutil.rmtree(work, ignore_errors=True)
 
     async def _request_public(self, client: httpx.AsyncClient, url: str) -> httpx.Response:
         """Validate each redirect *before* opening its network connection.

@@ -253,8 +253,8 @@ class DownloadSettings:
     """Managed link downloads kept on the host and sent back over Telegram."""
 
     max_file_bytes: int = 2000 * 1024 * 1024
-    max_total_bytes: int = 8 * 1024 * 1024 * 1024
-    ttl_hours: int = 24
+    max_total_bytes: int = 20 * 1024 * 1024 * 1024
+    ttl_hours: int = 72
     direct_send_limit: int = 50 * 1024 * 1024
     cleanup_interval_seconds: int = 900
 
@@ -656,7 +656,7 @@ class BridgeSettings:
             max_total_bytes=_parse_int(
                 _source_value(
                     merged_env, config, "DOWNLOAD_MAX_TOTAL_BYTES",
-                    "downloads.max_total_bytes", 8 * 1024 * 1024 * 1024
+                    "downloads.max_total_bytes", 20 * 1024 * 1024 * 1024
                 ),
                 key="DOWNLOAD_MAX_TOTAL_BYTES",
                 minimum=1,
@@ -664,7 +664,7 @@ class BridgeSettings:
             ttl_hours=_parse_int(
                 _source_value(
                     merged_env, config, "DOWNLOAD_TTL_HOURS",
-                    "downloads.ttl_hours", 24
+                    "downloads.ttl_hours", 72
                 ),
                 key="DOWNLOAD_TTL_HOURS",
                 minimum=1,
