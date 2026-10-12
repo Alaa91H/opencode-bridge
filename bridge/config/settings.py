@@ -151,6 +151,7 @@ _ALLOWED_SECTION_KEYS: dict[str, set[str]] = {
     "telegram": {
         "bot_token",
         "allowed_users",
+        "owner_id",
         "allowed_chat_ids",
         "proxy_url",
         "api_mode",
@@ -236,6 +237,7 @@ def _validate_config_keys(config: Mapping[str, Any]) -> None:
 class TelegramSettings:
     bot_token: str = ""
     allowed_users: frozenset[int] = frozenset()
+    owner_id: int | None = None
     allowed_chat_ids: frozenset[int] = frozenset()
     proxy_url: str | None = None
     api_mode: str = "cloud"
@@ -365,6 +367,16 @@ class BridgeSettings:
                 ),
                 key="TELEGRAM_ALLOWED_USERS",
             ),
+            owner_id=(
+                _parse_int(
+                    _source_value(merged_env, config, "TELEGRAM_OWNER_ID",
+                                  "telegram.owner_id", ""),
+                    key="TELEGRAM_OWNER_ID", minimum=1,
+                )
+                if str(_source_value(merged_env, config, "TELEGRAM_OWNER_ID",
+                                     "telegram.owner_id", "")).strip()
+                else None
+            ),
             allowed_chat_ids=_csv_int(
                 _source_value(
                     merged_env, config, "TELEGRAM_ALLOWED_CHAT_IDS",
@@ -433,6 +445,8 @@ class BridgeSettings:
             ),
         )
 
+        if telegram.owner_id is not None and telegram.owner_id not in telegram.allowed_users:
+            raise SettingsError("TELEGRAM_OWNER_ID must belong to TELEGRAM_ALLOWED_USERS")
         if telegram.api_mode not in {"cloud", "local"}:
             raise SettingsError("TELEGRAM_API_MODE must be cloud or local")
         if telegram.api_mode == "local" and (
