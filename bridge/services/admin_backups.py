@@ -11,6 +11,7 @@ import subprocess
 import tarfile
 import tempfile
 import uuid
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -29,7 +30,8 @@ class AdminBackups:
         for path in self.root.glob("backup-*"):
             if path.suffix not in {".db", ".age"} or path.is_symlink() or not path.is_file():
                 continue
-            meta = path.with_suffix(".json")
+            meta = (path.with_name(path.name + ".json") if path.suffix == ".age"
+                    else path.with_suffix(".json"))
             try:
                 info = json.loads(meta.read_text(encoding="utf-8"))
                 results.append({**info, "name": path.name,
@@ -95,7 +97,9 @@ class AdminBackups:
         if path.parent == self.release_root:
             path.with_name(path.name + ".sha256").unlink(missing_ok=True)
         else:
-            path.with_suffix(".json").unlink(missing_ok=True)
+            metadata = (path.with_name(path.name + ".json") if path.suffix == ".age"
+                        else path.with_suffix(".json"))
+            metadata.unlink(missing_ok=True)
 
     async def create_encrypted(self) -> dict:
         """Secret-inclusive backup is never sent or stored unencrypted."""
@@ -145,11 +149,44 @@ class AdminBackups:
         secure_write(output.with_name(output.name + ".json"), json.dumps(metadata).encode())
         return {"name": output.name, "bytes": output.stat().st_size, **metadata}
 
+    def _backup_usable(self, item: dict) -> bool:
+        """Only verified backups qualify as retained recovery candidates."""
+        try:
+            path = self.get(item["name"])
+            if item.get("encrypted"):
+                if path.suffix != ".age":
+                    return False
+                expected = item.get("sha256")
+                if not isinstance(expected, str) or len(expected) != 64:
+                    return False
+                digest = hashlib.sha256()
+                with path.open("rb") as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                return path.stat().st_size > 0 and digest.hexdigest() == expected
+            if path.suffix != ".db":
+                return False
+            with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
+                return db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        except (OSError, sqlite3.Error, ValueError, TypeError, KeyError):
+            return False
+
     def purge_after_verified_update(self) -> int:
-        count = 0
-        for item in self.list():
-            if item.get("kind") == "release":
+        """Prune only after preserving two verified backups per category.
+
+        Invalid snapshots are never counted toward the minimum number of
+        restore points. They are also retained for manual diagnosis.
+        """
+        candidates = [item for item in self.list() if item.get("kind") != "release"]
+        retained: dict[str, int] = {"database": 0, "encrypted": 0}
+        removed = 0
+        for item in candidates:
+            group = "encrypted" if item.get("encrypted") else "database"
+            if not self._backup_usable(item):
+                continue
+            if retained[group] < 2:
+                retained[group] += 1
                 continue
             self.delete(item["name"])
-            count += 1
-        return count
+            removed += 1
+        return removed

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -40,7 +41,7 @@ def resources(project: Path) -> dict:
 
 async def update_now(kind: str, progress=None) -> str:
     """Stream bounded operational status; only known non-build commands."""
-    if kind not in {"agent", "system"}:
+    if kind not in {"agent", "system", "bridge-check", "bridge"}:
         raise ValueError("Unsupported update target")
 
     async def run(command, timeout):
@@ -76,6 +77,15 @@ async def update_now(kind: str, progress=None) -> str:
                 await process.wait()
 
     try:
+        if kind in {"bridge", "bridge-check"}:
+            updater = Path(__file__).resolve().parents[2] / "maintenance" / "self_update.py"
+            # Both paths verify the exact release commit and CI. The check-only
+            # command can never activate it; --apply requires a confirmed owner action.
+            action = "--check" if kind == "bridge-check" else "--apply"
+            code, report = await run([sys.executable, str(updater), action],
+                                     90 if kind == "bridge-check" else 300)
+            label = "Bridge update check" if kind == "bridge-check" else "Bridge update"
+            return f"{label} {'completed' if code == 0 else 'failed'} (exit={code}):\n" + report[-2500:]
         if kind == "agent":
             old_status, old_version = await run(["opencode", "--version"], 30)
             if old_status or not old_version.strip():

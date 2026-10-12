@@ -85,7 +85,7 @@ bridge_self_update() {
   BRIDGE_UPDATE_STATUS="$(printf '%s' "$output" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("status","unknown"))' 2>/dev/null || echo unknown)"
   printf '%s\n' "$BRIDGE_UPDATE_JSON"
   case "$BRIDGE_UPDATE_STATUS" in
-    updated|up_to_date) return 0 ;;
+    updated|up_to_date|available) return 0 ;;
     skipped) return 0 ;;
     *) return 2 ;;
   esac

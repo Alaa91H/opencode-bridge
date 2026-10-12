@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import sqlite3
 from types import SimpleNamespace
 from typing import Any
 
@@ -60,6 +61,8 @@ WORDS = {
         "key_label": "أرسل اسمًا للمفتاح (حروف إنجليزية وأرقام فقط).",
         "key_secret": "أرسل قيمة API Key الآن. ستُحذف الرسالة مباشرة.",
         "hostkeys": "🔐 مفاتيح GitHub / Telegram / OpenCode",
+        "credentials": "🔐 المفاتيح والاعتمادات",
+        "credentials_text": "إدارة موحّدة لمفاتيح الذكاء الاصطناعي واعتمادات الخدمات.",
         "hostadd": "➕ إضافة اعتماد", "hostreplace": "✏️ استبدال اعتماد",
         "host_scope": "اختر الخدمة:", "host_label": "أرسل اسم الاعتماد.",
         "host_value": "أرسل التوكن في رسالة خاصة؛ سنحاول حذف الرسالة.",
@@ -70,8 +73,12 @@ WORDS = {
         "backup_keys": "🔒 مع المفاتيح (مشفرة فقط)", "backup_recipient": "🔐 مفتاح تشفير النسخ الاحتياطية",
         "mirrors": "☁️ مرايا مجانية", "mirror_url": "🔗 نسخ رابط إلى مرآة",
         "mirror_input": "أرسل رابطًا عامًا لمشاركة نسخه عبر المزود الخارجي.",
-        "resources": "📊 موارد الخادم", "update_agent": "🤖 تحديث OpenCode الآن",
+        "resources": "📊 موارد الخادم", "services": "🧩 حالة الخدمات", "update_agent": "🤖 تحديث OpenCode الآن",
         "update_system": "🛠 تحديث النظام الآن", "auto_system": "🔄 تحديث النظام تلقائيًا",
+        "bridge_check": "🔎 فحص تحديث Bridge الآن (دون تثبيت)",
+        "bridge_update": "🚀 تحديث Bridge الآن (بعد التأكيد)",
+        "update_last": "آخر عملية تحديث: {tag} — {phase} ({date})",
+        "update_last_invalid": "⚠️ سجل عمليات التحديث غير متاح؛ يُرجى مراجعة سلامة قاعدة البيانات.",
         "backup_policy": "🗑 حذف النسخ الاحتياطية بعد تحديث ناجح",
         "admin_private": "تتطلب هذه العملية محادثة خاصة مع مالك البوت.",
         "pending_update": "بدأ فحص التحديث. سيتم عرض نتيجة العملية هنا.",
@@ -91,7 +98,12 @@ WORDS = {
         "help_text": "اختر مهمة مباشرة أو يومية، ثم أرسل تعليماتك كنص. المهمة اليومية تتابع بعد تجدد الرصيد عند 12:00 UTC. من قسم الوكيل يمكنك تغيير الوكيل والنموذج والتفكير. لعرض الأوامر القديمة استخدم /help.",
         "server_text": "إدارة الخادم: التحديثات والذاكرة وحالة النشر.",
         "memory_text": "إعدادات الذاكرة (تُطبّق بواسطة خدمة النظام خلال ساعة تقريبًا).",
-        "updates_text": "تحديث GitHub Releases تلقائيًا: {state}",
+        "updates_text": "وضع تحديث Bridge تلقائيًا: {state}",
+        "mode_off": "⏸ إيقاف", "mode_notify": "🔎 فحص فقط دون تثبيت",
+        "mode_safe": "✅ تلقائي آمن", "mode_window": "🕗 نافذة 08–10 UTC",
+        "mode_window_help": "نافذة التحديث اليومية: 08:00–10:00 UTC.",
+        "quarantine_text": "⚠️ فشل تفعيل إصدار Bridge {tag}؛ توقفت محاولات هذا الإصدار تلقائيًا. سيُجرَّب إصدار أحدث بعد اجتياز الاختبارات.",
+        "quarantine_invalid": "⚠️ سجل التحديث الفاشل تالف؛ تم إيقاف التفعيل تلقائيًا لحين معالجة الحالة.",
         "advanced_text": "أزرار لجميع أدوات الإدارة الإضافية؛ اختر الأداة ثم أرسل خياراتها دون /.",
         "advanced_args": "أرسل الخيارات المطلوبة دون /. استخدم | للفصل عند الجدولة.",
         "success": "تمت العملية.", "number_one": "1 — موصى به", "number_two": "2 — عند الحاجة",
@@ -127,6 +139,8 @@ WORDS = {
         "key_label": "Send key label (letters/digits only).",
         "key_secret": "Send the API key value now. The message will be deleted.",
         "hostkeys": "🔐 GitHub / Telegram / OpenCode credentials",
+        "credentials": "🔐 Keys & credentials",
+        "credentials_text": "Manage provider API keys and service credentials in one place.",
         "hostadd": "➕ Add credential", "hostreplace": "✏️ Replace credential",
         "host_scope": "Select service:", "host_label": "Send the credential label.",
         "host_value": "Send the token in a private message; we will attempt to delete it.",
@@ -137,8 +151,12 @@ WORDS = {
         "backup_keys": "🔒 With keys (encrypted only)", "backup_recipient": "🔐 Backup encryption public key",
         "mirrors": "☁️ Free mirrors", "mirror_url": "🔗 Mirror a URL",
         "mirror_input": "Send a public URL to copy to an external host.",
-        "resources": "📊 Server resources", "update_agent": "🤖 Update OpenCode now",
+        "resources": "📊 Server resources", "services": "🧩 Service status", "update_agent": "🤖 Update OpenCode now",
         "update_system": "🛠 Update OS now", "auto_system": "🔄 Automatic OS updates",
+        "bridge_check": "🔎 Check Bridge release now (no install)",
+        "bridge_update": "🚀 Update Bridge now (confirm first)",
+        "update_last": "Last release operation: {tag} — {phase} ({date})",
+        "update_last_invalid": "⚠️ Update operation ledger is unreadable. Verify database health.",
         "backup_policy": "🗑 Delete backups after successful upgrade",
         "admin_private": "This action requires the bot owner's private chat.",
         "pending_update": "Update check started. The result will appear here.",
@@ -159,15 +177,20 @@ WORDS = {
         "help_text": "Choose Direct task or Daily task, then send plain instructions. Daily tasks resume after the 12:00 UTC quota reset. Use Agent manager to select the agent, model and reasoning. Legacy commands remain available via /help.",
         "server_text": "Server controls: updates, memory and deployment status.",
         "memory_text": "Memory policy (root service applies updates within roughly an hour).",
-        "updates_text": "Automatic GitHub Releases updates: {state}",
+        "updates_text": "Bridge update mode: {state}",
+        "mode_off": "⏸ Off", "mode_notify": "🔎 Check only (no install)",
+        "mode_safe": "✅ Auto-safe", "mode_window": "🕗 Window 08–10 UTC",
+        "mode_window_help": "Daily deployment window: 08:00–10:00 UTC.",
+        "quarantine_text": "⚠️ Bridge {tag} failed activation and is quarantined. A newer verified release can be tried automatically.",
+        "quarantine_invalid": "⚠️ Corrupt update quarantine state: automatic activation is blocked until repaired.",
         "advanced_text": "Additional administration tools. Choose an action and send arguments without /.",
         "advanced_args": "Send the required arguments without /. Use | for schedules.",
         "success": "Action completed.", "number_one": "1 — recommended", "number_two": "2 — if needed",
     },
 }
-BUTTON_KEYS = (("home", "agent"), ("keys", "hostkeys"), ("direct", "backups"), ("daily", "tasks"), ("schedules", "downloads"), ("mirrors", "server"), ("server", "settings"), ("language", "advanced"), ("help",))
+BUTTON_KEYS = (("home", "agent"), ("credentials", "backups"), ("direct", "tasks"), ("daily", "schedules"), ("downloads", "mirrors"), ("server", "settings"), ("language", "advanced"), ("help",))
 BINDINGS = {value: key for lang in WORDS.values() for key in
-            ("home", "agent", "keys", "hostkeys", "backups", "mirrors", "direct", "daily", "tasks", "schedules", "downloads", "server", "settings", "language", "advanced", "help")
+            ("home", "agent", "credentials", "keys", "hostkeys", "backups", "mirrors", "direct", "daily", "tasks", "schedules", "downloads", "server", "settings", "language", "advanced", "help")
             for value in (lang[key],)}
 
 
@@ -231,7 +254,7 @@ class ControlUI:
             return
         owner = str(update.effective_user.id)
         lang = await self._lang(owner)
-        sensitive = {"keys", "hostkeys", "backups", "mirrors", "server",
+        sensitive = {"credentials", "keys", "hostkeys", "backups", "mirrors", "server", "services",
                      "resources", "updates", "memory", "workers", "advanced"}
         if screen in sensitive or screen.startswith("advanced."):
             if (not self.admin_allowed(update)
@@ -253,7 +276,7 @@ class ControlUI:
 
         if screen == "home":
             text = t["home_text"]
-            for key in ("agent", "keys", "hostkeys", "direct", "daily", "research", "tasks", "schedules", "downloads", "mirrors", "backups", "server", "settings", "advanced", "help"):
+            for key in ("agent", "credentials", "direct", "daily", "research", "tasks", "schedules", "downloads", "mirrors", "backups", "server", "settings", "advanced", "help"):
                 if key in ("direct", "daily", "research"):
                     rows.append([button(t[key], "input", key)])
                 else:
@@ -364,6 +387,10 @@ class ControlUI:
             for i, provider in enumerate(providers[:20]):
                 auto = any(item["auto"] for item in entries if item["provider"] == provider)
                 rows.append([button(t["key_auto"] + " " + provider + (" ✅" if auto else ""), "keyauto", i)])
+        elif screen == "credentials":
+            text = t["credentials_text"]
+            nav(t["keys"], "keys")
+            nav(t["hostkeys"], "hostkeys")
         elif screen == "hostkeys":
             text = t["hostkeys"]
             entries = self.host_credentials.catalog() if self.host_credentials else []
@@ -407,22 +434,57 @@ class ControlUI:
                 f"Uptime: {values['uptime_seconds'] // 3600} hours"
             )
             nav(t["refresh"], "resources")
+        elif screen == "services":
+            from bridge.services.service_monitor import service_overview
+
+            text = t["services"]
+            for state in await service_overview():
+                marker = "✅" if state.status == "active" else "⚠️"
+                text += "\n" + marker + " " + safe(state.unit, 65) + ": " + safe(state.status, 22)
+            nav(t["refresh"], "services")
         elif screen == "server":
             text = t["server_text"]
             nav(t["updates"], "updates")
             nav(t["memory"], "memory")
             nav(t["workers"], "workers")
-            nav(t["hostkeys"], "hostkeys")
             nav(t["mirrors"], "mirrors")
             nav(t["resources"], "resources")
+            nav(t["services"], "services")
             nav(t["backups"], "backups")
         elif screen == "updates":
-            current = self.runtime_controls.auto_update() if self.runtime_controls else False
-            text = t["updates_text"].format(state=t["on"] if current else t["off"])
-            rows.append([button(t["off"] if current else t["on"], "toggleupdate")])
+            current_mode = (self.runtime_controls.autopilot_mode()
+                            if self.runtime_controls else "off")
+            names = {"off": "mode_off", "notify": "mode_notify",
+                     "auto-safe": "mode_safe", "maintenance-window": "mode_window"}
+            text = t["updates_text"].format(state=t[names[current_mode]])
+            if current_mode == "maintenance-window":
+                text += "\n" + t["mode_window_help"]
+            if self.runtime_controls is not None:
+                try:
+                    held_tag = self.runtime_controls.failed_update_release()
+                except (ValueError, OSError):
+                    text += "\n" + t["quarantine_invalid"]
+                else:
+                    if held_tag:
+                        text += "\n" + t["quarantine_text"].format(tag=held_tag)
+                try:
+                    operation = self.runtime_controls.last_release_operation()
+                except (ValueError, OSError, sqlite3.Error):
+                    text += "\n" + t["update_last_invalid"]
+                else:
+                    if operation:
+                        text += "\n" + t["update_last"].format(
+                            tag=safe(operation.tag, 32), phase=safe(operation.phase, 40),
+                            date=safe(operation.updated_utc, 35))
+            for value, label in (("off", "mode_off"), ("notify", "mode_notify"),
+                                 ("auto-safe", "mode_safe"), ("maintenance-window", "mode_window")):
+                rows.append([button(("● " if current_mode == value else "○ ") + t[label],
+                                    "autopilot", value)])
             os_enabled = self.runtime_controls.system_auto_update()
             text += "\nOS: " + (t["on"] if os_enabled else t["off"])
             rows.append([button(t["auto_system"], "toggleos")])
+            rows.append([button(t["bridge_check"], "checkbridge")])
+            rows.append([button(t["bridge_update"], "confirm", "updatebridge", 0)])
             rows.append([button(t["update_agent"], "confirm", "updateagent", 0)])
             rows.append([button(t["update_system"], "confirm", "updatesystem", 0)])
             rows.append([button(t["backup_policy"] + (
@@ -445,7 +507,7 @@ class ControlUI:
             nav(t["keys"], "keys")
             nav(t["server"], "server")
             nav(t["backups"], "backups")
-            nav(t["hostkeys"], "hostkeys")
+            nav(t["credentials"], "credentials")
         elif screen == "language":
             text = t["language_text"]
             rows.extend([[button("🇸🇦 العربية", "lang", "ar")],
@@ -475,7 +537,7 @@ class ControlUI:
         else:
             raise ValueError("unknown screen")
         if screen != "home":
-            nav(t["back"], "home")
+            nav(t["back"], "credentials" if screen in {"keys", "hostkeys"} else "home")
         return text, InlineKeyboardMarkup(rows)
 
     async def on_text(self, update: Any, context: Any) -> bool:
@@ -713,11 +775,11 @@ class ControlUI:
             private_operations = {
                 "hostadd", "hostscope", "hostreplace", "hostactivate", "keysel", "keyauto",
                 "backupcreate", "backupsend", "backupsecure", "mirrorurl",
-                "mirrorfile", "toggleos", "togglebackuppurge",
+                "mirrorfile", "toggleos", "togglebackuppurge", "autopilot", "toggleupdate", "checkbridge",
             }
             if (action in private_operations
                     or (action == "go" and len(parts) > 2
-                        and parts[2] in {"keys", "hostkeys", "backups", "mirrors"})
+                        and parts[2] in {"credentials", "keys", "hostkeys", "backups", "mirrors"})
                     or (action == "input" and len(parts) > 2 and parts[2] == "key_add")
                     or (action in {"confirm", "execute"} and len(parts) > 2
                         and parts[2] in {"key", "hostkey", "backup"})):
@@ -734,7 +796,7 @@ class ControlUI:
                     return
             if action == "go":
                 screen = parts[2]
-                restricted = {"keys", "hostkeys", "backups", "mirrors", "server",
+                restricted = {"credentials", "keys", "hostkeys", "backups", "mirrors", "server", "services",
                               "resources", "updates", "memory", "workers", "advanced"}
                 if screen in restricted or screen.startswith("advanced."):
                     if (not self.admin_allowed(update)
@@ -860,7 +922,29 @@ class ControlUI:
                 link = await self.mirrors.mirror_file(provider, __import__("pathlib").Path(records[index].path))
                 await update.effective_message.reply_text(link)
                 screen = "mirrors"
+            elif action == "checkbridge":
+                await query.answer()
+                notice = await update.effective_message.reply_text(t["pending_update"])
+
+                async def finish_bridge_check() -> None:
+                    try:
+                        result = await update_now("bridge-check")
+                        await notice.edit_text(result[-3500:])
+                    except Exception:
+                        log.exception("Bridge update check failed")
+                        await notice.edit_text(t["error"])
+
+                task = asyncio.create_task(finish_bridge_check())
+                self._running_updates.add(task)
+                task.add_done_callback(self._running_updates.discard)
+                return
+            elif action == "autopilot":
+                if len(parts) != 3:
+                    raise ValueError("invalid policy callback")
+                self.runtime_controls.set_autopilot_mode(parts[2])
+                screen = "updates"
             elif action == "toggleupdate":
+                # Legacy callbacks retain their meaning without bypassing policy.
                 self.runtime_controls.set_auto_update(not self.runtime_controls.auto_update())
                 screen = "updates"
             elif action == "toggleos":
@@ -948,7 +1032,7 @@ class ControlUI:
                 await self.models.select_variant(owner, int(parts[2]), int(parts[3]))
                 screen = "agent"
             elif action == "confirm":
-                if parts[2] not in {"cancel", "schedule", "file", "new", "key", "task", "hostkey", "backup", "updateagent", "updatesystem"}:
+                if parts[2] not in {"cancel", "schedule", "file", "new", "key", "task", "hostkey", "backup", "updateagent", "updatesystem", "updatebridge"}:
                     raise ValueError("unsupported confirmation")
                 context.user_data["ui_confirm"] = (parts[2], parts[3])
                 text = t["confirm_text"]
@@ -964,7 +1048,7 @@ class ControlUI:
                 kind, value = parts[2], parts[3]
                 if context.user_data.pop("ui_confirm", None) != (kind, value):
                     raise ValueError("confirmation required")
-                if kind in {"hostkey", "backup", "updateagent", "updatesystem"}:
+                if kind in {"hostkey", "backup", "updateagent", "updatesystem", "updatebridge"}:
                     if not self.admin_allowed(update) or getattr(
                         getattr(update, "effective_chat", None), "type", None) != "private":
                         raise ValueError("Private administrator chat required")
@@ -983,10 +1067,10 @@ class ControlUI:
                         raise ValueError("Stale backup index")
                     self.backups.delete(entries[idx]["name"])
                     screen = "backups"
-                elif kind in {"updateagent", "updatesystem"}:
+                elif kind in {"updateagent", "updatesystem", "updatebridge"}:
                     await query.answer()
                     notice = await update.effective_message.reply_text(t["pending_update"])
-                    kind_name = "agent" if kind == "updateagent" else "system"
+                    kind_name = {"updateagent": "agent", "updatesystem": "system", "updatebridge": "bridge"}[kind]
                     async def complete_update() -> None:
                         result = await update_now(kind_name, progress=lambda chunk: notice.edit_text((kind_name + ': ' + chunk)[-3500:]))
                         await notice.edit_text(result[-3500:])

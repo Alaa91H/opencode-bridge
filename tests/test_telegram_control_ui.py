@@ -257,5 +257,117 @@ class UIFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await self.ui.on_text(self.update, self.context))
 
 
+    async def test_single_server_and_credentials_button_in_both_languages(self):
+        from bridge.telegram.control_ui import BINDINGS, BUTTON_KEYS, WORDS
+
+        self.assertEqual(sum(k == "server" for row in BUTTON_KEYS for k in row), 1)
+        self.assertEqual(sum(k == "credentials" for row in BUTTON_KEYS for k in row), 1)
+        self.assertNotIn("keys", [entry for row in BUTTON_KEYS for entry in row])
+        self.assertNotIn("hostkeys", [entry for row in BUTTON_KEYS for entry in row])
+        for language in ("ar", "en"):
+            with self.subTest(language=language):
+                labels = [button.text for row in self.ui.keyboard(language).keyboard
+                          for button in row]
+                self.assertEqual(len(labels), len(set(labels)), "Reply keyboard must not repeat labels")
+                self.assertEqual(labels.count(WORDS[language]["server"]), 1)
+                self.assertEqual(labels.count(WORDS[language]["credentials"]), 1)
+                self.assertEqual(BINDINGS[WORDS[language]["keys"]], "keys",
+                                 "Existing keyboard shortcuts must keep working")
+                self.assertEqual(BINDINGS[WORDS[language]["hostkeys"]], "hostkeys")
+                self.assertEqual(BINDINGS[WORDS[language]["credentials"]], "credentials")
+
+    async def test_credentials_navigation_and_nested_back_button(self):
+        from bridge.telegram.control_ui import WORDS
+
+        for language in ("ar", "en"):
+            self.prefs.values["1"] = UserPreferences(language=language)
+            _, home = await self.ui.render("1", "home")
+            self.assertIn(callback("go", "credentials"),
+                          [b.callback_data for row in home.inline_keyboard for b in row])
+            self.assertNotIn(callback("go", "keys"),
+                             [b.callback_data for row in home.inline_keyboard for b in row])
+            text, submenu = await self.ui.render("1", "credentials")
+            self.assertIn(WORDS[language]["credentials_text"], text)
+            options = [b.callback_data for row in submenu.inline_keyboard for b in row]
+            self.assertIn(callback("go", "keys"), options)
+            self.assertIn(callback("go", "hostkeys"), options)
+            self.assertIn(callback("go", "home"), options)
+            for screen in ("keys", "hostkeys"):
+                _, detail = await self.ui.render("1", screen)
+                self.assertEqual(detail.inline_keyboard[-1][0].callback_data,
+                                 callback("go", "credentials"))
+
+    async def test_credentials_callback_rejected_in_non_private_chat(self):
+        self.update.effective_chat.type = "group"
+        await self.press(callback("go", "credentials"))
+        self.query.answer.assert_awaited()
+        self.assertEqual(self.bot.edit_message_text.await_count, 0)
+
+
+    async def test_update_mode_buttons_drive_persistent_policy(self):
+        from bridge.services.runtime_controls import RuntimeControls
+        from bridge.telegram.control_ui import WORDS
+
+        controls = RuntimeControls(Path(self.temp.name) / "auto-controls")
+        self.ui.runtime_controls = controls
+        self.update.effective_chat.type = "private"
+        text, markup = await self.ui.render("1", "updates")
+        self.assertIn(WORDS["en"]["mode_safe"], text)
+        choices = [b.callback_data for row in markup.inline_keyboard for b in row]
+        for mode in ("off", "notify", "auto-safe", "maintenance-window"):
+            self.assertIn(callback("autopilot", mode), choices)
+            await self.press(callback("autopilot", mode))
+            self.assertEqual(RuntimeControls(controls.root).autopilot_mode(), mode)
+        await self.press(callback("autopilot", "invalid"))
+        self.assertEqual(controls.autopilot_mode(), "maintenance-window")
+
+        self.update.effective_chat.type = "group"
+        await self.press(callback("autopilot", "off"))
+        self.assertEqual(controls.autopilot_mode(), "maintenance-window",
+                         "Autopilot state must be private-owner only")
+
+
+    async def test_bridge_upgrade_is_explicitly_confirmed_and_owner_only(self):
+        from bridge.services.runtime_controls import RuntimeControls
+
+        self.ui.runtime_controls = RuntimeControls(Path(self.temp.name) / "auto-controls")
+        _text, markup = await self.ui.render("1", "updates")
+        keys = [button.callback_data for row in markup.inline_keyboard for button in row]
+        self.assertIn(callback("checkbridge"), keys)
+        self.assertIn(callback("confirm", "updatebridge", 0), keys)
+
+        self.update.effective_chat.type = "private"
+        await self.press(callback("confirm", "updatebridge", 0))
+        self.assertEqual(self.context.user_data["ui_confirm"], ("updatebridge", "0"))
+        self.update.effective_chat.type = "group"
+        await self.press(callback("execute", "updatebridge", 0))
+        self.assertEqual(self.message.reply_text.await_count, 0)
+
+    async def test_server_submenu_contains_services_without_extra_root_buttons(self):
+        from unittest.mock import patch
+
+        from bridge.services.service_monitor import ServiceState
+
+        text, markup = await self.ui.render("1", "server")
+        self.assertTrue(text)
+        buttons = [item.callback_data for row in markup.inline_keyboard for item in row]
+        self.assertIn(callback("go", "services"), buttons)
+        self.assertEqual(buttons.count(callback("go", "services")), 1)
+        fake = [ServiceState("opencode-serve.service", "active"),
+                ServiceState("opencode-bridge-telegram.service", "failed")]
+        with patch("bridge.services.service_monitor.service_overview", new=AsyncMock(return_value=fake)):
+            message, detail = await self.ui.render("1", "services")
+        self.assertIn("opencode-serve.service", message)
+        self.assertIn("failed", message)
+        self.assertIn(callback("go", "services"),
+                      [item.callback_data for row in detail.inline_keyboard for item in row])
+
+        self.update.effective_chat.type = "group"
+        await self.press(callback("go", "services"))
+        self.query.answer.assert_awaited()
+        self.assertEqual(self.bot.edit_message_text.await_count, 0)
+
+
+
 if __name__ == "__main__":
     unittest.main()
