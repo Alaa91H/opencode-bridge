@@ -1,4 +1,5 @@
 """Telegram callback integration for private host administration controls."""
+
 from __future__ import annotations
 
 import sqlite3
