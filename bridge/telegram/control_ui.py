@@ -436,14 +436,16 @@ class ControlUI:
                 return True
             if step == "prompt":
                 try:
+                    zone = (await self.preferences.get(owner)).timezone
                     if wizard["mode"] == "schedule_once":
-                        from datetime import UTC, datetime
-                        when = datetime.fromisoformat(wizard["timing"].replace(" UTC", "+00:00").replace("Z", "+00:00"))
-                        if when.tzinfo is None:
-                            when = when.replace(tzinfo=UTC)
-                        job = await self.schedule_service.create_once(owner, update.effective_chat.id, wizard["name"], text, when)
+                        when = local_to_utc(wizard["timing"], zone)
+                        job = await self.schedule_service.create_once(
+                            owner, update.effective_chat.id, wizard["name"], text,
+                            when, timezone_name=zone)
                     else:
-                        job = await self.schedule_service.create_recurring(owner, update.effective_chat.id, wizard["name"], text, wizard["timing"])
+                        job = await self.schedule_service.create_recurring(
+                            owner, update.effective_chat.id, wizard["name"], text,
+                            wizard["timing"], timezone_name=zone)
                     context.user_data.pop("ui_wizard", None)
                     self.wake()
                     await message.reply_text(WORDS[await self._lang(owner)]["saved"] + " #" + str(job.id))
@@ -501,6 +503,14 @@ class ControlUI:
                 log.exception("Advanced research queueing failed")
                 await status.edit_text(t["error"])
             return True
+        if waiting == "tz_custom":
+            try:
+                await self.preferences.update(owner, timezone=validate_zone(text))
+                await message.reply_text(t["saved"])
+            except ValueError:
+                context.user_data["ui_wait"] = "tz_custom"
+                await message.reply_text(t["tz_prompt"])
+            return True
         if waiting not in {"direct", "daily", "research"}:
             return False
         status = await message.reply_text(t["queued"])
@@ -552,7 +562,7 @@ class ControlUI:
                     return
             elif action == "input":
                 mode = parts[2]
-                if mode not in {"direct", "daily", "download", "research", "schedule_once", "schedule_recurring", "key_add"}:
+                if mode not in {"direct", "daily", "download", "research", "schedule_once", "schedule_recurring", "key_add", "tz_custom"}:
                     raise ValueError("invalid input mode")
                 if mode == "key_add":
                     context.user_data.pop("ui_wait", None)
@@ -565,7 +575,7 @@ class ControlUI:
                 else:
                     context.user_data.pop("ui_wizard", None)
                     context.user_data["ui_wait"] = mode
-                    prompt = t["download_input"] if mode == "download" else (t["research_input"] if mode == "research" else t["input"])
+                    prompt = t["tz_prompt"] if mode == "tz_custom" else (t["download_input"] if mode == "download" else (t["research_input"] if mode == "research" else t["input"]))
                 await query.answer()
                 await update.effective_message.reply_text(prompt)
                 return
@@ -589,7 +599,7 @@ class ControlUI:
                 self.runtime_controls.set_auto_update(not self.runtime_controls.auto_update())
                 screen = "updates"
             elif action == "zram":
-                self.runtime_controls.set_memory(zram_percent=int(parts[2]))
+                self.runtime_controls.set_memory(zram_percent=parts[2] if parts[2] == "auto" else int(parts[2]))
                 screen = "memory"
             elif action == "swap":
                 value = parts[2] if parts[2] == "auto" else int(parts[2])
@@ -623,6 +633,18 @@ class ControlUI:
                 # Updating the reply keyboard is independent of editing the inline menu.
                 await update.effective_message.reply_text(
                     WORDS[parts[2]]["saved"], reply_markup=self.keyboard(parts[2]))
+            elif action == "tz":
+                index = int(parts[2])
+                if not 0 <= index < len(COUNTRIES):
+                    raise ValueError("invalid country index")
+                await self.preferences.update(owner, timezone=COUNTRIES[index][1])
+                screen = "timezone"
+            elif action == "priority":
+                changed = await self.tasks.change_priority(owner, int(parts[2]), int(parts[3]))
+                if changed is None:
+                    raise ValueError("cannot reprioritize running task")
+                self.wake()
+                screen = "tasks"
             elif action == "workers":
                 limit = int(parts[2])
                 self.capacity.set(limit)
@@ -653,7 +675,7 @@ class ControlUI:
                 await self.models.select_variant(owner, int(parts[2]), int(parts[3]))
                 screen = "agent"
             elif action == "confirm":
-                if parts[2] not in {"cancel", "schedule", "file", "new", "key"}:
+                if parts[2] not in {"cancel", "schedule", "file", "new", "key", "task"}:
                     raise ValueError("unsupported confirmation")
                 context.user_data["ui_confirm"] = (parts[2], parts[3])
                 text = t["confirm_text"]
@@ -680,6 +702,11 @@ class ControlUI:
                     entry = entries[idx]
                     await self.provider_keys.remove(entry["provider"], entry["name"])
                     screen = "keys"
+                elif kind == "task":
+                    if await self.tasks.remove(owner, int(value)) is None:
+                        raise ValueError("running task cannot be deleted")
+                    self.wake()
+                    screen = "tasks"
                 elif kind == "cancel":
                     if await self.tasks.cancel(int(value), owner) is None:
                         raise ValueError("task not active")
