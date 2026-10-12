@@ -38,12 +38,18 @@ class AtomicDeployment:
             raise ValueError("invalid release version")
         if not re.fullmatch(r"[0-9a-fA-F]{64}", artifact.sha256):
             raise ValueError("invalid release checksum")
+        if artifact.source.is_symlink() or not artifact.source.is_file():
+            raise ValueError("release artifact must be an ordinary file")
         digest = hashlib.sha256()
         with artifact.source.open("rb") as stream:
             for block in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(block)
         if digest.hexdigest().lower() != artifact.sha256.lower():
             raise ValueError("release checksum mismatch")
+        # The active tree and release store must never be redirected through
+        # a symlink to an arbitrary directory outside this deployment root.
+        if self.releases.is_symlink():
+            raise ValueError("release directory cannot be a symlink")
         self.releases.mkdir(parents=True, exist_ok=True)
         target = self.releases / artifact.version
         previous = self._current_target()
@@ -83,10 +89,29 @@ class AtomicDeployment:
 
     def _current_target(self) -> Path | None:
         if not self.current.is_symlink():
+            if self.current.exists():
+                raise ValueError("current release must be a symlink")
             return None
-        return self.current.resolve()
+        try:
+            target = self.current.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise ValueError("current release symlink cannot be resolved") from exc
+        self._verify_release_target(target)
+        return target
+
+    def _verify_release_target(self, target: Path) -> None:
+        if self.releases.is_symlink() or target.is_symlink():
+            raise ValueError("release target cannot be a symlink")
+        try:
+            resolved = target.resolve(strict=True)
+            base = self.releases.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise ValueError("release target cannot be resolved") from exc
+        if not resolved.is_dir() or resolved.parent != base:
+            raise ValueError("release target escapes the release directory")
 
     def _switch(self, target: Path) -> None:
+        self._verify_release_target(target)
         temp = self.root / ".current-next"
         temp.unlink(missing_ok=True)
         temp.symlink_to(target)
