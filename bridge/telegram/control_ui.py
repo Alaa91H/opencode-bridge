@@ -225,6 +225,8 @@ class ControlUI:
         if (screen in {"keys", "server", "updates", "memory", "workers", "advanced"}
                 or screen.startswith("advanced.")) and not self.admin_allowed(update):
             return
+        if screen in {"keys", "hostkeys", "backups", "mirrors"} and getattr(getattr(update, "effective_chat", None), "type", None) != "private":
+            return
         if persistent:
             await update.effective_message.reply_text(
                 WORDS[lang]["home_text"], reply_markup=self.keyboard(lang))
