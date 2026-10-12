@@ -243,7 +243,7 @@ class ControlUI:
 
         if screen == "home":
             text = t["home_text"]
-            for key in ("agent", "keys", "direct", "daily", "research", "tasks", "schedules", "downloads", "server", "settings", "advanced", "help"):
+            for key in ("agent", "keys", "hostkeys", "direct", "daily", "research", "tasks", "schedules", "downloads", "mirrors", "backups", "server", "settings", "advanced", "help"):
                 if key in ("direct", "daily", "research"):
                     rows.append([button(t[key], "input", key)])
                 else:
@@ -401,6 +401,8 @@ class ControlUI:
             nav(t["updates"], "updates")
             nav(t["memory"], "memory")
             nav(t["workers"], "workers")
+            nav(t["hostkeys"], "hostkeys")
+            nav(t["mirrors"], "mirrors")
             nav(t["resources"], "resources")
             nav(t["backups"], "backups")
         elif screen == "updates":
@@ -423,6 +425,8 @@ class ControlUI:
             nav(t["agent"], "agent")
             nav(t["keys"], "keys")
             nav(t["server"], "server")
+            nav(t["backups"], "backups")
+            nav(t["hostkeys"], "hostkeys")
         elif screen == "language":
             text = t["language_text"]
             rows.extend([[button("🇸🇦 العربية", "lang", "ar")],
