@@ -69,10 +69,23 @@ class FakeTasks:
         self.enqueued = []
         self.cancelled = []
         self.retried = []
+        self.deleted = []
+        self.priorities = []
     async def active(self, owner):
         return [SimpleNamespace(id=8, status="running", prompt="Running")]
     async def failed(self, owner):
         return [SimpleNamespace(id=9, status="failed", prompt="Failed")]
+    async def recent(self, owner):
+        return []
+
+    async def change_priority(self, owner, task_id, delta):
+        self.priorities.append((owner, task_id, delta))
+        return SimpleNamespace(id=task_id)
+
+    async def remove(self, owner, task_id):
+        self.deleted.append((owner, task_id))
+        return SimpleNamespace(id=task_id)
+
     async def enqueue_prompt(self, *args, **kwargs):
         self.enqueued.append((args, kwargs))
         return SimpleNamespace(task=SimpleNamespace(id=42))
@@ -88,9 +101,9 @@ class FakeSchedules:
     def __init__(self):
         self.created = []
     async def list_scheduled_jobs(self, owner):
-        return [SimpleNamespace(id=11, name="Daily scan", enabled=True)]
+        return [SimpleNamespace(id=11, name="Daily scan", enabled=True, next_run_at=None, timezone_name="UTC")]
     async def get_scheduled_job_by_id(self, i, owner):
-        return SimpleNamespace(id=i, name="Daily scan", enabled=True) if i == 11 else None
+        return SimpleNamespace(id=i, name="Daily scan", enabled=True, next_run_at=None, timezone_name="UTC") if i == 11 else None
     async def set_scheduled_job_enabled(self, owner, name, enabled):
         self.created.append(("toggle", name, enabled))
     async def delete_scheduled_job(self, owner, name):
@@ -100,10 +113,10 @@ class FakeSchedules:
 class FakeScheduleService:
     def __init__(self):
         self.created = []
-    async def create_once(self, owner, chat, name, prompt, when):
+    async def create_once(self, owner, chat, name, prompt, when, **kwargs):
         self.created.append(("once", owner, name, prompt, when))
         return SimpleNamespace(id=51)
-    async def create_recurring(self, owner, chat, name, prompt, interval):
+    async def create_recurring(self, owner, chat, name, prompt, interval, **kwargs):
         self.created.append(("recurring", owner, name, prompt, interval))
         return SimpleNamespace(id=52)
 
