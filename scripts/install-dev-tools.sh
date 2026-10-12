@@ -4,7 +4,7 @@
 set -Eeuo pipefail
 [[ "$EUID" == "0" ]] || { echo "Root required" >&2; exit 1; }
 [[ -f /etc/debian_version ]] || { echo "Unsupported OS: Debian/Ubuntu required" >&2; exit 1; }
-packages=(git gh jq ripgrep curl ca-certificates python3 python3-venv yt-dlp aria2 ffmpeg)
+packages=(git gh jq ripgrep curl ca-certificates python3 python3-venv yt-dlp aria2 ffmpeg age)
 missing=()
 for package in "${packages[@]}"; do
   dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -Fxq 'install ok installed' || missing+=("$package")

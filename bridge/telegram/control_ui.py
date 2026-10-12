@@ -810,10 +810,10 @@ class ControlUI:
                 screen = "backups"
             elif action == "backupsecure":
                 await query.answer()
+                created = await self.backups.create_encrypted()
                 await update.effective_message.reply_text(
-                    "Secret-inclusive backups require configured age public-key "
-                    "encryption; plaintext secret exports are disabled.")
-                return
+                    t["success"] + "\n" + safe(created["name"]))
+                screen = "backups"
             elif action == "mirrorurl":
                 from bridge.services.mirrors import PROVIDERS
                 if parts[2] not in PROVIDERS or not PROVIDERS[parts[2]]["url"]:
