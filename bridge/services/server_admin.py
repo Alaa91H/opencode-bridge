@@ -77,16 +77,28 @@ async def update_now(kind: str, progress=None) -> str:
 
     try:
         if kind == "agent":
-            old_version = await run(["opencode", "--version"], 30)
+            old_status, old_version = await run(["opencode", "--version"], 30)
+            if old_status or not old_version.strip():
+                return "OpenCode upgrade not started: current version could not be verified"
             result, log = await run(["opencode", "upgrade"], 600)
             if result:
                 return f"OpenCode upgrade failed ({result})\n{log}"
-            new_version = await run(["opencode", "--version"], 30)
+            new_status, new_version = await run(["opencode", "--version"], 30)
+            if new_status or not new_version.strip():
+                return "OpenCode upgrade applied, but the installed version could not be verified"
             service, status_log = await run(
                 ["systemctl", "--user", "restart", "opencode-serve.service"], 40)
-            return (f"OpenCode upgrade completed.\nBefore: {old_version[1]}\n"
-                    f"After: {new_version[1]}\nService restart={service}\n"
-                    + status_log[-500:] + "\n" + log[-1200:])
+            if service:
+                return (f"OpenCode upgrade applied, but service restart failed ({service}).\n"
+                        + status_log[-500:])
+            health_code, health_status = await run(
+                ["systemctl", "--user", "is-active", "opencode-serve.service"], 20)
+            if health_code or health_status.strip() != "active":
+                return (f"OpenCode upgrade applied, but the service did not become active "
+                        f"(exit={health_code}, state={health_status[-80:]}). "
+                        "Recovery is required.")
+            return (f"OpenCode upgrade verified (service active).\nBefore: {old_version}\n"
+                    f"After: {new_version}\n" + log[-1200:])
         code, log = await run(["sudo", "-n", "/usr/bin/apt-get", "-y", "update"], 400)
         if code:
             return f"APT index update failed ({code})\n{log}"
