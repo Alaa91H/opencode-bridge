@@ -26,6 +26,7 @@ class RollbackTagResolutionTests(unittest.TestCase):
             'printf "%s\\n" "$1" > "$ROLLBACK_TEST_OUTPUT"\n',
             encoding="utf-8",
         )
+        (self.root / "scripts" / "deploy.sh").chmod(0o755)
         self.invocation = self.root / "deploy-argument"
         self.git("init", "-q")
         self.git("config", "user.email", "tests@example.invalid")
