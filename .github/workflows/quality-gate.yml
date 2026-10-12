@@ -52,6 +52,17 @@ jobs:
           PYTHONWARNINGS: error::DeprecationWarning
         run: python -m unittest discover -s tests -p "test_*.py" -v
 
+      - name: Produce validated Python runtime SBOM
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p dist
+          python scripts/generate_runtime_sbom.py \
+            --lock requirements.lock \
+            --output dist/python-runtime.spdx.json \
+            --revision "$GITHUB_SHA"
+          python -m json.tool dist/python-runtime.spdx.json >/dev/null
+
       - name: Package development artifact
         shell: bash
         run: |
