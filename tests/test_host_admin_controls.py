@@ -129,6 +129,53 @@ class AdminBackupTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.backups.purge_after_verified_update(), 0)
         self.assertEqual(len(self.backups.list()), 1)
 
+    async def test_encrypted_backup_streams_ciphertext_and_preserves_hash(self):
+        import subprocess
+        from unittest.mock import patch
+
+        recipient = self.root / "runtime" / "backup-age-recipient"
+        recipient.parent.mkdir(parents=True, exist_ok=True)
+        recipient.write_text("age1" + "a" * 58, encoding="ascii")
+        (self.root / "runtime" / "autopilot-mode").write_text("off\n", encoding="ascii")
+        (self.root / "runtime" / "host-auto-update-enabled").write_text("0\n", encoding="ascii")
+        outputs = []
+
+        def pretend_age(command, **kwargs):
+            self.assertTrue(kwargs["check"])
+            self.assertTrue(kwargs["capture_output"])
+            output = Path(command[command.index("-o") + 1])
+            outputs.append(output)
+            output.write_bytes(b"opaque-ciphertext-for-offline-restoration")
+            return subprocess.CompletedProcess(command, 0)
+
+        with patch("bridge.services.admin_backups.shutil.which", return_value="/usr/bin/age"), \
+             patch("bridge.services.admin_backups.subprocess.run", side_effect=pretend_age), \
+             patch.object(Path, "read_bytes",
+                          side_effect=AssertionError("must not buffer a full backup in RAM")):
+            saved = await self.backups.create_encrypted()
+        self.assertTrue(saved["includes_keys"])
+        self.assertEqual(saved["bytes"], len(b"opaque-ciphertext-for-offline-restoration"))
+        self.assertEqual(len(saved["sha256"]), 64)
+        self.assertTrue(self.backups._backup_usable(self.backups.list()[0]))
+        self.assertFalse(outputs[0].exists(), "Intermediate ciphertext must be removed")
+        self.assertEqual(
+            (self.backups.root / (saved["name"] + ".json")).is_file(), True,
+        )
+
+    async def test_encrypted_backup_requires_sqlite_database(self):
+        from unittest.mock import patch
+
+        recipient = self.root / "runtime" / "backup-age-recipient"
+        recipient.parent.mkdir(parents=True, exist_ok=True)
+        recipient.write_text("age1" + "a" * 58, encoding="ascii")
+        (self.root / "sessions.db").unlink()
+        with patch("bridge.services.admin_backups.shutil.which", return_value="/usr/bin/age"), \
+             patch("bridge.services.admin_backups.subprocess.run") as run:
+            with self.assertRaisesRegex(ValueError, "without a safe SQLite"):
+                await self.backups.create_encrypted()
+            run.assert_not_called()
+        self.assertFalse(list(self.backups.root.glob("*.age")))
+
     async def test_export_with_keys_requires_age_recipient(self):
         with self.assertRaises(ValueError):
             await self.backups.create_encrypted()
