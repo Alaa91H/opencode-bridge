@@ -38,40 +38,60 @@ def resources(project: Path) -> dict:
     }
 
 
-async def update_now(kind: str) -> str:
-    """Only two fixed update commands; never execute arbitrary user input."""
+async def update_now(kind: str, progress=None) -> str:
+    """Stream bounded operational status; only known non-build commands."""
     if kind not in {"agent", "system"}:
-        raise ValueError("Invalid update target")
-    if kind == "agent":
-        command = ["opencode", "upgrade"]
-        timeout = 600
-    else:
-        # Requires a narrowly-scoped sudoers rule installed separately by root.
-        command = ["sudo", "-n", "/usr/bin/apt-get", "-y", "update"]
-        timeout = 300
-    try:
+        raise ValueError("Unsupported update target")
+
+    async def run(command, timeout):
+        from time import monotonic
         process = await asyncio.create_subprocess_exec(
             *command, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-            env={**os.environ, "DEBIAN_FRONTEND": "noninteractive"},
-        )
-        output, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
-    except (OSError, TimeoutError) as exc:
-        if "process" in locals() and process.returncode is None:
-            process.kill()
-            await process.wait()
-        return f"{kind}: {type(exc).__name__} (update not confirmed)"
-    # Never include unbounded command output in Telegram.
-    report = output.decode("utf-8", "replace")[-2800:]
-    if kind == "system" and process.returncode == 0:
+            env={**os.environ, "DEBIAN_FRONTEND": "noninteractive"})
+        chunks = []
+        deadline = monotonic() + timeout
+        next_report = monotonic()
         try:
-            upgrade = await asyncio.create_subprocess_exec(
-                "sudo", "-n", "/usr/bin/apt-get", "-y", "upgrade",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-                env={**os.environ, "DEBIAN_FRONTEND": "noninteractive"},
-            )
-            extra, _ = await asyncio.wait_for(upgrade.communicate(), timeout=1500)
-            return f"System update exit={upgrade.returncode}\n" + (report + "\n" + extra.decode("utf-8", "replace"))[-3000:]
-        except (OSError, TimeoutError):
-            return "System upgrade could not complete; check elevated permissions"
-    return f"{kind} update exit={process.returncode}\n{report}"
+            while True:
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("Update command exceeded deadline")
+                line = await asyncio.wait_for(process.stdout.readline(), remaining)
+                if not line:
+                    break
+                chunks.append(line.decode("utf-8", "replace").strip()[:400])
+                if len(chunks) > 80:
+                    chunks.pop(0)
+                if progress is not None and monotonic() >= next_report:
+                    next_report = monotonic() + 5
+                    try:
+                        await progress("\n".join(chunks[-7:])[-2000:])
+                    except Exception:
+                        pass
+            return await process.wait(), "\n".join(chunks)[-3000:]
+        finally:
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+
+    try:
+        if kind == "agent":
+            old_version = await run(["opencode", "--version"], 30)
+            result, log = await run(["opencode", "upgrade"], 600)
+            if result:
+                return f"OpenCode upgrade failed ({result})\n{log}"
+            new_version = await run(["opencode", "--version"], 30)
+            service, status_log = await run(
+                ["systemctl", "--user", "restart", "opencode-serve.service"], 40)
+            return (f"OpenCode upgrade completed.\nBefore: {old_version[1]}\n"
+                    f"After: {new_version[1]}\nService restart={service}\n"
+                    + status_log[-500:] + "\n" + log[-1200:])
+        code, log = await run(["sudo", "-n", "/usr/bin/apt-get", "-y", "update"], 400)
+        if code:
+            return f"APT index update failed ({code})\n{log}"
+        code, upgraded = await run(
+            ["sudo", "-n", "/usr/bin/apt-get", "-y", "upgrade"], 1800)
+        return f"Operating system update exit={code}\n" + (log + "\n" + upgraded)[-3000:]
+    except (OSError, TimeoutError) as exc:
+        return f"{kind}: {type(exc).__name__}; update could not be verified"
