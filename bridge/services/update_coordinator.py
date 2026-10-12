@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -88,7 +89,7 @@ class UpdateCoordinator:
     def transition(self, tag: str, commit: str, phase: str) -> UpdateOperation:
         self._validate(tag, commit, phase)
         stamp = datetime.now(UTC).isoformat(timespec="seconds")
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             prior = db.execute(
                 "SELECT tag, phase, updated_utc FROM release_operations WHERE commit_sha = ?",
@@ -105,6 +106,10 @@ class UpdateCoordinator:
                 if prior["tag"] != tag:
                     raise ValueError("commit already recorded with a different release tag")
                 if prior["phase"] == phase:
+                    if phase == "applying":
+                        # A second concurrent updater must never gain a lease.
+                        # A restart after a crash also cannot resume blindly.
+                        raise ValueError("release activation already claimed")
                     return UpdateOperation(tag, commit, phase, prior["updated_utc"])
                 if phase not in _NEXT[prior["phase"]]:
                     raise ValueError("unsafe update transition")
@@ -122,7 +127,7 @@ class UpdateCoordinator:
     def latest(self) -> UpdateOperation | None:
         if not self.path.exists():
             return None
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             record = db.execute(
                 "SELECT tag, commit_sha, phase, updated_utc FROM release_operations "
                 "ORDER BY updated_utc DESC, rowid DESC LIMIT 1",
@@ -135,7 +140,7 @@ class UpdateCoordinator:
             raise ValueError("invalid history limit")
         if not self.path.exists():
             return []
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             rows = db.execute(
                 "SELECT commit_sha, phase, created_utc FROM release_events "
                 "ORDER BY event_id DESC LIMIT ?",
