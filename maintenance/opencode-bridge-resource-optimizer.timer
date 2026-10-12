@@ -1,0 +1,11 @@
+[Unit]
+Description=Recheck OpenCode Bridge memory policy after boot and periodically
+
+[Timer]
+OnBootSec=15min
+OnUnitInactiveSec=1h
+Persistent=true
+Unit=opencode-bridge-resource-optimizer.service
+
+[Install]
+WantedBy=timers.target

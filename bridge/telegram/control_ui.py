@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 WORDS = {
     "ar": {
         "home": "🏠 الرئيسية", "agent": "🤖 إدارة الوكيل", "tasks": "📋 المهام",
-        "schedules": "📅 الجدولة", "downloads": "📁 الملفات", "settings": "⚙️ الإعدادات", "keys": "🔑 مفاتيح API", "key_add": "➕ إضافة مفتاح", "key_auto": "🔄 تدوير تلقائي",
+        "schedules": "📅 الجدولة", "downloads": "📁 الملفات", "settings": "⚙️ الإعدادات", "keys": "🔑 مفاتيح API", "server": "🖥 الخادم", "memory": "💾 الذاكرة", "updates": "🔃 التحديث التلقائي", "key_add": "➕ إضافة مفتاح", "key_auto": "🔄 تدوير تلقائي",
         "language": "🌐 اللغة", "models": "🧠 النموذج والتفكير",
         "agents": "🔄 تبديل الوكيل", "workers": "⚡ المهام المتزامنة",
         "direct": "✉️ أمر مباشر", "daily": "🔁 مهمة يومية",
@@ -55,11 +55,14 @@ WORDS = {
         "agent_list_text": "اختر الوكيل من قائمة OpenCode الفعلية:",
         "confirm_text": "هل تؤكد تنفيذ العملية؟",
         "help_text": "اختر مهمة مباشرة أو يومية، ثم أرسل تعليماتك كنص. المهمة اليومية تتابع بعد تجدد الرصيد عند 12:00 UTC. من قسم الوكيل يمكنك تغيير الوكيل والنموذج والتفكير. لعرض الأوامر القديمة استخدم /help.",
+        "server_text": "إدارة الخادم: التحديثات والذاكرة وحالة النشر.",
+        "memory_text": "إعدادات الذاكرة (تُطبّق بواسطة خدمة النظام خلال ساعة تقريبًا).",
+        "updates_text": "تحديث GitHub Releases تلقائيًا: {state}",
         "success": "تمت العملية.", "number_one": "1 — موصى به", "number_two": "2 — عند الحاجة",
     },
     "en": {
         "home": "🏠 Home", "agent": "🤖 Agent manager", "tasks": "📋 Tasks",
-        "schedules": "📅 Schedules", "downloads": "📁 Files", "settings": "⚙️ Settings", "keys": "🔑 API keys", "key_add": "➕ Add key", "key_auto": "🔄 Auto rotation",
+        "schedules": "📅 Schedules", "downloads": "📁 Files", "settings": "⚙️ Settings", "keys": "🔑 API keys", "server": "🖥 Server", "memory": "💾 Memory", "updates": "🔃 Auto-update", "key_add": "➕ Add key", "key_auto": "🔄 Auto rotation",
         "language": "🌐 Language", "models": "🧠 Model & reasoning",
         "agents": "🔄 Switch agent", "workers": "⚡ Parallel tasks",
         "direct": "✉️ Direct task", "daily": "🔁 Daily task",
@@ -96,12 +99,15 @@ WORDS = {
         "agent_list_text": "Choose an agent from the live OpenCode list:",
         "confirm_text": "Confirm this action?",
         "help_text": "Choose Direct task or Daily task, then send plain instructions. Daily tasks resume after the 12:00 UTC quota reset. Use Agent manager to select the agent, model and reasoning. Legacy commands remain available via /help.",
+        "server_text": "Server controls: updates, memory and deployment status.",
+        "memory_text": "Memory policy (root service applies updates within roughly an hour).",
+        "updates_text": "Automatic GitHub Releases updates: {state}",
         "success": "Action completed.", "number_one": "1 — recommended", "number_two": "2 — if needed",
     },
 }
-BUTTON_KEYS = (("home", "agent"), ("keys", "direct"), ("daily", "tasks"), ("schedules", "downloads"), ("settings", "language"), ("help",))
+BUTTON_KEYS = (("home", "agent"), ("keys", "direct"), ("daily", "tasks"), ("schedules", "downloads"), ("server", "settings"), ("language", "help"))
 BINDINGS = {value: key for lang in WORDS.values() for key in
-            ("home", "agent", "keys", "direct", "daily", "tasks", "schedules", "downloads", "settings", "language", "help")
+            ("home", "agent", "keys", "direct", "daily", "tasks", "schedules", "downloads", "server", "settings", "language", "help")
             for value in (lang[key],)}
 
 
@@ -123,7 +129,8 @@ def safe(value: object, limit: int = 100) -> str:
 class ControlUI:
     def __init__(self, *, preferences: Any, agents: Any, models: Any,
                  tasks: Any, schedule_store: Any, schedule_service: Any, downloads: Any,
-                 capacity: Any, wake: Any, allowed: Any, provider_keys: Any | None = None):
+                 capacity: Any, wake: Any, allowed: Any, provider_keys: Any | None = None,
+                 runtime_controls: Any | None = None, admin_allowed: Any | None = None):
         self.preferences = preferences
         self.agents = agents
         self.models = models
@@ -135,6 +142,8 @@ class ControlUI:
         self.wake = wake
         self.allowed = allowed
         self.provider_keys = provider_keys
+        self.runtime_controls = runtime_controls
+        self.admin_allowed = admin_allowed or allowed
 
     async def _lang(self, owner: str) -> str:
         value = (await self.preferences.get(owner)).language
@@ -168,7 +177,7 @@ class ControlUI:
 
         if screen == "home":
             text = t["home_text"]
-            for key in ("agent", "keys", "direct", "daily", "research", "tasks", "schedules", "downloads", "settings", "help"):
+            for key in ("agent", "keys", "direct", "daily", "research", "tasks", "schedules", "downloads", "server", "settings", "help"):
                 if key in ("direct", "daily", "research"):
                     rows.append([button(t[key], "input", key)])
                 else:
@@ -259,12 +268,29 @@ class ControlUI:
             for i, provider in enumerate(providers[:20]):
                 auto = any(item["auto"] for item in entries if item["provider"] == provider)
                 rows.append([button(t["key_auto"] + " " + provider + (" ✅" if auto else ""), "keyauto", i)])
+        elif screen == "server":
+            text = t["server_text"]
+            nav(t["updates"], "updates")
+            nav(t["memory"], "memory")
+            nav(t["workers"], "workers")
+        elif screen == "updates":
+            current = self.runtime_controls.auto_update() if self.runtime_controls else False
+            text = t["updates_text"].format(state=t["on"] if current else t["off"])
+            rows.append([button(t["off"] if current else t["on"], "toggleupdate")])
+        elif screen == "memory":
+            value = self.runtime_controls.memory() if self.runtime_controls else {"zram_percent": 50, "swap_gib": "auto"}
+            text = t["memory_text"] + f"\nZRAM: {value['zram_percent']}% RAM\nSwap: {value['swap_gib']} GiB"
+            for percent in (25, 50, 75, 100):
+                rows.append([button(("✅ " if value["zram_percent"] == percent else "") + f"ZRAM {percent}%", "zram", percent)])
+            for amount in ("auto", 0, 1, 2, 4):
+                rows.append([button(("✅ " if value["swap_gib"] == amount else "") + f"Swap {amount} GiB", "swap", amount)])
         elif screen == "settings":
             text = t["settings_text"]
             nav(t["language"], "language")
             nav(t["workers"], "workers")
             nav(t["agent"], "agent")
             nav(t["keys"], "keys")
+            nav(t["server"], "server")
         elif screen == "language":
             text = t["language_text"]
             rows.extend([[button("🇸🇦 العربية", "lang", "ar")],
@@ -425,6 +451,13 @@ class ControlUI:
             parts = query.data.split(":")
             action = parts[1]
             screen = "home"
+            if (action in {"workers", "keysel", "keyauto", "toggleupdate", "zram", "swap"}
+                    or action == "input" and len(parts) > 2 and parts[2] == "key_add"
+                    or action == "confirm" and len(parts) > 2 and parts[2] in {"key"}
+                    or action == "execute" and len(parts) > 2 and parts[2] in {"key"}):
+                if not self.admin_allowed(update):
+                    await query.answer("Admin only", show_alert=True)
+                    return
             if action == "go":
                 screen = parts[2]
             elif action == "input":
@@ -462,6 +495,16 @@ class ControlUI:
                     raise ValueError("stale provider")
                 await self.provider_keys.toggle_auto(providers[idx])
                 screen = "keys"
+            elif action == "toggleupdate":
+                self.runtime_controls.set_auto_update(not self.runtime_controls.auto_update())
+                screen = "updates"
+            elif action == "zram":
+                self.runtime_controls.set_memory(zram_percent=int(parts[2]))
+                screen = "memory"
+            elif action == "swap":
+                value = parts[2] if parts[2] == "auto" else int(parts[2])
+                self.runtime_controls.set_memory(swap_gib=value)
+                screen = "memory"
             elif action == "lang":
                 if parts[2] not in {"ar", "en"}:
                     raise ValueError("unsupported language")

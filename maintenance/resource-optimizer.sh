@@ -9,11 +9,32 @@ readonly RUNTIME_DIR="${BRIDGE_DIR}/runtime"
 readonly REPORT_PATH="${RUNTIME_DIR}/resource-latest.md"
 readonly LOCK_PATH="/run/lock/opencode-bridge-resource-optimizer.lock"
 readonly SWAPFILE="${OPENCODE_SWAPFILE_PATH:-/swapfile}"
-readonly ZRAM_PERCENT="${OPENCODE_ZRAM_PERCENT:-50}"
+ZRAM_PERCENT="${OPENCODE_ZRAM_PERCENT:-50}"
 # 0 means no artificial cap. The default target is exactly half of physical RAM.
 readonly ZRAM_MAX_MIB="${OPENCODE_ZRAM_MAX_MIB:-0}"
-readonly SWAPFILE_GIB="${OPENCODE_SWAPFILE_GIB:-1}"
+SWAPFILE_GIB="${OPENCODE_SWAPFILE_GIB:-auto}"
 readonly MIN_FREE_GIB="${OPENCODE_SWAP_MIN_FREE_GIB:-4}"
+
+# Explicit and validated owner policy, read as data only (never sourced/eval'd).
+POLICY_FILE="${BRIDGE_DIR}/runtime/memory-policy.json"
+if [[ -f "$POLICY_FILE" && ! -L "$POLICY_FILE" ]]; then
+  values="$(python3 - "$POLICY_FILE" <<'PY'
+import json,sys
+try:
+    data=json.load(open(sys.argv[1], encoding="utf-8"))
+    zram=data.get("zram_percent",50)
+    swap=data.get("swap_gib","auto")
+    if type(zram) is int and zram in (25,50,75,100) and (
+            swap=="auto" or type(swap) is int and swap in (0,1,2,4)):
+        print(str(zram)+" "+str(swap))
+except (OSError,ValueError,TypeError,AttributeError):
+    pass
+PY
+)"
+  if [[ -n "$values" ]]; then
+    read -r ZRAM_PERCENT SWAPFILE_GIB <<<"$values"
+  fi
+fi
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "This script must run as root." >&2
@@ -41,6 +62,17 @@ if [[ "$ZRAM_MAX_MIB" =~ ^[0-9]+$ ]]; then
   zram_max_mib="$ZRAM_MAX_MIB"
 else
   zram_max_mib=0
+fi
+if [[ "$SWAPFILE_GIB" == "auto" ]]; then
+  mem_kib="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)"
+  if [[ "$mem_kib" =~ ^[0-9]+$ ]]; then
+    if (( mem_kib <= 2097152 )); then SWAPFILE_GIB=2
+    elif (( mem_kib <= 4194304 )); then SWAPFILE_GIB=1
+    else SWAPFILE_GIB=0
+    fi
+  else
+    SWAPFILE_GIB=1
+  fi
 fi
 swapfile_gib="$(clamp_int "$SWAPFILE_GIB" 0 8)"
 min_free_gib="$(clamp_int "$MIN_FREE_GIB" 2 32)"
@@ -148,6 +180,7 @@ ensure_swapfile() {
 
   free_kib="$(df -Pk / | awk 'NR==2 {print $4}')"
   required_kib="$(( min_free_gib * 1024 * 1024 ))"
+  (( required_kib < (swapfile_gib + 2) * 1024 * 1024 )) && required_kib="$(( (swapfile_gib + 2) * 1024 * 1024 ))"
   if (( free_kib < required_kib )); then
     swap_status="not created: free disk below ${min_free_gib} GiB safety threshold"
     return 0

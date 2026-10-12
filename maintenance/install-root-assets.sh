@@ -20,12 +20,14 @@ install -m 0750 -o root -g root "${MAINTENANCE_DIR}/daily-maintenance.sh" /usr/l
 install -m 0750 -o root -g root "${MAINTENANCE_DIR}/reboot-guard.sh" /usr/local/sbin/opencode-bridge-reboot-guard
 install -m 0750 -o root -g root "${MAINTENANCE_DIR}/resource-optimizer.sh" /usr/local/sbin/opencode-bridge-resource-optimizer
 install -m 0644 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-resource-optimizer.service" /etc/systemd/system/opencode-bridge-resource-optimizer.service
+install -m 0644 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-resource-optimizer.timer" /etc/systemd/system/opencode-bridge-resource-optimizer.timer
 install -m 0644 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-maintenance.service" /etc/systemd/system/opencode-bridge-maintenance.service
 install -m 0644 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-maintenance.timer" /etc/systemd/system/opencode-bridge-maintenance.timer
 install -m 0644 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-reboot-guard.service" /etc/systemd/system/opencode-bridge-reboot-guard.service
 
 systemctl daemon-reload
 systemctl enable opencode-bridge-resource-optimizer.service >/dev/null
+systemctl enable --now opencode-bridge-resource-optimizer.timer >/dev/null
 systemctl restart opencode-bridge-resource-optimizer.service
 systemctl enable --now opencode-bridge-maintenance.timer >/dev/null
 

@@ -48,6 +48,7 @@ from bridge.services.provider_keys import ProviderKeyManager
 from bridge.services.task_service import TaskApplicationService
 from bridge.services.user_preferences_service import UserPreferencesService
 from bridge.services.worker_capacity import WorkerCapacity
+from bridge.services.runtime_controls import RuntimeControls
 from bridge.telegram.app import build_application, core_commands, register_core_handlers
 from bridge.telegram.attachments import TelegramMediaAdapter
 from bridge.telegram.callbacks.model_picker import ModelPickerCallbackAdapter
@@ -575,6 +576,9 @@ def _control_ui() -> ControlUI:
             wake=_wake_task_workers,
             allowed=_is_allowed,
             provider_keys=provider_keys,
+            runtime_controls=RuntimeControls(BRIDGE_DIR / "runtime"),
+            admin_allowed=lambda update: (_is_allowed(update) and bool(ALLOWED_USERS) and
+                                          update.effective_user.id == min(ALLOWED_USERS)),
         )
     return _control_ui_instance
 

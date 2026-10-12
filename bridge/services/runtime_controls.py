@@ -1,0 +1,77 @@
+"""Owner-only runtime switches and validated Linux memory policy.
+
+Writes require permission from the separate Telegram administrative guard.
+The privileged systemd service reads values as DATA, never executes them.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+
+class RuntimeControls:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def auto_update(self) -> bool:
+        file = self.root / "auto-update-enabled"
+        try:
+            return file.read_text(encoding="ascii").strip() != "0"
+        except FileNotFoundError:
+            return True
+
+    def set_auto_update(self, enabled: bool) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        path = self.root / "auto-update-enabled"
+        temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        try:
+            with temp.open("x", encoding="ascii") as stream:
+                stream.write("1\n" if enabled else "0\n")
+            os.chmod(temp, 0o600)
+            os.replace(temp, path)
+        finally:
+            temp.unlink(missing_ok=True)
+
+    def memory(self) -> dict[str, int | str]:
+        defaults: dict[str, int | str] = {"zram_percent": 50, "swap_gib": "auto"}
+        file = self.root / "memory-policy.json"
+        if not file.exists():
+            return defaults
+        if file.is_symlink():
+            raise RuntimeError("Symlink policy denied")
+        data = json.loads(file.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("Invalid memory policy")
+        zram = data.get("zram_percent", 50)
+        swap = data.get("swap_gib", "auto")
+        if type(zram) is not int or zram not in (25, 50, 75, 100):
+            raise ValueError("Invalid ZRAM percentage")
+        if (swap != "auto" and (type(swap) is not int or swap not in (0, 1, 2, 4))):
+            raise ValueError("Invalid disk swap size")
+        return {"zram_percent": zram, "swap_gib": swap}
+
+    def set_memory(self, *, zram_percent: int | None = None,
+                   swap_gib: int | str | None = None) -> dict[str, int | str]:
+        value = self.memory()
+        if zram_percent is not None:
+            value["zram_percent"] = zram_percent
+        if swap_gib is not None:
+            value["swap_gib"] = swap_gib
+        # Validate before writing.
+        zram, swap = value["zram_percent"], value["swap_gib"]
+        if type(zram) is not int or zram not in (25, 50, 75, 100):
+            raise ValueError("Unsupported ZRAM setting")
+        if swap != "auto" and (type(swap) is not int or swap not in (0, 1, 2, 4)):
+            raise ValueError("Unsupported swap setting")
+        self.root.mkdir(parents=True, exist_ok=True)
+        temp = self.root / f".memory-policy.{os.getpid()}.tmp"
+        try:
+            with temp.open("x", encoding="utf-8") as stream:
+                json.dump(value, stream, sort_keys=True)
+            os.chmod(temp, 0o600)
+            os.replace(temp, self.root / "memory-policy.json")
+        finally:
+            temp.unlink(missing_ok=True)
+        return value
