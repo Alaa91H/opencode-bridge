@@ -12,7 +12,7 @@ class RuntimeControlsTests(unittest.TestCase):
     def test_persistent_switch_and_memory_validation(self):
         with tempfile.TemporaryDirectory() as temp:
             c = RuntimeControls(Path(temp))
-            self.assertTrue(c.auto_update())
+            self.assertFalse(c.auto_update())  # Explicit opt-in required
             c.set_auto_update(False)
             self.assertFalse(RuntimeControls(Path(temp)).auto_update())
             self.assertEqual(c.memory(), {"zram_percent": "auto", "swap_gib": "auto"})
@@ -46,7 +46,7 @@ class RuntimeControlsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             controls = RuntimeControls(root)
-            self.assertEqual(controls.autopilot_mode(), "auto-safe")
+            self.assertEqual(controls.autopilot_mode(), "off")
             for mode, deploys in (("notify", False), ("off", False),
                                   ("auto-safe", True), ("maintenance-window", True)):
                 with self.subTest(mode=mode):
@@ -85,3 +85,13 @@ class RuntimeControlsTests(unittest.TestCase):
             UpdateCoordinator(root).transition("v3.3.0", sha, "quarantined")
             self.assertEqual(RuntimeControls(root).last_release_operation().phase,
                              "quarantined")
+
+
+    def test_legacy_enable_file_preserves_explicit_owner_opt_in(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            legacy = root / "auto-update-enabled"
+            legacy.write_text("1\n", encoding="ascii")
+            self.assertTrue(RuntimeControls(root).auto_update())
+            legacy.write_text("0\n", encoding="ascii")
+            self.assertFalse(RuntimeControls(root).auto_update())
