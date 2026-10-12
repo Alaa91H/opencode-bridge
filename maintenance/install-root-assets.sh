@@ -11,6 +11,11 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
+# Install developer CLI once; never install project dependencies or compilers.
+if [[ "${OPENCODE_INSTALL_DEV_TOOLS:-1}" == "1" ]]; then
+  bash "${BRIDGE_DIR}/scripts/install-dev-tools.sh"
+fi
+
 install -m 0750 -o root -g root "${MAINTENANCE_DIR}/daily-maintenance.sh" /usr/local/sbin/opencode-bridge-maintenance
 install -m 0750 -o root -g root "${MAINTENANCE_DIR}/reboot-guard.sh" /usr/local/sbin/opencode-bridge-reboot-guard
 install -m 0750 -o root -g root "${MAINTENANCE_DIR}/resource-optimizer.sh" /usr/local/sbin/opencode-bridge-resource-optimizer
