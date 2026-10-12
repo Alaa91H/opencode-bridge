@@ -14,7 +14,6 @@ from bridge.services.host_credentials import HostCredentialManager
 from bridge.services.runtime_controls import RuntimeControls
 from bridge.services.worker_capacity import WorkerCapacity
 from bridge.telegram.control_ui import ControlUI, callback
-
 from test_telegram_control_ui import (
     FakeAgents,
     FakeDownloads,
