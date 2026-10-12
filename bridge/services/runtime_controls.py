@@ -93,7 +93,7 @@ class RuntimeControls:
             raise ValueError("Invalid update quarantine status")
         tag = data.get("tag")
         if not isinstance(tag, str) or not re.fullmatch(
-            r"v[0-9]+\\.[0-9]+\\.[0-9]+", tag,
+            r"v[0-9]+[.][0-9]+[.][0-9]+", tag,
         ):
             raise ValueError("Invalid update quarantine tag")
         return tag
