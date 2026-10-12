@@ -592,6 +592,18 @@ class ControlUI:
         if not text:
             await message.reply_text(t["input"])
             return True
+        if isinstance(waiting, str) and waiting.startswith("mirror:"):
+            if not self.admin_allowed(update) or getattr(
+                getattr(update, "effective_chat", None), "type", None) != "private":
+                return True
+            status = await message.reply_text(t["mirror_input"])
+            try:
+                link = await self.mirrors.mirror_url(waiting.partition(":")[2], text)
+                await status.edit_text(t["success"] + "\n" + link)
+            except Exception:
+                log.warning("Anonymous URL mirror failed")
+                await status.edit_text(t["error"])
+            return True
         if waiting in {"download", "media"}:
             status = await message.reply_text(t["input"])
             try:
