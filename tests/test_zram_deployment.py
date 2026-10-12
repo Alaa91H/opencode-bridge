@@ -12,7 +12,8 @@ SERVICE = ROOT / "maintenance" / "opencode-bridge-resource-optimizer.service"
 class ZramDeploymentTests(unittest.TestCase):
     def test_default_zram_is_half_ram_without_legacy_2g_cap(self) -> None:
         source = OPTIMIZER.read_text(encoding="utf-8")
-        self.assertIn('ZRAM_PERCENT="${OPENCODE_ZRAM_PERCENT:-50}"', source)
+        self.assertIn('ZRAM_PERCENT="${OPENCODE_ZRAM_PERCENT:-auto}"', source)
+        self.assertIn('if [[ "$ZRAM_PERCENT" == "auto" ]]', source)
         self.assertIn('ZRAM_MAX_MIB="${OPENCODE_ZRAM_MAX_MIB:-0}"', source)
         self.assertIn('mem_kib * zram_percent / 100 / 1024', source)
         self.assertNotIn('OPENCODE_ZRAM_MAX_MIB:-2048', source)

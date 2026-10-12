@@ -1163,6 +1163,11 @@ class TaskQueueStore:
                            SELECT 1 FROM agent_tasks r
                            WHERE r.owner_id=q.owner_id AND r.status IN ('leased','running')
                              AND (r.lease_expires_at IS NULL OR r.lease_expires_at > ?))
+                         AND NOT EXISTS (
+                           SELECT 1 FROM agent_tasks earlier
+                           WHERE earlier.owner_id=q.owner_id
+                             AND earlier.status IN ('retrying','leased','running')
+                             AND earlier.id < q.id)
                        ORDER BY q.priority DESC, q.created_at, q.id LIMIT 1""",
                     (now, now),
                 ) as cursor:
