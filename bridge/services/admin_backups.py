@@ -22,8 +22,8 @@ class AdminBackups:
         if not self.root.exists():
             return []
         results = []
-        for path in self.root.glob("backup-*.db"):
-            if path.is_symlink() or not path.is_file():
+        for path in self.root.glob("backup-*"):
+            if path.suffix not in {".db", ".age"} or path.is_symlink() or not path.is_file():
                 continue
             meta = path.with_suffix(".json")
             try:
