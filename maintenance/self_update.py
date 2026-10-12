@@ -13,6 +13,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import urllib.error
 import urllib.request
@@ -26,6 +27,16 @@ ACTIONS_API = "https://api.github.com/repos/Alaa91H/opencode-bridge/actions/work
 VERSION_RE = re.compile(r"^v([0-9]+)\.([0-9]+)\.([0-9]+)$")
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 QUARANTINE_FILE = "auto-update-quarantine.json"
+
+
+def release_coordinator(root: Path):
+    """Load the trusted project state manager when executed as a maintenance script."""
+    project = str(PROJECT_DIR)
+    if project not in sys.path:
+        sys.path.insert(0, project)
+    from bridge.services.update_coordinator import UpdateCoordinator
+
+    return UpdateCoordinator(root / "runtime")
 AUTO_MODES = ("off", "notify", "auto-safe", "maintenance-window")
 
 
@@ -202,9 +213,14 @@ def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
             return {"status": "skipped", "reason": "release tag and VERSION disagree"}
         if not verified_ci(commit, tag, api=api):
             return {"status": "skipped", "reason": "tagged CI not successful yet"}
+        ledger = release_coordinator(root)
+        ledger.transition(tag, commit, "verified")
         if check_only or (mode == "notify" and not manual):
+            ledger.transition(tag, commit, "available")
             return {"status": "available", "tag": tag, "commit": commit}
         command = [str(root / "scripts" / "deploy.sh"), tag]
+        # A crashed operation remains 'applying', blocking unverified reentry.
+        ledger.transition(tag, commit, "applying")
         try:
             if deploy is None:
                 subprocess.run(command, cwd=root, check=True, timeout=240,
@@ -215,8 +231,10 @@ def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
         except Exception as exc:
             # A failed activation must never be attempted in a daily outage loop.
             # A newer stable release is eligible without manual intervention.
+            ledger.transition(tag, commit, "quarantined")
             quarantine_failed_activation(root, tag, commit, type(exc).__name__)
             return {"status": "error", "reason": "activation failed; release quarantined", "tag": tag}
+        ledger.transition(tag, commit, "healthy")
         return {"status": "updated", "tag": tag, "commit": commit}
     except (OSError, ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired,
             urllib.error.URLError, KeyError) as exc:
