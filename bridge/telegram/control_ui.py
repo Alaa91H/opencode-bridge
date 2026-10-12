@@ -486,6 +486,34 @@ class ControlUI:
                 await self.show(update, context, key)
             return True
         wizard = context.user_data.get("ui_wizard")
+        if wizard and wizard.get("mode") == "host":
+            if getattr(getattr(update, "effective_chat", None), "type", None) != "private" or not self.admin_allowed(update):
+                context.user_data.pop("ui_wizard", None)
+                return True
+            if wizard["step"] == "label":
+                from bridge.services.host_credentials import LABEL_RE
+                if not LABEL_RE.fullmatch(text):
+                    await message.reply_text(t["error"] if "t" in locals() else WORDS[await self._lang(owner)]["error"])
+                    return True
+                wizard["name"] = text
+                wizard["step"] = "value"
+                await message.reply_text(WORDS[await self._lang(owner)]["host_value"])
+                return True
+            if wizard["step"] == "value":
+                try:
+                    await self.host_credentials.save(wizard["scope"], wizard["name"], text,
+                                                     replace=wizard.get("replace", False))
+                    context.user_data.pop("ui_wizard", None)
+                    await message.reply_text(WORDS[await self._lang(owner)]["saved"])
+                except Exception:
+                    log.warning("Host credential operation failed")
+                    await message.reply_text(WORDS[await self._lang(owner)]["error"])
+                finally:
+                    try:
+                        await message.delete()
+                    except Exception:
+                        log.warning("Could not remove sensitive chat input")
+                return True
         if wizard and wizard.get("mode") == "key_add":
             if not self.admin_allowed(update):
                 context.user_data.pop("ui_wizard", None)
