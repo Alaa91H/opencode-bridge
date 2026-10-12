@@ -23,7 +23,7 @@ WORDS = {
         "language": "🌐 اللغة", "models": "🧠 النموذج والتفكير",
         "agents": "🔄 تبديل الوكيل", "workers": "⚡ المهام المتزامنة",
         "direct": "✉️ أمر مباشر", "daily": "🔁 مهمة يومية",
-        "research": "🔍 بحث معمّق", "help": "❔ المساعدة",
+        "research": "🔍 بحث معمّق", "help": "❔ المساعدة", "advanced": "🧰 أدوات متقدمة",
         "back": "⬅️ رجوع", "refresh": "🔄 تحديث", "auto": "تلقائي",
         "stop": "🛑 إيقاف", "retry": "♻️ إعادة المحاولة",
         "yes": "✅ تأكيد", "no": "❌ إلغاء", "delete": "🗑 حذف",
@@ -58,6 +58,8 @@ WORDS = {
         "server_text": "إدارة الخادم: التحديثات والذاكرة وحالة النشر.",
         "memory_text": "إعدادات الذاكرة (تُطبّق بواسطة خدمة النظام خلال ساعة تقريبًا).",
         "updates_text": "تحديث GitHub Releases تلقائيًا: {state}",
+        "advanced_text": "أزرار لجميع أدوات الإدارة الإضافية؛ اختر الأداة ثم أرسل خياراتها دون /.",
+        "advanced_args": "أرسل الخيارات المطلوبة دون /. استخدم | للفصل عند الجدولة.",
         "success": "تمت العملية.", "number_one": "1 — موصى به", "number_two": "2 — عند الحاجة",
     },
     "en": {
@@ -66,7 +68,7 @@ WORDS = {
         "language": "🌐 Language", "models": "🧠 Model & reasoning",
         "agents": "🔄 Switch agent", "workers": "⚡ Parallel tasks",
         "direct": "✉️ Direct task", "daily": "🔁 Daily task",
-        "research": "🔍 Deep research", "help": "❔ Help",
+        "research": "🔍 Deep research", "help": "❔ Help", "advanced": "🧰 Advanced tools",
         "back": "⬅️ Back", "refresh": "🔄 Refresh", "auto": "Automatic",
         "stop": "🛑 Cancel", "retry": "♻️ Retry",
         "yes": "✅ Confirm", "no": "❌ Back", "delete": "🗑 Delete",
@@ -102,12 +104,14 @@ WORDS = {
         "server_text": "Server controls: updates, memory and deployment status.",
         "memory_text": "Memory policy (root service applies updates within roughly an hour).",
         "updates_text": "Automatic GitHub Releases updates: {state}",
+        "advanced_text": "Additional administration tools. Choose an action and send arguments without /.",
+        "advanced_args": "Send the required arguments without /. Use | for schedules.",
         "success": "Action completed.", "number_one": "1 — recommended", "number_two": "2 — if needed",
     },
 }
-BUTTON_KEYS = (("home", "agent"), ("keys", "direct"), ("daily", "tasks"), ("schedules", "downloads"), ("server", "settings"), ("language", "help"))
+BUTTON_KEYS = (("home", "agent"), ("keys", "direct"), ("daily", "tasks"), ("schedules", "downloads"), ("server", "settings"), ("language", "advanced"), ("help",))
 BINDINGS = {value: key for lang in WORDS.values() for key in
-            ("home", "agent", "keys", "direct", "daily", "tasks", "schedules", "downloads", "server", "settings", "language", "help")
+            ("home", "agent", "keys", "direct", "daily", "tasks", "schedules", "downloads", "server", "settings", "language", "advanced", "help")
             for value in (lang[key],)}
 
 
@@ -130,7 +134,8 @@ class ControlUI:
     def __init__(self, *, preferences: Any, agents: Any, models: Any,
                  tasks: Any, schedule_store: Any, schedule_service: Any, downloads: Any,
                  capacity: Any, wake: Any, allowed: Any, provider_keys: Any | None = None,
-                 runtime_controls: Any | None = None, admin_allowed: Any | None = None):
+                 runtime_controls: Any | None = None, admin_allowed: Any | None = None,
+                 legacy_dispatch: Any | None = None, research_modes: dict | None = None):
         self.preferences = preferences
         self.agents = agents
         self.models = models
@@ -144,6 +149,8 @@ class ControlUI:
         self.provider_keys = provider_keys
         self.runtime_controls = runtime_controls
         self.admin_allowed = admin_allowed or allowed
+        self.legacy_dispatch = legacy_dispatch
+        self.research_modes = research_modes or {}
 
     async def _lang(self, owner: str) -> str:
         value = (await self.preferences.get(owner)).language
@@ -177,7 +184,7 @@ class ControlUI:
 
         if screen == "home":
             text = t["home_text"]
-            for key in ("agent", "keys", "direct", "daily", "research", "tasks", "schedules", "downloads", "server", "settings", "help"):
+            for key in ("agent", "keys", "direct", "daily", "research", "tasks", "schedules", "downloads", "server", "settings", "advanced", "help"):
                 if key in ("direct", "daily", "research"):
                     rows.append([button(t[key], "input", key)])
                 else:
@@ -300,10 +307,23 @@ class ControlUI:
             text = t["worker_text"].format(limit=limit)
             for n, key in ((1, "number_one"), (2, "number_two")):
                 rows.append([button(("✅ " if limit == n else "") + t[key], "workers", n)])
+        elif screen == "advanced":
+            text = t["advanced_text"]
+            for area in ("session", "tasks", "schedules", "research", "other"):
+                nav("🗂 " + area, "advanced." + area)
+        elif screen.startswith("advanced."):
+            area = screen.split(".", 1)[1]
+            sections = {"session":["new","abort","share","unshare","status","health","agents","model"],"tasks":["tasks","failed","progress","trace","cancel","retry","discard"],"schedules":["schedules","schedule","repeat","schedshow","schedhistory","schedrename","schededit","schedappend","schedtime","schedinterval","schedtimezone","schedrun","schedpause","schedresume","scheddelete"],"other":["draft","config","limits","maintenance","download","deletefile"],"research": list(self.research_modes)}
+            if area not in sections:
+                raise ValueError("Invalid advanced category")
+            text = t["advanced_text"] + "\n" + area
+            for name in sections[area]:
+                rows.append([button("▶️ " + name, "researchmode" if area == "research" else "legacy", name)])
         elif screen == "help":
             text = t["help_text"]
             nav(t["agent"], "agent")
             nav(t["settings"], "settings")
+            nav(t["advanced"], "advanced")
         else:
             raise ValueError("unknown screen")
         if screen != "home":
@@ -418,6 +438,31 @@ class ControlUI:
                 log.exception("button download failed")
                 await status.edit_text(t["error"])
             return True
+        if isinstance(waiting, str) and waiting.startswith("legacy:"):
+            try:
+                await self.legacy_dispatch(waiting.partition(":")[2], update, context, text)
+            except Exception:
+                log.exception("Advanced button command failed")
+                await message.reply_text(t["error"])
+            return True
+        if isinstance(waiting, str) and waiting.startswith("researchmode:"):
+            mode = self.research_modes.get(waiting.partition(":")[2])
+            if mode is None:
+                await message.reply_text(t["error"])
+                return True
+            status = await message.reply_text(t["queued"])
+            try:
+                queued = await self.tasks.enqueue_prompt(
+                    owner, update.effective_chat.id, text,
+                    status_message_id=status.message_id,
+                    execution_mode=mode,
+                    idempotency_scope="telegram_update", idempotency_key=str(update.update_id))
+                await status.edit_text(t["queued"] + str(queued.task.id))
+                self.wake()
+            except Exception:
+                log.exception("Advanced research queueing failed")
+                await status.edit_text(t["error"])
+            return True
         if waiting not in {"direct", "daily", "research"}:
             return False
         status = await message.reply_text(t["queued"])
@@ -508,6 +553,26 @@ class ControlUI:
                 value = parts[2] if parts[2] == "auto" else int(parts[2])
                 self.runtime_controls.set_memory(swap_gib=value)
                 screen = "memory"
+            elif action == "legacy":
+                name = parts[2]
+                if name not in ["new","abort","share","unshare","status","health","agents","model","tasks","failed","progress","trace","cancel","retry","discard","schedules","schedule","repeat","schedshow","schedhistory","schedrename","schededit","schedappend","schedtime","schedinterval","schedtimezone","schedrun","schedpause","schedresume","scheddelete","draft","config","limits","maintenance","download","deletefile"] or self.legacy_dispatch is None:
+                    raise ValueError("Unknown legacy command")
+                if name in ["new","abort","share","unshare","status","health","agents","model","tasks","failed","progress","trace","cancel","discard","schedules","config","limits","maintenance"]:
+                    await self.legacy_dispatch(name, update, context, "")
+                    screen = "advanced"
+                else:
+                    context.user_data["ui_wait"] = "legacy:" + name
+                    await update.effective_message.reply_text(t["advanced_args"])
+                    await query.answer()
+                    return
+            elif action == "researchmode":
+                name = parts[2]
+                if name not in self.research_modes:
+                    raise ValueError("Unknown research mode")
+                context.user_data["ui_wait"] = "researchmode:" + name
+                await update.effective_message.reply_text(t["input"])
+                await query.answer()
+                return
             elif action == "lang":
                 if parts[2] not in {"ar", "en"}:
                     raise ValueError("unsupported language")

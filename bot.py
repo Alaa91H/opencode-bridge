@@ -561,6 +561,22 @@ def _panel_router() -> PanelRouter:
     return _panel_router_instance
 
 
+async def _dispatch_advanced_button(name: str, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                                    payload: str) -> None:
+    """Dispatch an allowlisted button command through the existing authorized adapter."""
+    if name not in frozenset(["new","abort","share","unshare","status","health","agents","model","tasks","failed","progress","trace","cancel","retry","discard","schedules","schedule","repeat","schedshow","schedhistory","schedrename","schededit","schedappend","schedtime","schedinterval","schedtimezone","schedrun","schedpause","schedresume","scheddelete","draft","config","limits","maintenance","download","deletefile"]):
+        raise ValueError("Unsupported advanced action")
+    handler = globals().get("cmd_" + name)
+    if handler is None:
+        raise ValueError("Advanced command handler unavailable")
+    previous = context.args
+    try:
+        context.args = payload.split()
+        await handler(update, context)
+    finally:
+        context.args = previous
+
+
 def _control_ui() -> ControlUI:
     global _control_ui_instance
     if _control_ui_instance is None:
@@ -579,6 +595,8 @@ def _control_ui() -> ControlUI:
             runtime_controls=RuntimeControls(BRIDGE_DIR / "runtime"),
             admin_allowed=lambda update: (_is_allowed(update) and bool(ALLOWED_USERS) and
                                           update.effective_user.id == min(ALLOWED_USERS)),
+            legacy_dispatch=_dispatch_advanced_button,
+            research_modes=RESEARCH_COMMAND_MODES,
         )
     return _control_ui_instance
 
