@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,3 +22,21 @@ class RuntimeControlsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 c.set_memory(zram_percent=500)
             self.assertEqual(c.memory()["zram_percent"], 75)
+
+
+    def test_quarantined_update_is_visible_but_invalid_state_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controls = RuntimeControls(root)
+            self.assertIsNone(controls.failed_update_release())
+            path = root / "auto-update-quarantine.json"
+            path.write_text(json.dumps({
+                "schema": 1, "tag": "v3.3.0", "reason": "CalledProcessError",
+            }), encoding="utf-8")
+            self.assertEqual(controls.failed_update_release(), "v3.3.0")
+            path.write_text(json.dumps({"schema": 1, "tag": "../unsafe"}), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                controls.failed_update_release()
+            path.write_text("{broken", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                controls.failed_update_release()
