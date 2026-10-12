@@ -14,6 +14,8 @@ from typing import Any
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 
+from bridge.domain.schedules.user_timezones import COUNTRIES, display_local, local_to_utc, validate_zone
+
 log = logging.getLogger(__name__)
 
 WORDS = {
@@ -34,7 +36,11 @@ WORDS = {
         "session": "🆕 جلسة جديدة", "create_schedule": "➕ جدولة جديدة",
         "create_repeat": "🔁 مهمة متكررة", "research_input": "أرسل موضوع البحث المعمّق.",
         "schedule_name": "أرسل اسمًا فريدًا للجدولة.",
-        "schedule_time": "أرسل الوقت بصيغة 2026-10-15 12:00 UTC.",
+        "schedule_time": "أرسل الوقت المحلي مثل 2026-10-15 12:00.",
+        "timezone": "🌍 البلد والتوقيت", "tz_custom": "✍️ توقيت آخر",
+        "tz_prompt": "أرسل منطقة زمنية IANA مثل Asia/Damascus أو Europe/Berlin.",
+        "priority_up": "⬆️ رفع الأولوية", "priority_down": "⬇️ خفض الأولوية",
+        "remove_task": "🗑 حذف المهمة", "recent_tasks": "مهام سابقة:",
         "schedule_interval": "أرسل الفاصل الزمني مثل 1d أو 12h أو 30m.",
         "schedule_prompt": "أرسل تعليمات المهمة المجدولة.",
         "download_input": "أرسل رابط HTTPS أو HTTP لتنزيل الملف.",
@@ -79,7 +85,11 @@ WORDS = {
         "session": "🆕 New session", "create_schedule": "➕ New schedule",
         "create_repeat": "🔁 Recurring task", "research_input": "Send your deep-research topic.",
         "schedule_name": "Send a unique schedule name.",
-        "schedule_time": "Send UTC date/time like 2026-10-15 12:00 UTC.",
+        "schedule_time": "Send local date/time, e.g. 2026-10-15 12:00.",
+        "timezone": "🌍 Country & time", "tz_custom": "✍️ Other timezone",
+        "tz_prompt": "Send an IANA timezone like America/New_York or Europe/Berlin.",
+        "priority_up": "⬆️ Higher priority", "priority_down": "⬇️ Lower priority",
+        "remove_task": "🗑 Delete task", "recent_tasks": "Previous tasks:",
         "schedule_interval": "Send an interval such as 1d, 12h or 30m.",
         "schedule_prompt": "Send the task instructions to schedule.",
         "download_input": "Send an HTTPS or HTTP URL to download.",
@@ -229,6 +239,13 @@ class ControlUI:
             rows.append([button(t["auto"], "reason", index, 0)])
             for j, level in enumerate(model.variants, start=1):
                 rows.append([button(("✅ " if level == view.current_variant else "") + level, "reason", index, j)])
+        elif screen == "timezone":
+            pref = await self.preferences.get(owner)
+            from datetime import UTC, datetime
+            text = t["timezone"] + "\n" + safe(pref.timezone) + "\n" + safe(display_local(datetime.now(UTC), pref.timezone))
+            for i, (country, zone) in enumerate(COUNTRIES):
+                rows.append([button(("✅ " if zone == pref.timezone else "") + country, "tz", i)])
+            rows.append([button(t["tz_custom"], "input", "tz_custom")])
         elif screen == "tasks":
             text = t["tasks_text"]
             active = await self.tasks.active(owner)
@@ -237,10 +254,20 @@ class ControlUI:
                 text += "\n" + t["empty"]
             for task in active[:8]:
                 text += "\n• " + safe(task.status) + " — " + safe(task.prompt, 70)
-                rows.append([button(t["stop"] + " #" + str(task.id), "confirm", "cancel", task.id)])
+                if task.status in {"queued", "retrying"}:
+                    rows.append([button(t["priority_up"], "priority", task.id, 1),
+                                 button(t["priority_down"], "priority", task.id, -1)])
+                rows.append([button(t["stop"] + " #" + str(task.id), "confirm", "cancel", task.id),
+                             button(t["remove_task"], "confirm", "task", task.id)])
             for task in failed[:8]:
                 text += "\n• " + safe(task.status) + " — " + safe(task.prompt, 70)
                 rows.append([button(t["retry"] + " #" + str(task.id), "retry", task.id)])
+            previous = await self.tasks.recent(owner)
+            if previous:
+                text += "\n" + t["recent_tasks"]
+            for task in previous[:8]:
+                text += "\n• " + safe(task.status) + " #" + str(task.id)
+                rows.append([button(t["remove_task"] + " #" + str(task.id), "confirm", "task", task.id)])
             rows.append([button(t["direct"], "input", "direct"), button(t["daily"], "input", "daily")])
             nav(t["refresh"], "tasks")
         elif screen == "schedules":
@@ -249,11 +276,13 @@ class ControlUI:
             if not jobs:
                 text += "\n" + t["empty"]
             for job in jobs[:15]:
-                text += "\n• " + safe(job.name, 60)
+                due = display_local(job.next_run_at, job.timezone_name) if job.next_run_at else "—"
+                text += "\n• " + safe(job.name, 60) + " (" + safe(due) + ")"
                 rows.append([button((t["on"] if job.enabled else t["off"]) + " " + job.name[:25], "schedule", job.id),
                              button(t["delete"], "confirm", "schedule", job.id)])
             rows.append([button(t["create_schedule"], "input", "schedule_once"),
                          button(t["create_repeat"], "input", "schedule_recurring")])
+            nav(t["timezone"], "timezone")
             nav(t["refresh"], "schedules")
         elif screen == "downloads":
             text = t["download_text"]
@@ -290,13 +319,15 @@ class ControlUI:
         elif screen == "memory":
             value = self.runtime_controls.memory() if self.runtime_controls else {"zram_percent": 50, "swap_gib": "auto"}
             text = t["memory_text"] + f"\nZRAM: {value['zram_percent']}% RAM\nSwap: {value['swap_gib']} GiB"
-            for percent in (25, 50, 75, 100):
-                rows.append([button(("✅ " if value["zram_percent"] == percent else "") + f"ZRAM {percent}%", "zram", percent)])
+            for percent in ("auto", 25, 50, 75, 100):
+                label = f"ZRAM {percent}%" if percent != "auto" else "ZRAM Auto"
+                rows.append([button(("✅ " if value["zram_percent"] == percent else "") + label, "zram", percent)])
             for amount in ("auto", 0, 1, 2, 4):
                 rows.append([button(("✅ " if value["swap_gib"] == amount else "") + f"Swap {amount} GiB", "swap", amount)])
         elif screen == "settings":
             text = t["settings_text"]
             nav(t["language"], "language")
+            nav(t["timezone"], "timezone")
             nav(t["workers"], "workers")
             nav(t["agent"], "agent")
             nav(t["keys"], "keys")
