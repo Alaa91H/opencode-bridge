@@ -95,6 +95,14 @@ class UpdateCoordinator:
                 "SELECT tag, phase, updated_utc FROM release_operations WHERE commit_sha = ?",
                 (commit,),
             ).fetchone()
+            if phase == "applying":
+                other = db.execute(
+                    "SELECT commit_sha FROM release_operations "
+                    "WHERE phase = ? AND commit_sha != ? LIMIT 1",
+                    ("applying", commit),
+                ).fetchone()
+                if other is not None:
+                    raise ValueError("another release activation needs recovery")
             if prior is None:
                 if phase != "verified":
                     raise ValueError("release must first pass verification")
