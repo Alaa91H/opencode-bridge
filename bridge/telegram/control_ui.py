@@ -354,6 +354,17 @@ class ControlUI:
             for i, provider in enumerate(providers[:20]):
                 auto = any(item["auto"] for item in entries if item["provider"] == provider)
                 rows.append([button(t["key_auto"] + " " + provider + (" ✅" if auto else ""), "keyauto", i)])
+        elif screen == "hostkeys":
+            text = t["hostkeys"]
+            entries = self.host_credentials.catalog() if self.host_credentials else []
+            for i, item in enumerate(entries[:24]):
+                text += "\n• " + safe(item["scope"]) + "/" + safe(item["name"])
+                text += " ✅" if item["active"] else ""
+                if item.get("managed", True):
+                    rows.append([button("▶️ " + str(item["name"]), "hostactivate", i),
+                                 button(t["hostreplace"], "hostreplace", i),
+                                 button(t["delete"], "confirm", "hostkey", i)])
+            rows.append([button(t["hostadd"], "hostadd")])
         elif screen == "mirrors":
             text = t["mirrors"] + "\nCatbox • TempFile.org • TmpFiles"
             for provider in ("catbox", "tempfile"):
