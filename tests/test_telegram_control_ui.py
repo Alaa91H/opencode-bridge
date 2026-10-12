@@ -327,5 +327,22 @@ class UIFlowTests(unittest.IsolatedAsyncioTestCase):
                          "Autopilot state must be private-owner only")
 
 
+    async def test_bridge_upgrade_is_explicitly_confirmed_and_owner_only(self):
+        from bridge.services.runtime_controls import RuntimeControls
+
+        self.ui.runtime_controls = RuntimeControls(Path(self.temp.name) / "auto-controls")
+        _text, markup = await self.ui.render("1", "updates")
+        keys = [button.callback_data for row in markup.inline_keyboard for button in row]
+        self.assertIn(callback("checkbridge"), keys)
+        self.assertIn(callback("confirm", "updatebridge", 0), keys)
+
+        self.update.effective_chat.type = "private"
+        await self.press(callback("confirm", "updatebridge", 0))
+        self.assertEqual(self.context.user_data["ui_confirm"], ("updatebridge", "0"))
+        self.update.effective_chat.type = "group"
+        await self.press(callback("execute", "updatebridge", 0))
+        self.assertEqual(self.message.reply_text.await_count, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
