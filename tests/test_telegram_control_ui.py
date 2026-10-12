@@ -312,7 +312,7 @@ class UIFlowTests(unittest.IsolatedAsyncioTestCase):
         self.ui.runtime_controls = controls
         self.update.effective_chat.type = "private"
         text, markup = await self.ui.render("1", "updates")
-        self.assertIn(WORDS["en"]["mode_safe"], text)
+        self.assertIn(WORDS["en"]["mode_off"], text)
         choices = [b.callback_data for row in markup.inline_keyboard for b in row]
         for mode in ("off", "notify", "auto-safe", "maintenance-window"):
             self.assertIn(callback("autopilot", mode), choices)
