@@ -11,6 +11,7 @@ import subprocess
 import tarfile
 import tempfile
 import uuid
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -165,7 +166,7 @@ class AdminBackups:
                 return path.stat().st_size > 0 and digest.hexdigest() == expected
             if path.suffix != ".db":
                 return False
-            with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as db:
+            with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
                 return db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         except (OSError, sqlite3.Error, ValueError, TypeError, KeyError):
             return False
