@@ -44,7 +44,7 @@ class RuntimeControls:
         # Preserve old callers' enable/disable intent across upgrades.
         secure_write(
             self.root / "auto-update-enabled",
-            b"1\n" if mode in ("auto-safe", "maintenance-window", "notify") else b"0\n",
+            b"1\n" if mode in ("auto-safe", "maintenance-window") else b"0\n",
         )
 
     def auto_update(self) -> bool:
