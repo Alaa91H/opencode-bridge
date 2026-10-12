@@ -352,11 +352,26 @@ class ControlUI:
             for i, provider in enumerate(providers[:20]):
                 auto = any(item["auto"] for item in entries if item["provider"] == provider)
                 rows.append([button(t["key_auto"] + " " + provider + (" ✅" if auto else ""), "keyauto", i)])
+        elif screen == "resources":
+            from bridge.services.server_admin import resources
+            values = resources(self.project)
+            def gb(n: Any) -> str:
+                return "—" if n is None else f"{n / 1073741824:.2f} GiB"
+            text = t["resources"] + "\n" + (
+                f"CPU: {values['logical_cpus']} • Load: {values['cpu_load_1m']}\n"
+                f"RAM: {gb(values['memory_available'])} / {gb(values['memory_total'])}\n"
+                f"Swap: {gb(values['swap_free'])} / {gb(values['swap_total'])}\n"
+                f"Disk free: {gb(values['disk_free'])} / {gb(values['disk_total'])}\n"
+                f"Uptime: {values['uptime_seconds'] // 3600} hours"
+            )
+            nav(t["refresh"], "resources")
         elif screen == "server":
             text = t["server_text"]
             nav(t["updates"], "updates")
             nav(t["memory"], "memory")
             nav(t["workers"], "workers")
+            nav(t["resources"], "resources")
+            nav(t["backups"], "backups")
         elif screen == "updates":
             current = self.runtime_controls.auto_update() if self.runtime_controls else False
             text = t["updates_text"].format(state=t["on"] if current else t["off"])
