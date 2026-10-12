@@ -50,7 +50,7 @@ def version_of(tag: str) -> tuple[int, int, int] | None:
 def api_json(url: str) -> dict:
     if not url.startswith("https://api.github.com/repos/Alaa91H/opencode-bridge/"):
         raise ValueError("Untrusted update API URL")
-    request = urllib.request.Request(
+    request = urllib.request.Request(  # noqa: S310 -- fixed GitHub HTTPS URL
         url, headers={"Accept": "application/vnd.github+json",
                       "User-Agent": "opencode-bridge-release-updater",
                       "X-GitHub-Api-Version": "2022-11-28"})
