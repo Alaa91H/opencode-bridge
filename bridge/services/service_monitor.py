@@ -37,7 +37,7 @@ async def unit_status(unit: str, *, user: bool) -> ServiceState:
         stdout, _ = await asyncio.wait_for(process.communicate(), timeout=8)
         value = stdout.decode("ascii", "replace").strip()
         return ServiceState(unit, value if value in _KNOWN_STATES else "unavailable")
-    except (OSError, asyncio.TimeoutError):
+    except (OSError, TimeoutError):
         if process is not None and process.returncode is None:
             process.kill()
             await process.wait()
