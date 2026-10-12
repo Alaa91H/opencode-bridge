@@ -263,7 +263,7 @@ class UIFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(k == "server" for row in BUTTON_KEYS for k in row), 1)
         self.assertEqual(sum(k == "credentials" for row in BUTTON_KEYS for k in row), 1)
         self.assertNotIn("keys", [entry for row in BUTTON_KEYS for entry in row])
-        self.assertNotIn("hostkeys", sum((list(row) for row in BUTTON_KEYS), []))
+        self.assertNotIn("hostkeys", [entry for row in BUTTON_KEYS for entry in row])
         for language in ("ar", "en"):
             with self.subTest(language=language):
                 labels = [button.text for row in self.ui.keyboard(language).keyboard
