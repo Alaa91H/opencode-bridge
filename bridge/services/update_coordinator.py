@@ -1,0 +1,144 @@
+"""Durable, fail-closed state ledger for verified Bridge release operations.
+
+No subprocesses, service controls or secret values live in this module.
+The release updater is the only writer and owns deployment decisions.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import sqlite3
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+
+_TAG = re.compile(r"v[0-9]+[.][0-9]+[.][0-9]+\Z")
+_SHA = re.compile(r"[0-9a-f]{40}\Z")
+_NEXT = {
+    "verified": frozenset({"available", "applying", "quarantined"}),
+    "available": frozenset({"verified", "applying", "quarantined"}),
+    "applying": frozenset({"healthy", "quarantined"}),
+    "quarantined": frozenset(),
+    "healthy": frozenset(),
+}
+_SAFETY_LIMIT = 80
+
+
+@dataclass(frozen=True)
+class UpdateOperation:
+    tag: str
+    commit: str
+    phase: str
+    updated_utc: str
+
+
+class UpdateCoordinator:
+    """SQLite WAL-backed operation journal with validated atomic transitions.
+
+    An interrupted 'applying' operation remains blocked on restart until
+    diagnosed; merely restarting the daemon cannot retrigger its deployment.
+    """
+
+    def __init__(self, runtime_dir: Path) -> None:
+        self.directory = Path(runtime_dir)
+        self.path = self.directory / "update-operations.sqlite3"
+
+    def _connect(self) -> sqlite3.Connection:
+        if self.directory.is_symlink() or self.path.is_symlink():
+            raise ValueError("unsafe update journal path")
+        self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        connection = sqlite3.connect(self.path, timeout=5.0)
+        try:
+            os.chmod(self.path, 0o600)
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA busy_timeout=5000")
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA synchronous=FULL")
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS release_operations (
+                    commit_sha TEXT PRIMARY KEY,
+                    tag TEXT NOT NULL,
+                    phase TEXT NOT NULL,
+                    updated_utc TEXT NOT NULL
+                )
+            """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS release_events (
+                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    commit_sha TEXT NOT NULL,
+                    phase TEXT NOT NULL,
+                    created_utc TEXT NOT NULL
+                )
+            """)
+        except BaseException:
+            connection.close()
+            raise
+        return connection
+
+    @staticmethod
+    def _validate(tag: str, commit: str, phase: str) -> None:
+        if not isinstance(tag, str) or not _TAG.fullmatch(tag):
+            raise ValueError("invalid release tag")
+        if not isinstance(commit, str) or not _SHA.fullmatch(commit):
+            raise ValueError("invalid release commit")
+        if phase not in _NEXT:
+            raise ValueError("invalid update phase")
+
+    def transition(self, tag: str, commit: str, phase: str) -> UpdateOperation:
+        self._validate(tag, commit, phase)
+        stamp = datetime.now(UTC).isoformat(timespec="seconds")
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            prior = db.execute(
+                "SELECT tag, phase, updated_utc FROM release_operations WHERE commit_sha = ?",
+                (commit,),
+            ).fetchone()
+            if prior is None:
+                if phase != "verified":
+                    raise ValueError("release must first pass verification")
+                db.execute(
+                    "INSERT INTO release_operations VALUES (?, ?, ?, ?)",
+                    (commit, tag, phase, stamp),
+                )
+            else:
+                if prior["tag"] != tag:
+                    raise ValueError("commit already recorded with a different release tag")
+                if prior["phase"] == phase:
+                    return UpdateOperation(tag, commit, phase, prior["updated_utc"])
+                if phase not in _NEXT[prior["phase"]]:
+                    raise ValueError("unsafe update transition")
+                db.execute(
+                    "UPDATE release_operations SET phase = ?, updated_utc = ? "
+                    "WHERE commit_sha = ? AND phase = ?",
+                    (phase, stamp, commit, prior["phase"]),
+                )
+            db.execute(
+                "INSERT INTO release_events(commit_sha, phase, created_utc) VALUES (?, ?, ?)",
+                (commit, phase, stamp),
+            )
+        return UpdateOperation(tag, commit, phase, stamp)
+
+    def latest(self) -> UpdateOperation | None:
+        if not self.path.exists():
+            return None
+        with self._connect() as db:
+            record = db.execute(
+                "SELECT tag, commit_sha, phase, updated_utc FROM release_operations "
+                "ORDER BY updated_utc DESC, rowid DESC LIMIT 1",
+            ).fetchone()
+        return (UpdateOperation(record["tag"], record["commit_sha"], record["phase"],
+                                record["updated_utc"]) if record else None)
+
+    def history(self, limit: int = 10) -> list[tuple[str, str, str]]:
+        if not isinstance(limit, int) or not 1 <= limit <= _SAFETY_LIMIT:
+            raise ValueError("invalid history limit")
+        if not self.path.exists():
+            return []
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT commit_sha, phase, created_utc FROM release_events "
+                "ORDER BY event_id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [(str(r["commit_sha"])[:12], r["phase"], r["created_utc"]) for r in rows]
