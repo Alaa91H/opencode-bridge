@@ -65,7 +65,7 @@ WORDS = {
         "host_value": "أرسل التوكن في رسالة خاصة؛ سنحاول حذف الرسالة.",
         "backups": "🗄 النسخ الاحتياطية", "backup_create": "➕ نسخة جديدة",
         "backup_send": "📤 إرسال", "backup_delete": "🗑 حذف نسخة",
-        "backup_keys": "🔒 مع المفاتيح (مشفرة فقط)",
+        "backup_keys": "🔒 مع المفاتيح (مشفرة فقط)", "backup_recipient": "🔐 مفتاح تشفير النسخ الاحتياطية",
         "mirrors": "☁️ مرايا مجانية", "mirror_url": "🔗 نسخ رابط إلى مرآة",
         "mirror_input": "أرسل رابطًا عامًا لمشاركة نسخه عبر المزود الخارجي.",
         "resources": "📊 موارد الخادم", "update_agent": "🤖 تحديث OpenCode الآن",
@@ -130,7 +130,7 @@ WORDS = {
         "host_value": "Send the token in a private message; we will attempt to delete it.",
         "backups": "🗄 Backups", "backup_create": "➕ Create backup",
         "backup_send": "📤 Send", "backup_delete": "🗑 Delete backup",
-        "backup_keys": "🔒 With keys (encrypted only)",
+        "backup_keys": "🔒 With keys (encrypted only)", "backup_recipient": "🔐 Backup encryption public key",
         "mirrors": "☁️ Free mirrors", "mirror_url": "🔗 Mirror a URL",
         "mirror_input": "Send a public URL to copy to an external host.",
         "resources": "📊 Server resources", "update_agent": "🤖 Update OpenCode now",
@@ -388,6 +388,7 @@ class ControlUI:
                 rows.append([button(t["backup_send"], "backupsend", i),
                              button(t["backup_delete"], "confirm", "backup", i)])
             rows.append([button(t["backup_create"], "backupcreate")])
+            rows.append([button(t["backup_recipient"], "input", "age_recipient")])
         elif screen == "resources":
             from bridge.services.server_admin import resources
             values = resources(self.project)
@@ -718,7 +719,7 @@ class ControlUI:
                     return
             elif action == "input":
                 mode = parts[2]
-                if mode not in {"direct", "daily", "download", "media", "research", "schedule_once", "schedule_recurring", "key_add", "tz_custom"}:
+                if mode not in {"direct", "daily", "download", "media", "research", "schedule_once", "schedule_recurring", "key_add", "tz_custom", "age_recipient"}:
                     raise ValueError("invalid input mode")
                 if mode == "key_add":
                     context.user_data.pop("ui_wait", None)
@@ -731,7 +732,7 @@ class ControlUI:
                 else:
                     context.user_data.pop("ui_wizard", None)
                     context.user_data["ui_wait"] = mode
-                    prompt = t["tz_prompt"] if mode == "tz_custom" else (t["media_input"] if mode == "media" else t["download_input"] if mode == "download" else (t["research_input"] if mode == "research" else t["input"]))
+                    prompt = t["backup_recipient"] if mode == "age_recipient" else t["tz_prompt"] if mode == "tz_custom" else (t["media_input"] if mode == "media" else t["download_input"] if mode == "download" else (t["research_input"] if mode == "research" else t["input"]))
                 await query.answer()
                 await update.effective_message.reply_text(prompt)
                 return
