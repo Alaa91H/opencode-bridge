@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 
@@ -75,6 +76,27 @@ class RuntimeControls:
         finally:
             temp.unlink(missing_ok=True)
         return value
+
+    def failed_update_release(self) -> str | None:
+        """Expose a failed Bridge release to the private owner panel.
+
+        A corrupt status file is not interpreted as a healthy update state.
+        Do not show command output, environment variables, or secret material.
+        """
+        path = self.root / "auto-update-quarantine.json"
+        if path.is_symlink():
+            raise ValueError("Unsafe update quarantine status")
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or data.get("schema") != 1:
+            raise ValueError("Invalid update quarantine status")
+        tag = data.get("tag")
+        if not isinstance(tag, str) or not re.fullmatch(
+            r"v[0-9]+[.][0-9]+[.][0-9]+", tag,
+        ):
+            raise ValueError("Invalid update quarantine tag")
+        return tag
 
     def system_auto_update(self) -> bool:
         path = self.root / "host-auto-update-enabled"
