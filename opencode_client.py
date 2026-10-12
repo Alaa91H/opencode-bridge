@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from urllib.parse import quote
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
@@ -63,6 +64,15 @@ class OpenCodeClient:
             trust_env=False,  # Credentials for loopback must never transit a host proxy.
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
+
+    async def set_provider_key(self, provider: str, secret: str) -> None:
+        """Apply provider API authentication through the local OpenCode server."""
+        import re
+        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}", provider):
+            raise ValueError("Invalid provider identifier")
+        response = await self._client.put(
+            f"/auth/{quote(provider, safe='')}", json={"type": "api", "key": secret})
+        response.raise_for_status()
 
     async def close(self) -> None:
         self._save_credential_state()

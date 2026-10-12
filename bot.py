@@ -46,6 +46,7 @@ from bridge.services.schedule_service import ScheduleService
 from bridge.services.task_execution_service import TaskExecutionService
 from bridge.services.task_service import TaskApplicationService
 from bridge.services.user_preferences_service import UserPreferencesService
+from bridge.services.provider_keys import ProviderKeyManager
 from bridge.services.worker_capacity import WorkerCapacity
 from bridge.telegram.app import build_application, core_commands, register_core_handlers
 from bridge.telegram.attachments import TelegramMediaAdapter
@@ -137,6 +138,7 @@ client = OpenCodeClient(
     credential_pool=credential_pool,
     credential_state_path=credential_state_path,
 )
+provider_keys = ProviderKeyManager(BRIDGE_DIR / "runtime" / "private" / "provider-keys.json", client)
 audit = AuditLogger(BRIDGE_DIR / "runtime" / "audit.jsonl")
 attachment_store = AttachmentStore(
     ATTACHMENT_ROOT,
@@ -178,6 +180,7 @@ _agent_service = AgentService(
     model_manager_provider=lambda: model_manager,
     logger=log,
     agent_preference_provider=lambda owner_id: _user_preferences().get(owner_id),
+    provider_keys=provider_keys,
 )
 _task_application_service = TaskApplicationService(
     task_store,
@@ -571,6 +574,7 @@ def _control_ui() -> ControlUI:
             capacity=WorkerCapacity(BRIDGE_DIR / "runtime" / "worker-capacity"),
             wake=_wake_task_workers,
             allowed=_is_allowed,
+            provider_keys=provider_keys,
         )
     return _control_ui_instance
 

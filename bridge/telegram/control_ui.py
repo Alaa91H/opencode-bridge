@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 WORDS = {
     "ar": {
         "home": "🏠 الرئيسية", "agent": "🤖 إدارة الوكيل", "tasks": "📋 المهام",
-        "schedules": "📅 الجدولة", "downloads": "📁 الملفات", "settings": "⚙️ الإعدادات",
+        "schedules": "📅 الجدولة", "downloads": "📁 الملفات", "settings": "⚙️ الإعدادات", "keys": "🔑 مفاتيح API", "key_add": "➕ إضافة مفتاح", "key_auto": "🔄 تدوير تلقائي",
         "language": "🌐 اللغة", "models": "🧠 النموذج والتفكير",
         "agents": "🔄 تبديل الوكيل", "workers": "⚡ المهام المتزامنة",
         "direct": "✉️ أمر مباشر", "daily": "🔁 مهمة يومية",
@@ -38,6 +38,9 @@ WORDS = {
         "schedule_interval": "أرسل الفاصل الزمني مثل 1d أو 12h أو 30m.",
         "schedule_prompt": "أرسل تعليمات المهمة المجدولة.",
         "download_input": "أرسل رابط HTTPS أو HTTP لتنزيل الملف.",
+        "key_provider": "أرسل معرّف المزوّد مثل openai أو anthropic.",
+        "key_label": "أرسل اسمًا للمفتاح (حروف إنجليزية وأرقام فقط).",
+        "key_secret": "أرسل قيمة API Key الآن. ستُحذف الرسالة مباشرة.",
         "queued": "أُضيفت المهمة إلى الطابور. رقمها: ",
         "saved": "حُفظ التغيير.", "not_found": "انتهت صلاحية هذا الزر؛ افتح القائمة من جديد.",
         "home_text": "لوحة تحكم OpenCode Bridge\nاختر القسم أو استخدم الأزرار الثابتة أسفل المحادثة.",
@@ -56,7 +59,7 @@ WORDS = {
     },
     "en": {
         "home": "🏠 Home", "agent": "🤖 Agent manager", "tasks": "📋 Tasks",
-        "schedules": "📅 Schedules", "downloads": "📁 Files", "settings": "⚙️ Settings",
+        "schedules": "📅 Schedules", "downloads": "📁 Files", "settings": "⚙️ Settings", "keys": "🔑 API keys", "key_add": "➕ Add key", "key_auto": "🔄 Auto rotation",
         "language": "🌐 Language", "models": "🧠 Model & reasoning",
         "agents": "🔄 Switch agent", "workers": "⚡ Parallel tasks",
         "direct": "✉️ Direct task", "daily": "🔁 Daily task",
@@ -75,6 +78,9 @@ WORDS = {
         "schedule_interval": "Send an interval such as 1d, 12h or 30m.",
         "schedule_prompt": "Send the task instructions to schedule.",
         "download_input": "Send an HTTPS or HTTP URL to download.",
+        "key_provider": "Send provider ID, e.g. openai or anthropic.",
+        "key_label": "Send key label (letters/digits only).",
+        "key_secret": "Send the API key value now. The message will be deleted.",
         "queued": "Task queued with ID: ", "saved": "Selection saved.",
         "not_found": "This button is stale; reopen the menu.",
         "home_text": "OpenCode Bridge control center\nChoose a section or use the persistent keyboard below.",
@@ -93,9 +99,9 @@ WORDS = {
         "success": "Action completed.", "number_one": "1 — recommended", "number_two": "2 — if needed",
     },
 }
-BUTTON_KEYS = (("home", "agent"), ("direct", "daily"), ("tasks", "schedules"), ("downloads", "settings"), ("language", "help"))
+BUTTON_KEYS = (("home", "agent"), ("keys", "direct"), ("daily", "tasks"), ("schedules", "downloads"), ("settings", "language"), ("help",))
 BINDINGS = {value: key for lang in WORDS.values() for key in
-            ("home", "agent", "direct", "daily", "tasks", "schedules", "downloads", "settings", "language", "help")
+            ("home", "agent", "keys", "direct", "daily", "tasks", "schedules", "downloads", "settings", "language", "help")
             for value in (lang[key],)}
 
 
@@ -117,7 +123,7 @@ def safe(value: object, limit: int = 100) -> str:
 class ControlUI:
     def __init__(self, *, preferences: Any, agents: Any, models: Any,
                  tasks: Any, schedule_store: Any, schedule_service: Any, downloads: Any,
-                 capacity: Any, wake: Any, allowed: Any):
+                 capacity: Any, wake: Any, allowed: Any, provider_keys: Any | None = None):
         self.preferences = preferences
         self.agents = agents
         self.models = models
@@ -128,6 +134,7 @@ class ControlUI:
         self.capacity = capacity
         self.wake = wake
         self.allowed = allowed
+        self.provider_keys = provider_keys
 
     async def _lang(self, owner: str) -> str:
         value = (await self.preferences.get(owner)).language
@@ -161,7 +168,7 @@ class ControlUI:
 
         if screen == "home":
             text = t["home_text"]
-            for key in ("agent", "direct", "daily", "research", "tasks", "schedules", "downloads", "settings", "help"):
+            for key in ("agent", "keys", "direct", "daily", "research", "tasks", "schedules", "downloads", "settings", "help"):
                 if key in ("direct", "daily", "research"):
                     rows.append([button(t[key], "input", key)])
                 else:
@@ -238,11 +245,26 @@ class ControlUI:
                              button(t["delete"], "confirm", "file", i)])
             rows.append([button("🔗 " + t["downloads"], "input", "download")])
             nav(t["refresh"], "downloads")
+        elif screen == "keys":
+            text = t["keys"] + "\n"
+            entries = self.provider_keys.catalog() if self.provider_keys is not None else []
+            for i, item in enumerate(entries[:30]):
+                text += "\n• " + safe(item["provider"]) + " / " + safe(item["name"]) + (" ✅" if item["active"] else "")
+                rows.append([button(("✅ " if item["active"] else "▶️ ") + item["name"], "keysel", i),
+                             button(t["delete"], "confirm", "key", i)])
+            if not entries:
+                text += t["empty"]
+            rows.append([button(t["key_add"], "input", "key_add")])
+            providers = sorted(set(item["provider"] for item in entries))
+            for i, provider in enumerate(providers[:20]):
+                auto = any(item["auto"] for item in entries if item["provider"] == provider)
+                rows.append([button(t["key_auto"] + " " + provider + (" ✅" if auto else ""), "keyauto", i)])
         elif screen == "settings":
             text = t["settings_text"]
             nav(t["language"], "language")
             nav(t["workers"], "workers")
             nav(t["agent"], "agent")
+            nav(t["keys"], "keys")
         elif screen == "language":
             text = t["language_text"]
             rows.extend([[button("🇸🇦 العربية", "lang", "ar")],
@@ -281,6 +303,35 @@ class ControlUI:
                 await self.show(update, context, key)
             return True
         wizard = context.user_data.get("ui_wizard")
+        if wizard and wizard.get("mode") == "key_add":
+            stage = wizard["step"]
+            if stage in {"provider", "label"}:
+                from bridge.services.provider_keys import validate_name
+                try:
+                    validate_name(text)
+                except ValueError:
+                    await message.reply_text(t["error"] if "t" in locals() else WORDS[await self._lang(owner)]["error"])
+                    return True
+                wizard[stage] = text
+                wizard["step"] = "label" if stage == "provider" else "secret"
+                lang = await self._lang(owner)
+                await message.reply_text(WORDS[lang]["key_label" if stage == "provider" else "key_secret"])
+                return True
+            if stage == "secret":
+                try:
+                    await self.provider_keys.add(wizard["provider"], wizard["label"], text)
+                    await self.provider_keys.activate(wizard["provider"], wizard["label"])
+                    context.user_data.pop("ui_wizard", None)
+                    await message.reply_text(WORDS[await self._lang(owner)]["saved"])
+                except Exception:
+                    log.exception("Provider key enrollment failed (secret redacted)")
+                    await message.reply_text(WORDS[await self._lang(owner)]["error"])
+                finally:
+                    try:
+                        await message.delete()
+                    except Exception:
+                        log.warning("Could not delete secret chat message")
+                return True
         if wizard:
             step = wizard["step"]
             if step == "name":
@@ -378,9 +429,13 @@ class ControlUI:
                 screen = parts[2]
             elif action == "input":
                 mode = parts[2]
-                if mode not in {"direct", "daily", "download", "research", "schedule_once", "schedule_recurring"}:
+                if mode not in {"direct", "daily", "download", "research", "schedule_once", "schedule_recurring", "key_add"}:
                     raise ValueError("invalid input mode")
-                if mode in {"schedule_once", "schedule_recurring"}:
+                if mode == "key_add":
+                    context.user_data.pop("ui_wait", None)
+                    context.user_data["ui_wizard"] = {"mode": mode, "step": "provider"}
+                    prompt = t["key_provider"]
+                elif mode in {"schedule_once", "schedule_recurring"}:
                     context.user_data.pop("ui_wait", None)
                     context.user_data["ui_wizard"] = {"mode": mode, "step": "name"}
                     prompt = t["schedule_name"]
@@ -391,6 +446,22 @@ class ControlUI:
                 await query.answer()
                 await update.effective_message.reply_text(prompt)
                 return
+            elif action == "keysel":
+                entries = self.provider_keys.catalog()
+                idx = int(parts[2])
+                if not 0 <= idx < min(len(entries), 30):
+                    raise ValueError("stale key")
+                entry = entries[idx]
+                await self.provider_keys.activate(entry["provider"], entry["name"])
+                screen = "keys"
+            elif action == "keyauto":
+                entries = self.provider_keys.catalog()
+                providers = sorted(set(item["provider"] for item in entries))
+                idx = int(parts[2])
+                if not 0 <= idx < len(providers):
+                    raise ValueError("stale provider")
+                await self.provider_keys.toggle_auto(providers[idx])
+                screen = "keys"
             elif action == "lang":
                 if parts[2] not in {"ar", "en"}:
                     raise ValueError("unsupported language")
@@ -429,7 +500,7 @@ class ControlUI:
                 await self.models.select_variant(owner, int(parts[2]), int(parts[3]))
                 screen = "agent"
             elif action == "confirm":
-                if parts[2] not in {"cancel", "schedule", "file", "new"}:
+                if parts[2] not in {"cancel", "schedule", "file", "new", "key"}:
                     raise ValueError("unsupported confirmation")
                 context.user_data["ui_confirm"] = (parts[2], parts[3])
                 text = t["confirm_text"]
@@ -448,6 +519,14 @@ class ControlUI:
                 if kind == "new":
                     await self.agents.fresh_session(owner)
                     screen = "agent"
+                elif kind == "key":
+                    entries = self.provider_keys.catalog()
+                    idx = int(value)
+                    if not 0 <= idx < min(len(entries), 30):
+                        raise ValueError("stale key")
+                    entry = entries[idx]
+                    await self.provider_keys.remove(entry["provider"], entry["name"])
+                    screen = "keys"
                 elif kind == "cancel":
                     if await self.tasks.cancel(int(value), owner) is None:
                         raise ValueError("task not active")

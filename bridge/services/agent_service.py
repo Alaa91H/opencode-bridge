@@ -76,12 +76,14 @@ class AgentService:
         model_manager_provider: Callable[[], Any | None],
         logger: logging.Logger | None = None,
         agent_preference_provider: Callable[[str], Awaitable[Any]] | None = None,
+        provider_keys: Any | None = None,
     ) -> None:
         self.client = client
         self.sessions = sessions
         self.default_model = default_model
         self.default_agent = default_agent
         self.agent_preference_provider = agent_preference_provider
+        self.provider_keys = provider_keys
         self.default_variant = default_variant
         self.variant_model = variant_model
         self.model_manager_provider = model_manager_provider
@@ -297,6 +299,15 @@ class AgentService:
                     **resume_options,
                 )
             except httpx.HTTPStatusError as exc:
+                # Only credential-scoped 401/429; never rotate shared Zen/IP quotas.
+                provider = model_id.split("/", 1)[0] if isinstance(model_id, str) and "/" in model_id else ""
+                if (self.provider_keys is not None and provider and provider != "opencode"
+                        and exc.response.status_code in {401, 429}):
+                    if await self.provider_keys.rotate_on_error(provider):
+                        audit("provider_key_rotated", "retry", {"provider": provider})
+                        return await self.client.send_prompt(
+                            session_id, prompt, model=model_id, agent=agent_name,
+                            parts=parts, variant=variant, **resume_options)
                 if variant and exc.response.status_code in {400, 404, 422}:
                     audit(
                         "model_variant_fallback",
