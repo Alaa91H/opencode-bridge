@@ -111,3 +111,10 @@ class AdminBackups:
             "encrypted": True, "sha256": hashlib.sha256(output.read_bytes()).hexdigest()}
         secure_write(output.with_name(output.name + ".json"), json.dumps(metadata).encode())
         return {"name": output.name, "bytes": output.stat().st_size, **metadata}
+
+    def purge_after_verified_update(self) -> int:
+        count = 0
+        for item in self.list():
+            self.delete(item["name"])
+            count += 1
+        return count
