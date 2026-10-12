@@ -1,6 +1,8 @@
 """Real filesystem regression tests for credential, backup and policy controls."""
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import sqlite3
 import tempfile
@@ -65,6 +67,32 @@ class AdminBackupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(db.execute("SELECT body FROM messages").fetchone()[0], "hello")
         self.backups.delete(item["name"])
         self.assertFalse(self.backups.list())
+
+    async def test_encrypted_metadata_is_discoverable_and_cleanup_removes_metadata(self):
+        self.backups.root.mkdir(parents=True, exist_ok=True)
+        names = []
+        for second in ("00", "01", "02"):
+            name = f"backup-20261012T2350{second}-deadbeef.age"
+            path = self.backups.root / name
+            payload = ("encrypted-test-" + second).encode()
+            path.write_bytes(payload)
+            metadata = {"created_utc": "2026-10-12T23:50:00+00:00",
+                        "includes_keys": True, "encrypted": True,
+                        "sha256": hashlib.sha256(payload).hexdigest()}
+            path.with_name(path.name + ".json").write_text(json.dumps(metadata))
+            names.append(name)
+        self.assertEqual(len(self.backups.list()), 3)
+        self.assertEqual(self.backups.purge_after_verified_update(), 1)
+        self.assertEqual(len(self.backups.list()), 2)
+        self.assertFalse((self.backups.root / names[0]).exists())
+        self.assertFalse((self.backups.root / (names[0] + ".json")).exists())
+
+    async def test_invalid_database_backup_does_not_count_as_recovery_copy(self):
+        names = [(await self.backups.create())["name"] for _ in range(3)]
+        corrupt = self.backups.get(names[-1])
+        corrupt.write_bytes(b"not a valid SQLite database")
+        self.assertEqual(self.backups.purge_after_verified_update(), 0)
+        self.assertEqual(len(self.backups.list()), 3)
 
     async def test_export_with_keys_requires_age_recipient(self):
         with self.assertRaises(ValueError):
