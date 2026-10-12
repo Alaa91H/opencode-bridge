@@ -96,6 +96,9 @@ class AdminUIIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.backups.list())
 
     async def test_system_update_auto_switch(self):
+        self.assertFalse(self.controls.system_auto_update())
+        await self.press(callback("toggleos"))
+        self.assertTrue(self.controls.system_auto_update())
         await self.press(callback("toggleos"))
         self.assertFalse(self.controls.system_auto_update())
         await self.press(callback("togglebackuppurge"))
