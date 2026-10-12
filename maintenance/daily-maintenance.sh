@@ -140,8 +140,9 @@ apt_upgrade() {
   env DEBIAN_FRONTEND=noninteractive apt-get "${APT_OPTIONS[@]}" -y upgrade
 }
 
-apt_autoremove() {
-  env DEBIAN_FRONTEND=noninteractive apt-get "${APT_OPTIONS[@]}" -y autoremove --purge
+apt_autoremove_preview() {
+  # Do not automatically purge packages that may be required by a local service.
+  env DEBIAN_FRONTEND=noninteractive apt-get "${APT_OPTIONS[@]}" -s autoremove
 }
 
 apt_clean() {
@@ -193,10 +194,14 @@ cleanup_managed_attachments() {
   ATTACHMENT_CLEANUP_SUMMARY="${stale_files} ملف (${stale_bytes}B)"
 }
 
-if [[ ! -f "${RUNTIME_DIR}/host-auto-update-enabled" ]] || [[ "$(cat "${RUNTIME_DIR}/host-auto-update-enabled")" != "0" ]]; then
+# Privileged host updates require explicit consent; missing, invalid and
+# symlinked switches are never permission to modify the operating system.
+if [[ -f "${RUNTIME_DIR}/host-auto-update-enabled" ]] &&
+   [[ ! -L "${RUNTIME_DIR}/host-auto-update-enabled" ]] &&
+   [[ "$(cat "${RUNTIME_DIR}/host-auto-update-enabled")" == "1" ]]; then
   record_step "تحديث فهارس الحزم" apt_update
   record_step "تثبيت تحديثات الحزم الآمنة" apt_upgrade
-  record_step "إزالة الحزم غير المطلوبة" apt_autoremove
+  record_step "معاينة الحزم غير المستخدمة دون حذفها" apt_autoremove_preview
   record_step "تنظيف ذاكرة حزم APT" apt_clean
 else
   STEPS+=("⏸ Automatic operating-system updates disabled by owner")
