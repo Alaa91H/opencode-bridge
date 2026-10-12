@@ -719,6 +719,48 @@ class ControlUI:
                 await query.answer()
                 await update.effective_message.reply_text(prompt)
                 return
+            elif action == "hostadd":
+                keyboard = InlineKeyboardMarkup([
+                    [button(scope, "hostscope", scope)]
+                    for scope in ("github", "telegram", "opencode", "opencode-server")
+                ])
+                await update.get_bot().edit_message_text(
+                    chat_id=query.message.chat_id, message_id=query.message.message_id,
+                    text=t["host_scope"], reply_markup=keyboard)
+                await query.answer()
+                return
+            elif action == "hostscope":
+                from bridge.services.host_credentials import ALLOWED
+                scope = parts[2]
+                if scope not in ALLOWED:
+                    raise ValueError("Unknown host credential type")
+                context.user_data["ui_wizard"] = {
+                    "mode": "host", "step": "label", "scope": scope}
+                await query.answer()
+                await update.effective_message.reply_text(t["host_label"])
+                return
+            elif action == "hostreplace":
+                entries = self.host_credentials.catalog()
+                index = int(parts[2])
+                if not 0 <= index < min(len(entries), 24):
+                    raise ValueError("Outdated host credential index")
+                item = entries[index]
+                if not item.get("managed", True):
+                    raise ValueError("External credential is not managed")
+                context.user_data["ui_wizard"] = {
+                    "mode": "host", "step": "value",
+                    "scope": item["scope"], "name": item["name"], "replace": True}
+                await query.answer()
+                await update.effective_message.reply_text(t["host_value"])
+                return
+            elif action == "hostactivate":
+                entries = self.host_credentials.catalog()
+                index = int(parts[2])
+                if not 0 <= index < min(len(entries), 24):
+                    raise ValueError("Outdated host credential index")
+                item = entries[index]
+                await self.host_credentials.activate(item["scope"], item["name"])
+                screen = "hostkeys"
             elif action == "keysel":
                 entries = self.provider_keys.catalog()
                 idx = int(parts[2])
