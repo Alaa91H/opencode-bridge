@@ -12,8 +12,10 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import urllib.error
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -22,6 +24,55 @@ RELEASE_API = "https://api.github.com/repos/Alaa91H/opencode-bridge/releases/lat
 ACTIONS_API = "https://api.github.com/repos/Alaa91H/opencode-bridge/actions/workflows/quality-gate.yml/runs"
 VERSION_RE = re.compile(r"^v([0-9]+)\.([0-9]+)\.([0-9]+)$")
 PROJECT_DIR = Path(__file__).resolve().parents[1]
+QUARANTINE_FILE = "auto-update-quarantine.json"
+
+
+def _quarantine_path(root: Path) -> Path:
+    return root / "runtime" / QUARANTINE_FILE
+
+
+def is_quarantined(root: Path, tag: str) -> bool:
+    """Never retry an already-failed release until a newer tag is published.
+
+    Corrupt or replaced state must fail closed, not silently retry an update.
+    """
+    path = _quarantine_path(root)
+    if path.is_symlink():
+        raise ValueError("unsafe quarantine file")
+    if not path.exists():
+        return False
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or data.get("schema") != 1:
+        raise ValueError("invalid quarantine state")
+    stored_tag = data.get("tag")
+    if not isinstance(stored_tag, str) or not VERSION_RE.fullmatch(stored_tag):
+        raise ValueError("invalid quarantined tag")
+    return stored_tag == tag
+
+
+def quarantine_failed_activation(root: Path, tag: str, commit: str, reason: str) -> None:
+    """Persist a failed activation atomically, without logs or secret material."""
+    path = _quarantine_path(root)
+    if path.is_symlink():
+        raise ValueError("unsafe quarantine file")
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    payload = {
+        "schema": 1, "tag": tag, "commit": commit,
+        "failed_at": datetime.now(UTC).isoformat(), "reason": reason,
+    }
+    fd, name = tempfile.mkstemp(prefix=".update-quarantine-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            if hasattr(os, "fchmod"):
+                os.fchmod(stream.fileno(), 0o600)
+            json.dump(payload, stream, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, path)
+    finally:
+        Path(name).unlink(missing_ok=True)
+
 
 
 def normalize_github_repository(remote: str) -> str | None:
@@ -109,6 +160,8 @@ def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
             return {"status": "skipped", "reason": "installed version is not stable semver"}
         if candidate <= current:
             return {"status": "up_to_date", "tag": tag}
+        if is_quarantined(root, tag):
+            return {"status": "skipped", "reason": "failed release is quarantined", "tag": tag}
         # Never trust a tag name from an arbitrary repository or branch.
         git_run("fetch", "--no-tags", "origin", f"refs/tags/{tag}:refs/tags/{tag}", cwd=root)
         commit = git_run("rev-parse", f"refs/tags/{tag}^{{commit}}", cwd=root)
@@ -120,12 +173,18 @@ def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
         if not verified_ci(commit, tag, api=api):
             return {"status": "skipped", "reason": "tagged CI not successful yet"}
         command = [str(root / "scripts" / "deploy.sh"), tag]
-        if deploy is None:
-            subprocess.run(command, cwd=root, check=True, timeout=240,
-                           env={**os.environ, "OPENCODE_EXPECTED_RELEASE_COMMIT": commit},
-                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        else:
-            deploy(command)
+        try:
+            if deploy is None:
+                subprocess.run(command, cwd=root, check=True, timeout=240,
+                               env={**os.environ, "OPENCODE_EXPECTED_RELEASE_COMMIT": commit},
+                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            else:
+                deploy(command)
+        except Exception as exc:
+            # A failed activation must never be attempted in a daily outage loop.
+            # A newer stable release is eligible without manual intervention.
+            quarantine_failed_activation(root, tag, commit, type(exc).__name__)
+            return {"status": "error", "reason": "activation failed; release quarantined", "tag": tag}
         return {"status": "updated", "tag": tag, "commit": commit}
     except (OSError, ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired,
             urllib.error.URLError, KeyError) as exc:
