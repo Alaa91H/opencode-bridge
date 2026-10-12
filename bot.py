@@ -44,6 +44,9 @@ from bridge.services.media_service import MediaTaskService
 from bridge.services.model_selection_service import ModelSelectionService
 from bridge.services.provider_keys import ProviderKeyManager
 from bridge.services.runtime_controls import RuntimeControls
+from bridge.services.host_credentials import HostCredentialManager
+from bridge.services.admin_backups import AdminBackups
+from bridge.services.mirrors import MirrorService
 from bridge.services.schedule_service import ScheduleService
 from bridge.services.task_execution_service import TaskExecutionService
 from bridge.services.task_service import TaskApplicationService
@@ -603,6 +606,10 @@ def _control_ui() -> ControlUI:
             allowed=_is_allowed,
             provider_keys=provider_keys,
             runtime_controls=RuntimeControls(BRIDGE_DIR / "runtime"),
+            host_credentials=HostCredentialManager(BRIDGE_DIR),
+            backups=AdminBackups(BRIDGE_DIR),
+            mirrors=MirrorService(BRIDGE_DIR / "runtime" / "downloads"),
+            project=BRIDGE_DIR,
             admin_allowed=lambda update: (_is_allowed(update) and bool(ALLOWED_USERS) and
                                           update.effective_user.id == min(ALLOWED_USERS)),
             legacy_dispatch=_dispatch_advanced_button,

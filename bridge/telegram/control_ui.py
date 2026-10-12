@@ -55,6 +55,20 @@ WORDS = {
         "key_provider": "أرسل معرّف المزوّد مثل openai أو anthropic.",
         "key_label": "أرسل اسمًا للمفتاح (حروف إنجليزية وأرقام فقط).",
         "key_secret": "أرسل قيمة API Key الآن. ستُحذف الرسالة مباشرة.",
+        "hostkeys": "🔐 مفاتيح GitHub / Telegram / OpenCode",
+        "hostadd": "➕ إضافة اعتماد", "hostreplace": "✏️ استبدال اعتماد",
+        "host_scope": "اختر الخدمة:", "host_label": "أرسل اسم الاعتماد.",
+        "host_value": "أرسل التوكن في رسالة خاصة؛ سنحاول حذف الرسالة.",
+        "backups": "🗄 النسخ الاحتياطية", "backup_create": "➕ نسخة جديدة",
+        "backup_send": "📤 إرسال", "backup_delete": "🗑 حذف نسخة",
+        "backup_keys": "🔒 مع المفاتيح (مشفرة فقط)",
+        "mirrors": "☁️ مرايا مجانية", "mirror_url": "🔗 نسخ رابط إلى مرآة",
+        "mirror_input": "أرسل رابطًا عامًا لمشاركة نسخه عبر المزود الخارجي.",
+        "resources": "📊 موارد الخادم", "update_agent": "🤖 تحديث OpenCode الآن",
+        "update_system": "🛠 تحديث النظام الآن", "auto_system": "🔄 تحديث النظام تلقائيًا",
+        "backup_policy": "🗑 حذف النسخ الاحتياطية بعد تحديث ناجح",
+        "admin_private": "تتطلب هذه العملية محادثة خاصة مع مالك البوت.",
+        "pending_update": "بدأ فحص التحديث. سيتم عرض نتيجة العملية هنا.",
         "queued": "أُضيفت المهمة إلى الطابور. رقمها: ",
         "saved": "حُفظ التغيير.", "not_found": "انتهت صلاحية هذا الزر؛ افتح القائمة من جديد.",
         "home_text": "لوحة تحكم OpenCode Bridge\nاختر القسم أو استخدم الأزرار الثابتة أسفل المحادثة.",
@@ -106,6 +120,20 @@ WORDS = {
         "key_provider": "Send provider ID, e.g. openai or anthropic.",
         "key_label": "Send key label (letters/digits only).",
         "key_secret": "Send the API key value now. The message will be deleted.",
+        "hostkeys": "🔐 GitHub / Telegram / OpenCode credentials",
+        "hostadd": "➕ Add credential", "hostreplace": "✏️ Replace credential",
+        "host_scope": "Select service:", "host_label": "Send the credential label.",
+        "host_value": "Send the token in a private message; we will attempt to delete it.",
+        "backups": "🗄 Backups", "backup_create": "➕ Create backup",
+        "backup_send": "📤 Send", "backup_delete": "🗑 Delete backup",
+        "backup_keys": "🔒 With keys (encrypted only)",
+        "mirrors": "☁️ Free mirrors", "mirror_url": "🔗 Mirror a URL",
+        "mirror_input": "Send a public URL to copy to an external host.",
+        "resources": "📊 Server resources", "update_agent": "🤖 Update OpenCode now",
+        "update_system": "🛠 Update OS now", "auto_system": "🔄 Automatic OS updates",
+        "backup_policy": "🗑 Delete backups after successful upgrade",
+        "admin_private": "This action requires the bot owner's private chat.",
+        "pending_update": "Update check started. The result will appear here.",
         "queued": "Task queued with ID: ", "saved": "Selection saved.",
         "not_found": "This button is stale; reopen the menu.",
         "home_text": "OpenCode Bridge control center\nChoose a section or use the persistent keyboard below.",
@@ -129,9 +157,9 @@ WORDS = {
         "success": "Action completed.", "number_one": "1 — recommended", "number_two": "2 — if needed",
     },
 }
-BUTTON_KEYS = (("home", "agent"), ("keys", "direct"), ("daily", "tasks"), ("schedules", "downloads"), ("server", "settings"), ("language", "advanced"), ("help",))
+BUTTON_KEYS = (("home", "agent"), ("keys", "hostkeys"), ("direct", "backups"), ("daily", "tasks"), ("schedules", "downloads"), ("mirrors", "server"), ("server", "settings"), ("language", "advanced"), ("help",))
 BINDINGS = {value: key for lang in WORDS.values() for key in
-            ("home", "agent", "keys", "direct", "daily", "tasks", "schedules", "downloads", "server", "settings", "language", "advanced", "help")
+            ("home", "agent", "keys", "hostkeys", "backups", "mirrors", "direct", "daily", "tasks", "schedules", "downloads", "server", "settings", "language", "advanced", "help")
             for value in (lang[key],)}
 
 
@@ -155,7 +183,9 @@ class ControlUI:
                  tasks: Any, schedule_store: Any, schedule_service: Any, downloads: Any,
                  capacity: Any, wake: Any, allowed: Any, provider_keys: Any | None = None,
                  runtime_controls: Any | None = None, admin_allowed: Any | None = None,
-                 legacy_dispatch: Any | None = None, research_modes: dict | None = None):
+                 legacy_dispatch: Any | None = None, research_modes: dict | None = None,
+                 host_credentials: Any | None = None, backups: Any | None = None,
+                 mirrors: Any | None = None, project: Any | None = None):
         self.preferences = preferences
         self.agents = agents
         self.models = models
@@ -171,6 +201,10 @@ class ControlUI:
         self.admin_allowed = admin_allowed or allowed
         self.legacy_dispatch = legacy_dispatch
         self.research_modes = research_modes or {}
+        self.host_credentials = host_credentials
+        self.backups = backups
+        self.mirrors = mirrors
+        self.project = project
 
     async def _lang(self, owner: str) -> str:
         value = (await self.preferences.get(owner)).language
