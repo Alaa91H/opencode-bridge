@@ -243,5 +243,65 @@ class SelfUpdatePolicyTests(unittest.TestCase):
             self.assertFalse(controls.auto_update())
 
 
+    def test_manual_apply_can_update_even_if_automatic_mode_is_off(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "runtime").mkdir()
+            (root / "runtime" / "autopilot-mode").write_text("off\n", encoding="ascii")
+            (root / "VERSION").write_text("3.2.0\n", encoding="ascii")
+            commit = "c" * 40
+            calls = []
+
+            def git(*args, cwd):
+                if args[0] == "remote":
+                    return "https://github.com/Alaa91H/opencode-bridge.git"
+                if args[0] == "status":
+                    return ""
+                if args[0] == "fetch":
+                    return ""
+                if args[0] == "rev-parse":
+                    return commit
+                if args[0] == "show":
+                    return "3.3.0"
+                self.fail(str(args))
+
+            def api(url):
+                if url == self_update.RELEASE_API:
+                    return {"tag_name": "v3.3.0", "draft": False, "prerelease": False}
+                return {"workflow_runs": [{"head_sha": commit, "head_branch": "v3.3.0",
+                                          "event": "push", "status": "completed",
+                                          "conclusion": "success"}]}
+
+            result = self_update.update(root=root, api=api, git_run=git,
+                                        deploy=lambda cmd: calls.append(cmd), manual=True)
+            self.assertEqual(result["status"], "updated")
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][-1], "v3.3.0")
+
+    def test_manual_apply_does_not_bypass_release_quarantine(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "runtime").mkdir()
+            (root / "VERSION").write_text("3.2.0\n", encoding="ascii")
+            self_update.quarantine_failed_activation(root, "v3.3.0", "d" * 40,
+                                                       "CalledProcessError")
+            called = []
+
+            def git(*args, cwd):
+                if args[0] == "remote":
+                    return "https://github.com/Alaa91H/opencode-bridge.git"
+                if args[0] == "status":
+                    return ""
+                self.fail("Manual quarantine must stop before fetch")
+
+            result = self_update.update(
+                root=root, git_run=git, manual=True,
+                api=lambda url: {"tag_name": "v3.3.0", "draft": False, "prerelease": False},
+                deploy=lambda args: called.append(args),
+            )
+            self.assertEqual(result["status"], "skipped")
+            self.assertFalse(called)
+
+
 if __name__ == "__main__":
     unittest.main()
