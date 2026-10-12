@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 from datetime import UTC, datetime
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 RELEASE_SHA = re.compile(r"[0-9a-f]{40}\Z")
@@ -82,6 +83,8 @@ def _memory_kib() -> dict[str, int | None]:
 
 
 def _deployment_identity(runtime: Path) -> dict[str, str]:
+    if runtime.is_symlink():
+        return {"status": "invalid"}
     path = runtime / "deployment-identity"
     raw = _read_safe(path, max_bytes=4096)
     if raw is None:
@@ -98,6 +101,18 @@ def _deployment_identity(runtime: Path) -> dict[str, str]:
     if not isinstance(sha, str) or not RELEASE_SHA.fullmatch(sha):
         return {"status": "invalid"}
     return {"status": "recorded", "tag": tag, "commit": sha}
+
+
+def _dependencies() -> dict[str, str | None]:
+    result: dict[str, str | None] = {}
+    for package in ("python-telegram-bot", "httpx", "aiosqlite"):
+        try:
+            value = version(package)
+        except PackageNotFoundError:
+            value = None
+        # Never expose unexpected arbitrary metadata strings in diagnostics.
+        result[package] = value if value is not None and SEMVER.fullmatch(value) else None
+    return result
 
 
 def _file_metadata(path: Path) -> dict[str, bool]:
@@ -163,5 +178,6 @@ def collect_inventory(project: Path) -> dict:
             "disk": disk,
         },
         "memory": _memory_kib(),
+        "runtime_dependencies": _dependencies(),
         "running_as_root": bool(hasattr(os, "geteuid") and os.geteuid() == 0),
     }
