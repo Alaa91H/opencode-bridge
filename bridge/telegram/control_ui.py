@@ -675,6 +675,18 @@ class ControlUI:
             parts = query.data.split(":")
             action = parts[1]
             screen = "home"
+            private_operations = {
+                "hostadd", "hostscope", "hostreplace", "hostactivate",
+                "backupcreate", "backupsend", "backupsecure", "mirrorurl",
+                "mirrorfile", "toggleos", "togglebackuppurge",
+            }
+            if (action in private_operations
+                    or (action == "go" and len(parts) > 2
+                        and parts[2] in {"keys", "hostkeys", "backups", "mirrors"})):
+                if not self.admin_allowed(update) or getattr(
+                    getattr(update, "effective_chat", None), "type", None) != "private":
+                    await query.answer(t["admin_private"], show_alert=True)
+                    return
             if (action in {"workers", "keysel", "keyauto", "toggleupdate", "zram", "swap", "legacy", "researchmode"}
                     or (action == "input" and len(parts) > 2 and parts[2] == "key_add")
                     or (action == "confirm" and len(parts) > 2 and parts[2] in {"key"})
