@@ -777,6 +777,49 @@ class ControlUI:
                     raise ValueError("stale provider")
                 await self.provider_keys.toggle_auto(providers[idx])
                 screen = "keys"
+            elif action == "backupcreate":
+                await query.answer()
+                created = await self.backups.create()
+                await update.effective_message.reply_text(
+                    t["success"] + "\n" + safe(created["name"]))
+                screen = "backups"
+            elif action == "backupsend":
+                from types import SimpleNamespace
+                from bridge.telegram.download_delivery import deliver_download
+                entries = self.backups.list()
+                index = int(parts[2])
+                if not 0 <= index < min(len(entries), 12):
+                    raise ValueError("Missing backup")
+                item = self.backups.get(entries[index]["name"])
+                record = SimpleNamespace(
+                    path=str(item), size_bytes=item.stat().st_size,
+                    filename=item.name, direct_send_limit=49 * 1024 * 1024)
+                await deliver_download(context.bot, update.effective_chat.id, record)
+                screen = "backups"
+            elif action == "backupsecure":
+                await query.answer()
+                await update.effective_message.reply_text(
+                    "Secret-inclusive backups require configured age public-key "
+                    "encryption; plaintext secret exports are disabled.")
+                return
+            elif action == "mirrorurl":
+                from bridge.services.mirrors import PROVIDERS
+                if parts[2] not in PROVIDERS or not PROVIDERS[parts[2]]["url"]:
+                    raise ValueError("Unsupported URL mirror")
+                context.user_data["ui_wait"] = "mirror:" + parts[2]
+                await query.answer()
+                await update.effective_message.reply_text(t["mirror_input"])
+                return
+            elif action == "mirrorfile":
+                from bridge.services.mirrors import PROVIDERS
+                provider = parts[2]
+                index = int(parts[3])
+                records = self.downloads.list(owner)
+                if provider not in PROVIDERS or not 0 <= index < min(len(records), 8):
+                    raise ValueError("Invalid mirror selection")
+                link = await self.mirrors.mirror_file(provider, __import__("pathlib").Path(records[index].path))
+                await update.effective_message.reply_text(link)
+                screen = "mirrors"
             elif action == "toggleupdate":
                 self.runtime_controls.set_auto_update(not self.runtime_controls.auto_update())
                 screen = "updates"
