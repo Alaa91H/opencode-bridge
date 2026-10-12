@@ -40,3 +40,32 @@ class RuntimeControlsTests(unittest.TestCase):
             path.write_text("{broken", encoding="utf-8")
             with self.assertRaises(ValueError):
                 controls.failed_update_release()
+
+
+    def test_autopilot_modes_are_durable_and_legacy_switch_is_preserved(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controls = RuntimeControls(root)
+            self.assertEqual(controls.autopilot_mode(), "auto-safe")
+            for mode, deploys in (("notify", False), ("off", False),
+                                  ("auto-safe", True), ("maintenance-window", True)):
+                with self.subTest(mode=mode):
+                    controls.set_autopilot_mode(mode)
+                    refreshed = RuntimeControls(root)
+                    self.assertEqual(refreshed.autopilot_mode(), mode)
+                    self.assertEqual(refreshed.auto_update(), deploys)
+            controls.set_auto_update(False)
+            self.assertEqual(RuntimeControls(root).autopilot_mode(), "off")
+            self.assertEqual((root / "auto-update-enabled").read_text().strip(), "0")
+            controls.set_auto_update(True)
+            self.assertEqual(RuntimeControls(root).autopilot_mode(), "auto-safe")
+            with self.assertRaises(ValueError):
+                controls.set_autopilot_mode("unrestricted-root")
+            self.assertEqual(controls.autopilot_mode(), "auto-safe")
+
+    def test_invalid_autopilot_mode_is_not_treated_as_enabled(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "autopilot-mode").write_text("unrecognized\n", encoding="ascii")
+            with self.assertRaises(ValueError):
+                RuntimeControls(root).auto_update()
