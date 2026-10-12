@@ -42,7 +42,7 @@ SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._\- ]+")
 ALLOWED_SCHEMES = {"http", "https"}
 DEFAULT_MAX_FILE_BYTES = 2000 * 1024 * 1024
 DEFAULT_MAX_TOTAL_BYTES = 20 * 1024 * 1024 * 1024
-DEFAULT_TTL_HOURS = 72
+DEFAULT_TTL_HOURS = 24
 CHUNK_BYTES = 1024 * 1024
 MAX_FILENAME = 120
 DIRECT_TELEGRAM_LIMIT = 50 * 1024 * 1024
@@ -307,7 +307,6 @@ class DownloadService:
                     media: bool = False) -> DownloadRecord:
         """Queue media (yt-dlp) or direct HTTP under a common 20 GiB quota."""
         async with self._transfer_lock:
-            self.cleanup_expired()
             if media:
                 return await self._fetch_media_locked(owner_id, url)
             return await self._fetch_locked(owner_id, url, filename=filename)

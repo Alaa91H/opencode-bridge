@@ -380,10 +380,13 @@ def _download_cleanup_loop() -> None:
 
 
 async def _download_cleanup_task() -> None:
-    interval = max(60, int(SETTINGS.downloads.cleanup_interval_seconds))
-    _download_cleanup_loop()
+    """Expire files at 00:00 UTC only, after at least 24 hours of retention."""
+    from datetime import timedelta
     while True:
-        await asyncio.sleep(interval)
+        now = datetime.now(UTC)
+        tomorrow = (now + timedelta(days=1)).date()
+        next_midnight = datetime.combine(tomorrow, datetime.min.time(), tzinfo=UTC)
+        await asyncio.sleep(max(1, (next_midnight - now).total_seconds()))
         _download_cleanup_loop()
 
 

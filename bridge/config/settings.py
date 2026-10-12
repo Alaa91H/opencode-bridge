@@ -254,7 +254,7 @@ class DownloadSettings:
 
     max_file_bytes: int = 2000 * 1024 * 1024
     max_total_bytes: int = 20 * 1024 * 1024 * 1024
-    ttl_hours: int = 72
+    ttl_hours: int = 24
     direct_send_limit: int = 50 * 1024 * 1024
     cleanup_interval_seconds: int = 900
 
@@ -664,7 +664,7 @@ class BridgeSettings:
             ttl_hours=_parse_int(
                 _source_value(
                     merged_env, config, "DOWNLOAD_TTL_HOURS",
-                    "downloads.ttl_hours", 72
+                    "downloads.ttl_hours", 24
                 ),
                 key="DOWNLOAD_TTL_HOURS",
                 minimum=1,
