@@ -354,6 +354,14 @@ class ControlUI:
             for i, provider in enumerate(providers[:20]):
                 auto = any(item["auto"] for item in entries if item["provider"] == provider)
                 rows.append([button(t["key_auto"] + " " + provider + (" ✅" if auto else ""), "keyauto", i)])
+        elif screen == "mirrors":
+            text = t["mirrors"] + "\nCatbox • TempFile.org • TmpFiles"
+            for provider in ("catbox", "tempfile"):
+                rows.append([button(t["mirror_url"] + " · " + provider, "mirrorurl", provider)])
+            for i, item in enumerate(self.downloads.list(owner)[:8]):
+                text += "\n• " + safe(item.filename)
+                rows.append([button("☁ Catbox", "mirrorfile", "catbox", i),
+                             button("☁ TmpFiles", "mirrorfile", "tmpfiles", i)])
         elif screen == "backups":
             text = t["backups"]
             entries = self.backups.list() if self.backups else []
