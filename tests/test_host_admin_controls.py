@@ -94,6 +94,41 @@ class AdminBackupTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.backups.purge_after_verified_update(), 0)
         self.assertEqual(len(self.backups.list()), 3)
 
+    async def test_plain_snapshot_has_content_hash_without_in_memory_read(self):
+        from unittest.mock import patch
+
+        # Snapshot should be streamed instead of read entirely into memory.
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("full read forbidden")):
+            created = await self.backups.create()
+        records = self.backups.list()
+        self.assertEqual(records[0]["name"], created["name"])
+        self.assertEqual(len(created["sha256"]), 64)
+        self.assertTrue(self.backups._backup_usable(records[0]))
+
+    async def test_valid_but_modified_sqlite_does_not_authorize_backup_pruning(self):
+        names = [(await self.backups.create())["name"] for _ in range(3)]
+        newest = self.backups.get(names[-1])
+        with sqlite3.connect(newest) as db:
+            db.execute("UPDATE messages SET body = 'silently modified'")
+        with sqlite3.connect(newest) as db:
+            self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+        listed = self.backups.list()
+        tampered = next(item for item in listed if item["name"] == names[-1])
+        self.assertFalse(self.backups._backup_usable(tampered))
+        self.assertEqual(self.backups.purge_after_verified_update(), 0)
+        self.assertEqual(len(self.backups.list()), 3)
+
+    async def test_legacy_hashless_backup_remains_visible_but_never_pruned(self):
+        created = await self.backups.create()
+        meta = self.backups.get(created["name"]).with_suffix(".json")
+        payload = json.loads(meta.read_text(encoding="utf-8"))
+        payload.pop("sha256")
+        meta.write_text(json.dumps(payload), encoding="utf-8")
+        legacy = self.backups.list()[0]
+        self.assertFalse(self.backups._backup_usable(legacy))
+        self.assertEqual(self.backups.purge_after_verified_update(), 0)
+        self.assertEqual(len(self.backups.list()), 1)
+
     async def test_export_with_keys_requires_age_recipient(self):
         with self.assertRaises(ValueError):
             await self.backups.create_encrypted()
