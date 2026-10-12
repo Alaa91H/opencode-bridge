@@ -1,0 +1,2 @@
+# Dedicated bridge owner: only fixed APT update/upgrade commands, no wildcard arguments.
+ubuntu ALL=(root) NOPASSWD: /usr/bin/apt-get -y update, /usr/bin/apt-get -y upgrade

@@ -25,6 +25,9 @@ install -m 0644 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-maintenance.
 install -m 0644 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-maintenance.timer" /etc/systemd/system/opencode-bridge-maintenance.timer
 install -m 0644 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-reboot-guard.service" /etc/systemd/system/opencode-bridge-reboot-guard.service
 
+install -m 0440 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-admin.sudoers" /etc/sudoers.d/opencode-bridge-admin
+visudo -cf /etc/sudoers.d/opencode-bridge-admin
+
 systemctl daemon-reload
 systemctl enable opencode-bridge-resource-optimizer.service >/dev/null
 systemctl enable --now opencode-bridge-resource-optimizer.timer >/dev/null
