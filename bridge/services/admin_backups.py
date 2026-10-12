@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import shutil
 import sqlite3
 import subprocess
@@ -73,7 +74,6 @@ class AdminBackups:
             # Stream instead of loading the entire database into memory.
             # The host may have only 1 GiB RAM, while SQLite may be larger.
             destination = self.root / name
-            import os
             fd, temporary = tempfile.mkstemp(prefix=".snapshot-", dir=self.root)
             digest = hashlib.sha256()
             try:
