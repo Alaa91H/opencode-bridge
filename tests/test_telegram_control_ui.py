@@ -257,5 +257,52 @@ class UIFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await self.ui.on_text(self.update, self.context))
 
 
+    async def test_single_server_and_credentials_button_in_both_languages(self):
+        from bridge.telegram.control_ui import BINDINGS, BUTTON_KEYS, WORDS
+
+        self.assertEqual(sum(k == "server" for row in BUTTON_KEYS for k in row), 1)
+        self.assertEqual(sum(k == "credentials" for row in BUTTON_KEYS for k in row), 1)
+        self.assertNotIn("keys", sum((list(row) for row in BUTTON_KEYS), []))
+        self.assertNotIn("hostkeys", sum((list(row) for row in BUTTON_KEYS), []))
+        for language in ("ar", "en"):
+            with self.subTest(language=language):
+                labels = [button.text for row in self.ui.keyboard(language).keyboard
+                          for button in row]
+                self.assertEqual(len(labels), len(set(labels)), "Reply keyboard must not repeat labels")
+                self.assertEqual(labels.count(WORDS[language]["server"]), 1)
+                self.assertEqual(labels.count(WORDS[language]["credentials"]), 1)
+                self.assertEqual(BINDINGS[WORDS[language]["keys"]], "keys",
+                                 "Existing keyboard shortcuts must keep working")
+                self.assertEqual(BINDINGS[WORDS[language]["hostkeys"]], "hostkeys")
+                self.assertEqual(BINDINGS[WORDS[language]["credentials"]], "credentials")
+
+    async def test_credentials_navigation_and_nested_back_button(self):
+        from bridge.telegram.control_ui import WORDS
+
+        for language in ("ar", "en"):
+            self.prefs.values["1"] = UserPreferences(language=language)
+            _, home = await self.ui.render("1", "home")
+            self.assertIn(callback("go", "credentials"),
+                          [b.callback_data for row in home.inline_keyboard for b in row])
+            self.assertNotIn(callback("go", "keys"),
+                             [b.callback_data for row in home.inline_keyboard for b in row])
+            text, submenu = await self.ui.render("1", "credentials")
+            self.assertIn(WORDS[language]["credentials_text"], text)
+            options = [b.callback_data for row in submenu.inline_keyboard for b in row]
+            self.assertIn(callback("go", "keys"), options)
+            self.assertIn(callback("go", "hostkeys"), options)
+            self.assertIn(callback("go", "home"), options)
+            for screen in ("keys", "hostkeys"):
+                _, detail = await self.ui.render("1", screen)
+                self.assertEqual(detail.inline_keyboard[-1][0].callback_data,
+                                 callback("go", "credentials"))
+
+    async def test_credentials_callback_rejected_in_non_private_chat(self):
+        self.update.effective_chat.type = "group"
+        await self.press(callback("go", "credentials"))
+        self.query.answer.assert_awaited()
+        self.assertEqual(self.bot.edit_message_text.await_count, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
