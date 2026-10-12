@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from bridge.services.backup_recovery import verify_encrypted_backup  # noqa: E402
+from bridge.services.backup_recovery import verify_encrypted_backup
 
 
 def main() -> int:
