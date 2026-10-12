@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
-from datetime import UTC, datetime
 import json
 import subprocess
 import tempfile
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
