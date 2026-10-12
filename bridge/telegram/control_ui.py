@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import sqlite3
 from types import SimpleNamespace
 from typing import Any
 
@@ -76,6 +77,8 @@ WORDS = {
         "update_system": "🛠 تحديث النظام الآن", "auto_system": "🔄 تحديث النظام تلقائيًا",
         "bridge_check": "🔎 فحص تحديث Bridge الآن (دون تثبيت)",
         "bridge_update": "🚀 تحديث Bridge الآن (بعد التأكيد)",
+        "update_last": "آخر عملية تحديث: {tag} — {phase} ({date})",
+        "update_last_invalid": "⚠️ سجل عمليات التحديث غير متاح؛ يُرجى مراجعة سلامة قاعدة البيانات.",
         "backup_policy": "🗑 حذف النسخ الاحتياطية بعد تحديث ناجح",
         "admin_private": "تتطلب هذه العملية محادثة خاصة مع مالك البوت.",
         "pending_update": "بدأ فحص التحديث. سيتم عرض نتيجة العملية هنا.",
@@ -152,6 +155,8 @@ WORDS = {
         "update_system": "🛠 Update OS now", "auto_system": "🔄 Automatic OS updates",
         "bridge_check": "🔎 Check Bridge release now (no install)",
         "bridge_update": "🚀 Update Bridge now (confirm first)",
+        "update_last": "Last release operation: {tag} — {phase} ({date})",
+        "update_last_invalid": "⚠️ Update operation ledger is unreadable. Verify database health.",
         "backup_policy": "🗑 Delete backups after successful upgrade",
         "admin_private": "This action requires the bot owner's private chat.",
         "pending_update": "Update check started. The result will appear here.",
@@ -453,6 +458,15 @@ class ControlUI:
                 else:
                     if held_tag:
                         text += "\n" + t["quarantine_text"].format(tag=held_tag)
+                try:
+                    operation = self.runtime_controls.last_release_operation()
+                except (ValueError, OSError, sqlite3.Error):
+                    text += "\n" + t["update_last_invalid"]
+                else:
+                    if operation:
+                        text += "\n" + t["update_last"].format(
+                            tag=safe(operation.tag, 32), phase=safe(operation.phase, 40),
+                            date=safe(operation.updated_utc, 35))
             for value, label in (("off", "mode_off"), ("notify", "mode_notify"),
                                  ("auto-safe", "mode_safe"), ("maintenance-window", "mode_window")):
                 rows.append([button(("● " if current_mode == value else "○ ") + t[label],
