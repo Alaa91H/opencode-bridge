@@ -1,13 +1,14 @@
 """Manage offline SQLite snapshots for the Telegram control panel."""
+
 from __future__ import annotations
 
 import asyncio
-import json
 import hashlib
+import json
 import shutil
+import sqlite3
 import subprocess
 import tarfile
-import sqlite3
 import tempfile
 import uuid
 from datetime import UTC, datetime
@@ -102,7 +103,7 @@ class AdminBackups:
                     if file.is_file() and not file.is_symlink():
                         archive.add(file, arcname=rel)
             encrypted = folder / (name + ".age")
-            subprocess.run(["age", "-r", key, "-o", str(encrypted), str(plaintext)],
+            subprocess.run(["age", "-r", key, "-o", str(encrypted), str(plaintext)],  # noqa: S603,S607 -- fixed executable and validated recipient
                            check=True, capture_output=True, timeout=120)
             output = self.root / encrypted.name
             secure_write(output, encrypted.read_bytes())

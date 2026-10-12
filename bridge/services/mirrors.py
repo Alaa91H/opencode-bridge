@@ -1,7 +1,7 @@
 """Public anonymous mirror integrations. Never mirror private credentials."""
+
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from urllib.parse import urlparse
 

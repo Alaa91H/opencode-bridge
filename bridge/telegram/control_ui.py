@@ -8,11 +8,17 @@ outside that state.
 
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
+from types import SimpleNamespace
 from typing import Any
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+
+from bridge.services.host_credentials import LABEL_RE
+from bridge.services.server_admin import update_now
+from bridge.telegram.download_delivery import deliver_download
 
 from bridge.domain.schedules.user_timezones import (
     COUNTRIES,
@@ -205,6 +211,7 @@ class ControlUI:
         self.backups = backups
         self.mirrors = mirrors
         self.project = project
+        self._running_updates: set[asyncio.Task] = set()
 
     async def _lang(self, owner: str) -> str:
         value = (await self.preferences.get(owner)).language
@@ -491,9 +498,8 @@ class ControlUI:
                 context.user_data.pop("ui_wizard", None)
                 return True
             if wizard["step"] == "label":
-                from bridge.services.host_credentials import LABEL_RE
                 if not LABEL_RE.fullmatch(text):
-                    await message.reply_text(t["error"] if "t" in locals() else WORDS[await self._lang(owner)]["error"])
+                    await message.reply_text(WORDS[await self._lang(owner)]["error"])
                     return True
                 wizard["name"] = text
                 wizard["step"] = "value"
@@ -796,8 +802,6 @@ class ControlUI:
                     t["success"] + "\n" + safe(created["name"]))
                 screen = "backups"
             elif action == "backupsend":
-                from types import SimpleNamespace
-                from bridge.telegram.download_delivery import deliver_download
                 entries = self.backups.list()
                 index = int(parts[2])
                 if not 0 <= index < min(len(entries), 12):
@@ -956,15 +960,15 @@ class ControlUI:
                     self.backups.delete(entries[idx]["name"])
                     screen = "backups"
                 elif kind in {"updateagent", "updatesystem"}:
-                    from bridge.services.server_admin import update_now
-                    import asyncio
                     await query.answer()
                     notice = await update.effective_message.reply_text(t["pending_update"])
                     kind_name = "agent" if kind == "updateagent" else "system"
                     async def complete_update() -> None:
                         result = await update_now(kind_name)
                         await notice.edit_text(result[-3500:])
-                    asyncio.create_task(complete_update())
+                    task = asyncio.create_task(complete_update())
+                    self._running_updates.add(task)
+                    task.add_done_callback(self._running_updates.discard)
                     return
                 elif kind == "new":
                     await self.agents.fresh_session(owner)

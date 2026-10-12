@@ -35,17 +35,17 @@ from bridge.domain.schedules import (
 from bridge.infrastructure.database.draft_store import DraftStore
 from bridge.infrastructure.database.user_settings_store import UserSettingsStore
 from bridge.infrastructure.opencode.credential_pool import CredentialPool, parse_credential_pool
+from bridge.services.admin_backups import AdminBackups
 from bridge.services.agent_service import AgentService
 from bridge.services.config_service import ConfigurationService
 from bridge.services.download_service import DownloadService
 from bridge.services.draft_service import DraftService
+from bridge.services.host_credentials import HostCredentialManager
 from bridge.services.maintenance_service import MaintenanceReportService
 from bridge.services.media_service import MediaTaskService
 from bridge.services.model_selection_service import ModelSelectionService
 from bridge.services.provider_keys import ProviderKeyManager
 from bridge.services.runtime_controls import RuntimeControls
-from bridge.services.host_credentials import HostCredentialManager
-from bridge.services.admin_backups import AdminBackups
 from bridge.services.mirrors import MirrorService
 from bridge.services.schedule_service import ScheduleService
 from bridge.services.task_execution_service import TaskExecutionService
