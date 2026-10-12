@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import sqlite3
-from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
 from bridge.services.update_coordinator import UpdateCoordinator
 
