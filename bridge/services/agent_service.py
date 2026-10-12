@@ -75,11 +75,13 @@ class AgentService:
         variant_model: str,
         model_manager_provider: Callable[[], Any | None],
         logger: logging.Logger | None = None,
+        agent_preference_provider: Callable[[str], Awaitable[Any]] | None = None,
     ) -> None:
         self.client = client
         self.sessions = sessions
         self.default_model = default_model
         self.default_agent = default_agent
+        self.agent_preference_provider = agent_preference_provider
         self.default_variant = default_variant
         self.variant_model = variant_model
         self.model_manager_provider = model_manager_provider
@@ -116,6 +118,12 @@ class AgentService:
                     if dynamic:
                         return dynamic
         return self.variant_for_model(model_id)
+
+    async def selected_agent(self, owner_id: str) -> str:
+        if self.agent_preference_provider is None:
+            return self.default_agent
+        preferences = await self.agent_preference_provider(owner_id)
+        return getattr(preferences, "agent_preference", None) or self.default_agent
 
     async def ensure_session(self, user_id: str) -> str:
         current = await self.sessions.get_session(user_id)
@@ -209,7 +217,7 @@ class AgentService:
                 state=None,
                 model=None,
                 variant=None,
-                agent=self.default_agent,
+                agent=await self.selected_agent(user_id),
             )
         states = await self.client.get_session_status()
         state = states.get(session.opencode_session_id, {}).get("state", "غير معروف")
@@ -221,7 +229,7 @@ class AgentService:
             state=str(state),
             model=model,
             variant=self.variant_for_model(model),
-            agent=self.default_agent,
+            agent=await self.selected_agent(user_id),
         )
 
     async def current_model(self, user_id: str) -> tuple[str, str]:
@@ -273,6 +281,7 @@ class AgentService:
                 )
 
         async def send_for_model(model_id: str | None) -> dict:
+            agent_name = await self.selected_agent(owner_id)
             variant = await self.resolve_variant(owner_id, model_id)
             resume_options = {"message_id": message_id} if message_id else {}
             if should_continue is not None:
@@ -282,7 +291,7 @@ class AgentService:
                     session_id,
                     prompt,
                     model=model_id,
-                    agent=self.default_agent,
+                    agent=agent_name,
                     parts=parts,
                     variant=variant,
                     **resume_options,
@@ -300,7 +309,7 @@ class AgentService:
                             session_id,
                             prompt,
                             model=model_id,
-                            agent=self.default_agent,
+                            agent=agent_name,
                             parts=parts,
                             variant=None,
                             **resume_options,
@@ -324,7 +333,7 @@ class AgentService:
                             session_id,
                             prompt,
                             model=model_id,
-                            agent=self.default_agent,
+                            agent=agent_name,
                             parts=[],
                             variant=variant,
                             **resume_options,

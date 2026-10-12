@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
+from bridge.services.worker_capacity import WorkerCapacity
 from resource_monitor import ResourceSnapshot, WorkerDecision
 from task_service import TaskService
 
@@ -39,25 +42,35 @@ class SequencedPolicy:
 
 class ProductionAdaptiveWorkerTests(unittest.TestCase):
     def test_default_service_reduces_immediately_and_holds_recovery(self) -> None:
-        policy = SequencedPolicy([3, 1, 4])
+        policy = SequencedPolicy([2, 1, 2])
+        temp = TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        capacity = WorkerCapacity(Path(temp.name) / "capacity")
+        capacity.set(2)
         service = TaskService(
             store=None,  # type: ignore[arg-type]
             executor=_executor,
             max_workers=4,
+            capacity=capacity,
             resource_policy=policy,  # type: ignore[arg-type]
             recovery_seconds=30,
         )
 
-        self.assertEqual(service.active_worker_limit(), 3)
+        self.assertEqual(service.active_worker_limit(), 2)
         self.assertEqual(service.active_worker_limit(), 1)
         self.assertEqual(service.active_worker_limit(), 1)
 
     def test_resource_policy_cannot_exceed_admin_ceiling(self) -> None:
         policy = SequencedPolicy([8])
+        temp = TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        capacity = WorkerCapacity(Path(temp.name) / "capacity")
+        capacity.set(2)
         service = TaskService(
             store=None,  # type: ignore[arg-type]
             executor=_executor,
             max_workers=2,
+            capacity=capacity,
             resource_policy=policy,  # type: ignore[arg-type]
         )
         self.assertEqual(service.active_worker_limit(), 2)

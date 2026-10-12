@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 class UserPreferences:
     timezone: str = "UTC"
     language: str = "en"
+    agent_preference: str | None = None
     notification_level: str = "normal"
     default_workspace: str | None = None
     default_execution_profile: str = "SAFE"
@@ -30,6 +31,8 @@ class UserPreferences:
             raise ValueError(f"unknown timezone: {self.timezone}") from exc
         if not self.language.strip():
             raise ValueError("language must not be empty")
+        if self.agent_preference is not None and (not isinstance(self.agent_preference, str) or not self.agent_preference.strip()):
+            raise ValueError("agent_preference must be a nonempty string or None")
         if self.notification_level not in {"silent", "errors", "normal", "verbose"}:
             raise ValueError("invalid notification_level")
         if self.default_execution_profile not in {"SAFE", "DEVELOPMENT", "POWER", "HOST_ADMIN"}:

@@ -106,6 +106,7 @@ def register_core_handlers(
     app.add_handler(CallbackQueryHandler(handlers.handle_schedule_callback, pattern=r"^sch:"))
     app.add_handler(CallbackQueryHandler(handlers.handle_model_callback, pattern=r"^mdl:"))
     app.add_handler(CallbackQueryHandler(handlers.handle_panel_callback, pattern=r"^pnl:"))
+    app.add_handler(CallbackQueryHandler(handlers.handle_control_callback, pattern=r"^ux:"))
     app.add_handler(CommandHandler("menu", handlers.cmd_menu))
     app.add_handler(CommandHandler("download", handlers.cmd_download))
     app.add_handler(CommandHandler("deletefile", handlers.cmd_deletefile))

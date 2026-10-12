@@ -7,6 +7,7 @@ from pathlib import Path
 from adaptive_workers import StabilizedWorkerLimit, WorkerLimitTransition
 from audit_log import AuditLogger
 from bridge.config import get_settings
+from bridge.services.worker_capacity import WorkerCapacity
 from resource_monitor import HostResourcePolicy
 from shadow_policy_audit import AuditedShadowPolicy
 from task_service_v3 import TaskServiceV3
@@ -43,8 +44,10 @@ class TaskService(TaskServiceV3):
         resource_policy: HostResourcePolicy | None = None,
         recovery_seconds: float | None = None,
         audit_logger: AuditLogger | None = None,
+        capacity: WorkerCapacity | None = None,
     ) -> None:
-        configured_workers = max(1, min(_configured_workers() if max_workers is None else int(max_workers), 3))
+        configured_workers = min(2, max(1, int(_configured_workers() if max_workers is None else max_workers)))
+        self.capacity = capacity or WorkerCapacity(Path(__file__).resolve().parent / "runtime" / "worker-capacity")
         self.audit_logger = audit_logger or AuditLogger(Path(__file__).resolve().parent / "runtime" / "audit.jsonl")
         base_resource_policy = resource_policy or HostResourcePolicy()
         self.resource_policy = AuditedShadowPolicy(base_resource_policy, self.audit_logger)
@@ -61,6 +64,9 @@ class TaskService(TaskServiceV3):
             max_workers=configured_workers,
             worker_limit_provider=self.worker_limit,
         )
+
+    def active_worker_limit(self) -> int:
+        return min(super().active_worker_limit(), self.capacity.get())
 
     def _audit_worker_transition(self, transition: WorkerLimitTransition) -> None:
         """Record only real admission-limit changes, never every resource sample."""

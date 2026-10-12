@@ -46,6 +46,7 @@ from bridge.services.schedule_service import ScheduleService
 from bridge.services.task_execution_service import TaskExecutionService
 from bridge.services.task_service import TaskApplicationService
 from bridge.services.user_preferences_service import UserPreferencesService
+from bridge.services.worker_capacity import WorkerCapacity
 from bridge.telegram.app import build_application, core_commands, register_core_handlers
 from bridge.telegram.attachments import TelegramMediaAdapter
 from bridge.telegram.callbacks.model_picker import ModelPickerCallbackAdapter
@@ -58,6 +59,7 @@ from bridge.telegram.commands.drafts import DraftCommands
 from bridge.telegram.commands.schedules import ScheduleCommands
 from bridge.telegram.commands.system import SystemCommands
 from bridge.telegram.commands.tasks import TaskCommands
+from bridge.telegram.control_ui import ControlUI
 from bridge.telegram.draft_intake import DraftIntakeAdapter
 from bridge.telegram.execution import TelegramExecutionDelivery
 from bridge.telegram.middleware import TelegramAccessController
@@ -160,6 +162,7 @@ _model_picker_callback_instance: ModelPickerCallbackAdapter | None = None
 _model_selection_service: ModelSelectionService | None = None
 _user_preferences_service: UserPreferencesService | None = None
 _panel_router_instance: PanelRouter | None = None
+_control_ui_instance: ControlUI | None = None
 _download_service: DownloadService | None = None
 _download_commands_instance: DownloadCommands | None = None
 download_cleanup_task: asyncio.Task[None] | None = None
@@ -174,6 +177,7 @@ _agent_service = AgentService(
     variant_model=VARIANT_MODEL,
     model_manager_provider=lambda: model_manager,
     logger=log,
+    agent_preference_provider=lambda owner_id: _user_preferences().get(owner_id),
 )
 _task_application_service = TaskApplicationService(
     task_store,
@@ -553,6 +557,24 @@ def _panel_router() -> PanelRouter:
     return _panel_router_instance
 
 
+def _control_ui() -> ControlUI:
+    global _control_ui_instance
+    if _control_ui_instance is None:
+        _control_ui_instance = ControlUI(
+            preferences=_user_preferences(),
+            agents=_agent_service,
+            models=_model_selection(),
+            tasks=_task_application_service,
+            schedule_store=task_store,
+            schedule_service=_schedule_service,
+            downloads=_downloads(),
+            capacity=WorkerCapacity(BRIDGE_DIR / "runtime" / "worker-capacity"),
+            wake=_wake_task_workers,
+            allowed=_is_allowed,
+        )
+    return _control_ui_instance
+
+
 def _wake_task_workers() -> None:
     if task_service is None:
         raise RuntimeError("خدمة المهام غير مهيأة بعد")
@@ -788,6 +810,7 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
 @authorized
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _agent_command_adapter().start(update, context)
+    await _control_ui().show(update, context, persistent=True)
 
 @authorized
 async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -927,11 +950,15 @@ async def handle_model_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 @authorized
 async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await _panel_router().show(update)
+    await _control_ui().show(update, context, persistent=True)
 
 
 async def handle_panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _panel_router().handle(update, context)
+
+
+async def handle_control_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _control_ui().handle(update, context)
 
 
 @authorized
@@ -987,6 +1014,8 @@ async def handle_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 @authorized
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if await _control_ui().on_text(update, context):
+        return
     await _draft_intake_adapter().text(update, context)
 
 async def post_init(app: Application) -> None:
