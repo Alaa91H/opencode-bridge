@@ -63,7 +63,8 @@ def quarantine_failed_activation(root: Path, tag: str, commit: str, reason: str)
     fd, name = tempfile.mkstemp(prefix=".update-quarantine-", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            os.fchmod(stream.fileno(), 0o600)
+            if hasattr(os, "fchmod"):
+                os.fchmod(stream.fileno(), 0o600)
             json.dump(payload, stream, sort_keys=True)
             stream.write("\n")
             stream.flush()
