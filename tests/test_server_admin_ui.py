@@ -9,11 +9,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from bridge.services.admin_backups import AdminBackups
-from bridge.services.host_credentials import HostCredentialManager
-from bridge.services.runtime_controls import RuntimeControls
-from bridge.services.worker_capacity import WorkerCapacity
-from bridge.telegram.control_ui import ControlUI, callback
 from test_telegram_control_ui import (
     FakeAgents,
     FakeDownloads,
@@ -23,6 +18,13 @@ from test_telegram_control_ui import (
     FakeSchedules,
     FakeTasks,
 )
+
+
+from bridge.services.admin_backups import AdminBackups
+from bridge.services.host_credentials import HostCredentialManager
+from bridge.services.runtime_controls import RuntimeControls
+from bridge.services.worker_capacity import WorkerCapacity
+from bridge.telegram.control_ui import ControlUI, callback
 
 
 class AdminUIIntegrationTests(unittest.IsolatedAsyncioTestCase):
