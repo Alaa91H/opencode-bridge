@@ -60,6 +60,8 @@ WORDS = {
         "key_label": "أرسل اسمًا للمفتاح (حروف إنجليزية وأرقام فقط).",
         "key_secret": "أرسل قيمة API Key الآن. ستُحذف الرسالة مباشرة.",
         "hostkeys": "🔐 مفاتيح GitHub / Telegram / OpenCode",
+        "credentials": "🔐 المفاتيح والاعتمادات",
+        "credentials_text": "إدارة موحّدة لمفاتيح الذكاء الاصطناعي واعتمادات الخدمات.",
         "hostadd": "➕ إضافة اعتماد", "hostreplace": "✏️ استبدال اعتماد",
         "host_scope": "اختر الخدمة:", "host_label": "أرسل اسم الاعتماد.",
         "host_value": "أرسل التوكن في رسالة خاصة؛ سنحاول حذف الرسالة.",
@@ -129,6 +131,8 @@ WORDS = {
         "key_label": "Send key label (letters/digits only).",
         "key_secret": "Send the API key value now. The message will be deleted.",
         "hostkeys": "🔐 GitHub / Telegram / OpenCode credentials",
+        "credentials": "🔐 Keys & credentials",
+        "credentials_text": "Manage provider API keys and service credentials in one place.",
         "hostadd": "➕ Add credential", "hostreplace": "✏️ Replace credential",
         "host_scope": "Select service:", "host_label": "Send the credential label.",
         "host_value": "Send the token in a private message; we will attempt to delete it.",
@@ -169,9 +173,9 @@ WORDS = {
         "success": "Action completed.", "number_one": "1 — recommended", "number_two": "2 — if needed",
     },
 }
-BUTTON_KEYS = (("home", "agent"), ("keys", "hostkeys"), ("direct", "backups"), ("daily", "tasks"), ("schedules", "downloads"), ("mirrors", "server"), ("server", "settings"), ("language", "advanced"), ("help",))
+BUTTON_KEYS = (("home", "agent"), ("credentials", "backups"), ("direct", "tasks"), ("daily", "schedules"), ("downloads", "mirrors"), ("server", "settings"), ("language", "advanced"), ("help",))
 BINDINGS = {value: key for lang in WORDS.values() for key in
-            ("home", "agent", "keys", "hostkeys", "backups", "mirrors", "direct", "daily", "tasks", "schedules", "downloads", "server", "settings", "language", "advanced", "help")
+            ("home", "agent", "credentials", "keys", "hostkeys", "backups", "mirrors", "direct", "daily", "tasks", "schedules", "downloads", "server", "settings", "language", "advanced", "help")
             for value in (lang[key],)}
 
 
@@ -235,7 +239,7 @@ class ControlUI:
             return
         owner = str(update.effective_user.id)
         lang = await self._lang(owner)
-        sensitive = {"keys", "hostkeys", "backups", "mirrors", "server",
+        sensitive = {"credentials", "keys", "hostkeys", "backups", "mirrors", "server",
                      "resources", "updates", "memory", "workers", "advanced"}
         if screen in sensitive or screen.startswith("advanced."):
             if (not self.admin_allowed(update)
@@ -257,7 +261,7 @@ class ControlUI:
 
         if screen == "home":
             text = t["home_text"]
-            for key in ("agent", "keys", "hostkeys", "direct", "daily", "research", "tasks", "schedules", "downloads", "mirrors", "backups", "server", "settings", "advanced", "help"):
+            for key in ("agent", "credentials", "direct", "daily", "research", "tasks", "schedules", "downloads", "mirrors", "backups", "server", "settings", "advanced", "help"):
                 if key in ("direct", "daily", "research"):
                     rows.append([button(t[key], "input", key)])
                 else:
@@ -368,6 +372,10 @@ class ControlUI:
             for i, provider in enumerate(providers[:20]):
                 auto = any(item["auto"] for item in entries if item["provider"] == provider)
                 rows.append([button(t["key_auto"] + " " + provider + (" ✅" if auto else ""), "keyauto", i)])
+        elif screen == "credentials":
+            text = t["credentials_text"]
+            nav(t["keys"], "keys")
+            nav(t["hostkeys"], "hostkeys")
         elif screen == "hostkeys":
             text = t["hostkeys"]
             entries = self.host_credentials.catalog() if self.host_credentials else []
@@ -416,7 +424,6 @@ class ControlUI:
             nav(t["updates"], "updates")
             nav(t["memory"], "memory")
             nav(t["workers"], "workers")
-            nav(t["hostkeys"], "hostkeys")
             nav(t["mirrors"], "mirrors")
             nav(t["resources"], "resources")
             nav(t["backups"], "backups")
@@ -457,7 +464,7 @@ class ControlUI:
             nav(t["keys"], "keys")
             nav(t["server"], "server")
             nav(t["backups"], "backups")
-            nav(t["hostkeys"], "hostkeys")
+            nav(t["credentials"], "credentials")
         elif screen == "language":
             text = t["language_text"]
             rows.extend([[button("🇸🇦 العربية", "lang", "ar")],
@@ -487,7 +494,7 @@ class ControlUI:
         else:
             raise ValueError("unknown screen")
         if screen != "home":
-            nav(t["back"], "home")
+            nav(t["back"], "credentials" if screen in {"keys", "hostkeys"} else "home")
         return text, InlineKeyboardMarkup(rows)
 
     async def on_text(self, update: Any, context: Any) -> bool:
@@ -729,7 +736,7 @@ class ControlUI:
             }
             if (action in private_operations
                     or (action == "go" and len(parts) > 2
-                        and parts[2] in {"keys", "hostkeys", "backups", "mirrors"})
+                        and parts[2] in {"credentials", "keys", "hostkeys", "backups", "mirrors"})
                     or (action == "input" and len(parts) > 2 and parts[2] == "key_add")
                     or (action in {"confirm", "execute"} and len(parts) > 2
                         and parts[2] in {"key", "hostkey", "backup"})):
@@ -746,7 +753,7 @@ class ControlUI:
                     return
             if action == "go":
                 screen = parts[2]
-                restricted = {"keys", "hostkeys", "backups", "mirrors", "server",
+                restricted = {"credentials", "keys", "hostkeys", "backups", "mirrors", "server",
                               "resources", "updates", "memory", "workers", "advanced"}
                 if screen in restricted or screen.startswith("advanced."):
                     if (not self.admin_allowed(update)
