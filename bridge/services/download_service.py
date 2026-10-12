@@ -365,7 +365,7 @@ class DownloadService:
                 raise DownloadError("Media extractor could not download this URL")
             outputs = [item for item in work.iterdir() if item.is_file()
                        and item.suffix not in {".part", ".ytdl", ".temp"}]
-            if len(outputs) != 1 or not outputs[0].is_file():
+            if len(outputs) != 1 or not outputs[0].is_file() or outputs[0].is_symlink():
                 raise DownloadError("Media extractor did not produce a single file")
             result = outputs[0]
             size = result.stat().st_size
