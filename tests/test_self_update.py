@@ -45,6 +45,8 @@ class SelfUpdatePolicyTests(unittest.TestCase):
 
     def test_version_ahead_does_not_downgrade(self):
         with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "runtime").mkdir()
+            (Path(folder) / "runtime" / "auto-update-enabled").write_text("1\n", encoding="ascii")
             Path(folder, "VERSION").write_text("3.2.0\n", encoding="utf-8")
             called = []
             def git(*args, cwd):
@@ -61,6 +63,8 @@ class SelfUpdatePolicyTests(unittest.TestCase):
     def test_failed_activation_quarantines_only_the_failed_tag(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
+            (root / "runtime").mkdir()
+            (root / "runtime" / "auto-update-enabled").write_text("1\n", encoding="ascii")
             (root / "VERSION").write_text("3.2.0\n", encoding="utf-8")
             release = {"tag": "v3.3.0"}
             commit = "a" * 40
@@ -187,7 +191,7 @@ class SelfUpdatePolicyTests(unittest.TestCase):
     def test_legacy_mode_defaults_match_existing_config(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            self.assertEqual(self_update.deployment_mode(root), "auto-safe")
+            self.assertEqual(self_update.deployment_mode(root), "off")
             (root / "runtime").mkdir()
             legacy = root / "runtime" / "auto-update-enabled"
             legacy.write_text("0\n", encoding="ascii")
