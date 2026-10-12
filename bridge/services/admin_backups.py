@@ -66,7 +66,7 @@ class AdminBackups:
 
     def get(self, name: str) -> Path:
         import re
-        if not re.fullmatch(r"backup-[0-9]{8}T?[0-9]{6}-[a-f0-9]{8}\.db", name):
+        if not re.fullmatch(r"backup-[0-9]{8}T?[0-9]{6}-[a-f0-9]{8}\.(db|age)", name):
             raise ValueError("Invalid backup name")
         path = self.root / name
         if path.is_symlink() or not path.is_file():
@@ -95,8 +95,21 @@ class AdminBackups:
         with tempfile.TemporaryDirectory(dir=self.root) as temporary:
             folder = Path(temporary)
             plaintext = folder / "snapshot.tar.gz"
+            database = self.project / "sessions.db"
+            if database.is_file():
+                src = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+                dst = sqlite3.connect(folder / "sessions.db")
+                try:
+                    src.backup(dst)
+                    if dst.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                        raise ValueError("Backup database verification failed")
+                finally:
+                    dst.close()
+                    src.close()
             with tarfile.open(plaintext, "w:gz") as archive:
-                for rel in ("sessions.db", ".env", "runtime/private/provider-keys.json",
+                if (folder / "sessions.db").is_file():
+                    archive.add(folder / "sessions.db", arcname="sessions.db")
+                for rel in (".env", "runtime/private/provider-keys.json",
                             "runtime/private/host-credentials.json",
                             "runtime/memory-policy.json", "runtime/auto-update-enabled"):
                     file = self.project / rel
