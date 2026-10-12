@@ -1,3 +1,11 @@
+## [3.2.0] - 2026-10-12
+
+- Telegram panels for host credentials, encrypted/private SQLite backups, free anonymous mirrors and host resource inspection.
+- Separate OpenCode and OS update-now actions with progress, and independent automatic OS update switch.
+- Owner-only private credential operations, 0600 storage, selected host identities and no raw-token disclosures.
+- Safe encrypted backups with age recipient setup, optional post-release cleanup, and existing release backup inventory.
+- Return temporary download retention to 24 hours, with expiration cleanup daily at 00:00 UTC.
+
 ## [3.1.0] - 2026-10-12
 
 ### Telegram task controls
