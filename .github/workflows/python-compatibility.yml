@@ -1,0 +1,45 @@
+name: Python Compatibility
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }} full tests
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install pinned runtime
+        run: |
+          python -m pip install -r requirements.lock -c constraints.txt
+          python -m pip check
+
+      - name: Validate Python syntax
+        run: python -m compileall -q .
+
+      - name: Execute regression suite
+        env:
+          PYTHONWARNINGS: error::DeprecationWarning
+        run: python -m unittest discover -s tests -p "test_*.py" -v
