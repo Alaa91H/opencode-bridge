@@ -193,10 +193,14 @@ cleanup_managed_attachments() {
   ATTACHMENT_CLEANUP_SUMMARY="${stale_files} ملف (${stale_bytes}B)"
 }
 
-record_step "تحديث فهارس الحزم" apt_update
-record_step "تثبيت تحديثات الحزم الآمنة" apt_upgrade
-record_step "إزالة الحزم غير المطلوبة" apt_autoremove
-record_step "تنظيف ذاكرة حزم APT" apt_clean
+if [[ ! -f "${RUNTIME_DIR}/host-auto-update-enabled" ]] || [[ "$(cat "${RUNTIME_DIR}/host-auto-update-enabled")" != "0" ]]; then
+  record_step "تحديث فهارس الحزم" apt_update
+  record_step "تثبيت تحديثات الحزم الآمنة" apt_upgrade
+  record_step "إزالة الحزم غير المطلوبة" apt_autoremove
+  record_step "تنظيف ذاكرة حزم APT" apt_clean
+else
+  STEPS+=("⏸ Automatic operating-system updates disabled by owner")
+fi
 record_step "تنظيف الملفات المؤقتة وفق سياسة النظام" cleanup_temporary_files
 record_step "الاحتفاظ بسجل النظام لآخر 14 يومًا" cleanup_journal
 record_step "حذف مرفقات البوت المدارة وفق مدة الاحتفاظ المختارة" cleanup_managed_attachments

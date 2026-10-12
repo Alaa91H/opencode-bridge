@@ -75,3 +75,19 @@ class RuntimeControls:
         finally:
             temp.unlink(missing_ok=True)
         return value
+
+    def system_auto_update(self) -> bool:
+        path = self.root / "host-auto-update-enabled"
+        return not path.exists() or path.read_text(encoding="ascii").strip() != "0"
+
+    def set_system_auto_update(self, enabled: bool) -> None:
+        from bridge.services.host_credentials import secure_write
+        secure_write(self.root / "host-auto-update-enabled", b"1\n" if enabled else b"0\n")
+
+    def purge_backups_after_update(self) -> bool:
+        path = self.root / "purge-backups-after-update"
+        return path.is_file() and path.read_text(encoding="ascii").strip() == "1"
+
+    def set_purge_backups_after_update(self, enabled: bool) -> None:
+        from bridge.services.host_credentials import secure_write
+        secure_write(self.root / "purge-backups-after-update", b"1\n" if enabled else b"0\n")
