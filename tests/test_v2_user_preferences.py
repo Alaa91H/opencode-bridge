@@ -23,7 +23,7 @@ class UserPreferencesTests(unittest.IsolatedAsyncioTestCase):
     def test_all_required_fields_exist(self):
         value = UserPreferences()
         self.assertEqual(set(value.to_dict()), {
-            "timezone", "language", "notification_level", "default_workspace",
+            "timezone", "language", "agent_preference", "notification_level", "default_workspace",
             "default_execution_profile", "model_preference", "model_variant",
             "model_pinned", "output_style", "retention_days", "schedule_defaults",
         })

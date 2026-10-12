@@ -28,6 +28,7 @@ class AgentCommands:
         reply: Reply,
         error_message: ErrorMessage,
         startup_text: Callable[[], str],
+        on_start_ui: Callable[[Update, Any], Awaitable[None]] | None = None,
         selection_service: Any | None = None,
         picker_callbacks: Any | None = None,
         logger: logging.Logger | None = None,
@@ -36,6 +37,7 @@ class AgentCommands:
         self.reply = reply
         self.error_message = error_message
         self.startup_text = startup_text
+        self.on_start_ui = on_start_ui
         self.selection_service = selection_service
         self.picker_callbacks = picker_callbacks
         self.log = logger or logging.getLogger(__name__)
@@ -50,6 +52,8 @@ class AgentCommands:
         try:
             await self.service.fresh_session(self._owner(update))
             await self.reply(update.message, self.startup_text())
+            if self.on_start_ui is not None:
+                await self.on_start_ui(update, context)
         except Exception as exc:
             self.log.exception("فشل إنشاء جلسة البداية")
             await self.reply(update.message, self.error_message(exc, "إنشاء الجلسة"))

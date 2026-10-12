@@ -642,7 +642,8 @@ def _draft_intake_adapter() -> DraftIntakeAdapter:
     global _draft_intake_instance
     if _draft_intake_instance is None:
         _draft_intake_instance = DraftIntakeAdapter(
-            _draft_service, _media_adapter(), attachment_store, _safe_reply, _task_command_adapter()
+            _draft_service, _media_adapter(), attachment_store, _safe_reply, _task_command_adapter(),
+            control_ui=lambda: _control_ui(),
         )
     return _draft_intake_instance
 
@@ -676,6 +677,7 @@ def _agent_command_adapter() -> AgentCommands:
             reply=_safe_reply,
             error_message=user_error,
             startup_text=startup_message,
+            on_start_ui=lambda update, context: _control_ui().show(update, context, persistent=True),
             selection_service=_model_selection(),
             picker_callbacks=_model_picker_callbacks(),
             logger=log,
@@ -810,7 +812,6 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
 @authorized
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _agent_command_adapter().start(update, context)
-    await _control_ui().show(update, context, persistent=True)
 
 @authorized
 async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1014,8 +1015,6 @@ async def handle_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 @authorized
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if await _control_ui().on_text(update, context):
-        return
     await _draft_intake_adapter().text(update, context)
 
 async def post_init(app: Application) -> None:
