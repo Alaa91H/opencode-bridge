@@ -116,10 +116,26 @@ class RuntimePolicyTests(unittest.TestCase):
     def test_os_update_and_purge_are_independently_controlled(self):
         with tempfile.TemporaryDirectory() as folder:
             controls = RuntimeControls(Path(folder))
-            self.assertTrue(controls.system_auto_update())
+            self.assertFalse(controls.system_auto_update())  # Privileged changes are opt-in
             self.assertFalse(controls.purge_backups_after_update())
+            controls.set_system_auto_update(True)
+            self.assertTrue(RuntimeControls(Path(folder)).system_auto_update())
             controls.set_system_auto_update(False)
             controls.set_purge_backups_after_update(True)
             again = RuntimeControls(Path(folder))
             self.assertFalse(again.system_auto_update())
             self.assertTrue(again.purge_backups_after_update())
+
+    def test_bad_host_update_flag_cannot_enable_root_updates(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            state = root / "host-auto-update-enabled"
+            state.write_text("probably\n", encoding="ascii")
+            self.assertFalse(RuntimeControls(root).system_auto_update())
+            state.unlink()
+            try:
+                state.symlink_to(root / "elsewhere")
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks unsupported on this host")
+            with self.assertRaises(ValueError):
+                RuntimeControls(root).system_auto_update()

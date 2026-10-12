@@ -123,8 +123,14 @@ class RuntimeControls:
         return tag
 
     def system_auto_update(self) -> bool:
+        """Host-wide APT operations are privileged and require explicit opt-in."""
         path = self.root / "host-auto-update-enabled"
-        return not path.exists() or path.read_text(encoding="ascii").strip() != "0"
+        if path.is_symlink():
+            raise ValueError("Unsafe host-update policy symlink")
+        if not path.is_file():
+            return False
+        # Unknown contents never mean consent to privileged package changes.
+        return path.read_text(encoding="ascii").strip() == "1"
 
     def set_system_auto_update(self, enabled: bool) -> None:
         from bridge.services.host_credentials import secure_write
