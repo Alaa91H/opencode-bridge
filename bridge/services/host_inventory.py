@@ -32,7 +32,7 @@ STATES = frozenset({
 def _run(argv: list[str], *, directory: Path) -> tuple[int, str]:
     """Capture bounded, read-only output without displaying stderr or credentials."""
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603 -- internal fixed git/systemctl read-only probes
             argv, cwd=directory, capture_output=True, text=True, timeout=8,
             check=False, env={**os.environ, "GIT_TERMINAL_PROMPT": "0",
                               "GIT_OPTIONAL_LOCKS": "0"},
