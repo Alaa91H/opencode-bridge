@@ -162,15 +162,15 @@ def verified_ci(commit: str, tag: str, *, api=api_json) -> bool:
 
 
 def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
-           deploy=None, check_only: bool = False) -> dict[str, str]:
+           deploy=None, check_only: bool = False, manual: bool = False) -> dict[str, str]:
     """Validate a stable release against the exact remote before activation."""
     if not check_only and os.environ.get("OPENCODE_AUTO_UPDATE", "1") != "1":
         return {"status": "skipped", "reason": "automatic updates disabled by environment"}
     try:
         mode = deployment_mode(root)
-        if mode == "off" and not check_only:
+        if mode == "off" and not (check_only or manual):
             return {"status": "skipped", "reason": "automatic updates disabled"}
-        if mode == "maintenance-window" and not check_only and not maintenance_window_open():
+        if mode == "maintenance-window" and not (check_only or manual) and not maintenance_window_open():
             return {"status": "skipped", "reason": "outside 08:00–10:00 UTC maintenance window"}
         remote = git_run("remote", "get-url", "origin", cwd=root)
         if normalize_github_repository(remote) != EXPECTED_REPOSITORY:
@@ -202,7 +202,7 @@ def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
             return {"status": "skipped", "reason": "release tag and VERSION disagree"}
         if not verified_ci(commit, tag, api=api):
             return {"status": "skipped", "reason": "tagged CI not successful yet"}
-        if mode == "notify" or check_only:
+        if check_only or (mode == "notify" and not manual):
             return {"status": "available", "tag": tag, "commit": commit}
         command = [str(root / "scripts" / "deploy.sh"), tag]
         try:
@@ -226,9 +226,11 @@ def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="Read-only verification; never deploy")
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument("--check", action="store_true", help="Read-only verification; never deploy")
+    actions.add_argument("--apply", action="store_true", help="Explicit owner-requested update")
     args = parser.parse_args()
-    result = update(check_only=args.check)
+    result = update(check_only=args.check, manual=args.apply)
     print(json.dumps(result, ensure_ascii=False))
     return 0 if result["status"] in {"updated", "up_to_date", "skipped", "available"} else 1
 
