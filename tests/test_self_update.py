@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from datetime import UTC, datetime
 import json
 import subprocess
 import tempfile
@@ -119,6 +120,79 @@ class SelfUpdatePolicyTests(unittest.TestCase):
             )
             with self.assertRaises(json.JSONDecodeError):
                 self_update.is_quarantined(root, "v3.3.0")
+
+
+    def test_modes_respect_off_notify_and_explicit_maintenance_window(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "runtime").mkdir()
+            (root / "VERSION").write_text("3.2.0\n", encoding="utf-8")
+            mode_path = root / "runtime" / "autopilot-mode"
+            calls = []
+            commit = "b" * 40
+
+            def git(*args, cwd):
+                calls.append(("git", args[0]))
+                if args[0] == "remote":
+                    return "https://github.com/Alaa91H/opencode-bridge.git"
+                if args[0] == "status":
+                    return ""
+                if args[0] == "rev-parse":
+                    return commit
+                if args[0] == "show":
+                    return "3.3.0"
+                if args[0] == "fetch":
+                    return ""
+                raise AssertionError(args)
+
+            def api(url):
+                calls.append(("api", url))
+                if url == self_update.RELEASE_API:
+                    return {"tag_name": "v3.3.0", "draft": False, "prerelease": False}
+                return {"workflow_runs": [{
+                    "head_sha": commit, "head_branch": "v3.3.0",
+                    "event": "push", "status": "completed", "conclusion": "success",
+                }]}
+
+            def deploy(command):
+                calls.append(("deploy", command))
+
+            mode_path.write_text("off\n", encoding="ascii")
+            self.assertEqual(
+                self_update.update(root=root, api=api, git_run=git, deploy=deploy)["status"],
+                "skipped",
+            )
+            self.assertEqual(calls, [], "Off must not access GitHub or deploy")
+
+            mode_path.write_text("notify\n", encoding="ascii")
+            result = self_update.update(root=root, api=api, git_run=git, deploy=deploy)
+            self.assertEqual(result["status"], "available")
+            self.assertEqual(result["commit"], commit)
+            self.assertFalse(any(name == "deploy" for name, _ in calls))
+
+            mode_path.write_text("maintenance-window\n", encoding="ascii")
+            self.assertFalse(self_update.maintenance_window_open(
+                datetime(2026, 10, 12, 7, 59, tzinfo=UTC)))
+            self.assertTrue(self_update.maintenance_window_open(
+                datetime(2026, 10, 12, 8, 30, tzinfo=UTC)))
+            self.assertFalse(self_update.maintenance_window_open(
+                datetime(2026, 10, 12, 10, 0, tzinfo=UTC)))
+
+            mode_path.write_text("malformed\n", encoding="ascii")
+            result = self_update.update(root=root, api=api, git_run=git, deploy=deploy)
+            self.assertEqual(result["status"], "error")
+            self.assertEqual(result["reason"], "ValueError")
+
+    def test_legacy_mode_defaults_match_existing_config(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            self.assertEqual(self_update.deployment_mode(root), "auto-safe")
+            (root / "runtime").mkdir()
+            legacy = root / "runtime" / "auto-update-enabled"
+            legacy.write_text("0\n", encoding="ascii")
+            self.assertEqual(self_update.deployment_mode(root), "off")
+            legacy.write_text("1\n", encoding="ascii")
+            self.assertEqual(self_update.deployment_mode(root), "auto-safe")
 
 
 if __name__ == "__main__":
