@@ -11,7 +11,7 @@ from bridge.services.download_service import DownloadError, DownloadService
 
 
 class MediaDownloadTests(unittest.IsolatedAsyncioTestCase):
-    async def test_real_media_subprocess_and_three_day_expiry(self):
+    async def test_real_media_subprocess_and_one_day_expiry(self):
         if os.name != "posix":
             self.skipTest("POSIX executable fixture")
         with tempfile.TemporaryDirectory() as folder:
@@ -25,9 +25,9 @@ class MediaDownloadTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(Path(record.path).read_bytes(), b"video-data")
             self.assertEqual(record.mime, "video/mp4")
             self.assertEqual(datetime.fromisoformat(record.expires_at) -
-                             datetime.fromisoformat(record.created_at), timedelta(hours=72))
+                             datetime.fromisoformat(record.created_at), timedelta(hours=24))
             self.assertEqual(service.cleanup_expired(
-                now=datetime.fromisoformat(record.created_at) + timedelta(hours=73))["removed"], 1)
+                now=datetime.fromisoformat(record.created_at) + timedelta(hours=25))["removed"], 1)
             self.assertFalse(Path(record.path).exists())
 
     async def test_media_fails_before_subprocess_for_local_url(self):
