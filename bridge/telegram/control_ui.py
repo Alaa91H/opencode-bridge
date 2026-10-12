@@ -330,6 +330,9 @@ class ControlUI:
             return True
         wizard = context.user_data.get("ui_wizard")
         if wizard and wizard.get("mode") == "key_add":
+            if not self.admin_allowed(update):
+                context.user_data.pop("ui_wizard", None)
+                return True
             stage = wizard["step"]
             if stage in {"provider", "label"}:
                 from bridge.services.provider_keys import validate_name
@@ -350,7 +353,7 @@ class ControlUI:
                     context.user_data.pop("ui_wizard", None)
                     await message.reply_text(WORDS[await self._lang(owner)]["saved"])
                 except Exception:
-                    log.exception("Provider key enrollment failed (secret redacted)")
+                    log.warning("Provider key enrollment failed")
                     await message.reply_text(WORDS[await self._lang(owner)]["error"])
                 finally:
                     try:
@@ -452,9 +455,9 @@ class ControlUI:
             action = parts[1]
             screen = "home"
             if (action in {"workers", "keysel", "keyauto", "toggleupdate", "zram", "swap"}
-                    or action == "input" and len(parts) > 2 and parts[2] == "key_add"
-                    or action == "confirm" and len(parts) > 2 and parts[2] in {"key"}
-                    or action == "execute" and len(parts) > 2 and parts[2] in {"key"}):
+                    or (action == "input" and len(parts) > 2 and parts[2] == "key_add")
+                    or (action == "confirm" and len(parts) > 2 and parts[2] in {"key"})
+                    or (action == "execute" and len(parts) > 2 and parts[2] in {"key"})):
                 if not self.admin_allowed(update):
                     await query.answer("Admin only", show_alert=True)
                     return

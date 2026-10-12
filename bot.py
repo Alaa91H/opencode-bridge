@@ -42,13 +42,13 @@ from bridge.services.draft_service import DraftService
 from bridge.services.maintenance_service import MaintenanceReportService
 from bridge.services.media_service import MediaTaskService
 from bridge.services.model_selection_service import ModelSelectionService
+from bridge.services.provider_keys import ProviderKeyManager
+from bridge.services.runtime_controls import RuntimeControls
 from bridge.services.schedule_service import ScheduleService
 from bridge.services.task_execution_service import TaskExecutionService
-from bridge.services.provider_keys import ProviderKeyManager
 from bridge.services.task_service import TaskApplicationService
 from bridge.services.user_preferences_service import UserPreferencesService
 from bridge.services.worker_capacity import WorkerCapacity
-from bridge.services.runtime_controls import RuntimeControls
 from bridge.telegram.app import build_application, core_commands, register_core_handlers
 from bridge.telegram.attachments import TelegramMediaAdapter
 from bridge.telegram.callbacks.model_picker import ModelPickerCallbackAdapter

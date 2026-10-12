@@ -87,8 +87,8 @@ def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
            deploy=None) -> dict[str, str]:
     """Validate a stable release against the exact remote before activation."""
     if (os.environ.get("OPENCODE_AUTO_UPDATE", "1") != "1"
-            or (root / "runtime" / "auto-update-enabled").is_file()
-            and (root / "runtime" / "auto-update-enabled").read_text(encoding="ascii").strip() == "0"):
+            or ((root / "runtime" / "auto-update-enabled").is_file()
+            and (root / "runtime" / "auto-update-enabled").read_text(encoding="ascii").strip() == "0")):
         return {"status": "skipped", "reason": "automatic updates disabled"}
     try:
         remote = git_run("remote", "get-url", "origin", cwd=root)

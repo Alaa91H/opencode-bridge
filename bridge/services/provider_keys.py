@@ -36,7 +36,7 @@ class ProviderKeyManager:
         if self.path.is_symlink():
             raise RuntimeError("Refusing symlink credential store")
         info = self.path.stat()
-        if info.st_mode & 0o077:
+        if os.name == "posix" and info.st_mode & 0o077:
             raise PermissionError("Credential store permissions are too permissive")
         data = json.loads(self.path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):

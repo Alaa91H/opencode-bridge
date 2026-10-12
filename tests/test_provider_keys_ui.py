@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,7 +27,8 @@ class ProviderKeyManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.api.set_provider_key.await_args.args,
                          ("anthropic", "abcdefgh-2222"))
         self.assertNotIn("abcdefgh", str(self.vault.catalog()))
-        self.assertEqual(self.vault.path.stat().st_mode & 0o777, 0o600)
+        if os.name == "posix":
+            self.assertEqual(self.vault.path.stat().st_mode & 0o777, 0o600)
 
     async def test_never_persist_failed_activation(self):
         await self.vault.add("openai", "one", "12345678")
