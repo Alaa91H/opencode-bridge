@@ -74,7 +74,14 @@
       "sh*": "deny",
       "curl*": "deny",
       "wget*": "deny",
-      "sudo*": "deny"
+      "sudo*": "deny",
+      "pip install*": "deny",
+      "pip3 install*": "deny",
+      "python -m pip install*": "deny",
+      "python3 -m pip install*": "deny",
+      "npm install*": "deny",
+      "npm run build*": "deny",
+      "docker build*": "deny"
     },
     "external_directory": "allow",
     "task": "allow",
@@ -156,7 +163,14 @@
           "sh*": "deny",
           "curl*": "deny",
           "wget*": "deny",
-          "sudo*": "deny"
+          "sudo*": "deny",
+          "pip install*": "deny",
+          "pip3 install*": "deny",
+          "python -m pip install*": "deny",
+          "python3 -m pip install*": "deny",
+          "npm install*": "deny",
+          "npm run build*": "deny",
+          "docker build*": "deny"
         },
         "external_directory": "allow",
         "task": "allow",
@@ -236,7 +250,14 @@
           "sh*": "deny",
           "curl*": "deny",
           "wget*": "deny",
-          "sudo*": "deny"
+          "sudo*": "deny",
+          "pip install*": "deny",
+          "pip3 install*": "deny",
+          "python -m pip install*": "deny",
+          "python3 -m pip install*": "deny",
+          "npm install*": "deny",
+          "npm run build*": "deny",
+          "docker build*": "deny"
         },
         "external_directory": "allow",
         "task": "allow",

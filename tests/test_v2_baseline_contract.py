@@ -125,6 +125,7 @@ class V2BaselineContractTests(unittest.TestCase):
                 "opencode-bridge-maintenance.timer",
                 "opencode-bridge-reboot-guard.service",
                 "opencode-bridge-resource-optimizer.service",
+                "opencode-bridge-resource-optimizer.timer",
             },
         )
 
