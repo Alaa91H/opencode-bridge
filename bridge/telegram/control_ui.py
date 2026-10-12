@@ -15,6 +15,7 @@ from typing import Any
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 
 from bridge.domain.schedules.user_timezones import COUNTRIES, display_local, local_to_utc, validate_zone
+from bridge.telegram.download_delivery import deliver_download
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +45,8 @@ WORDS = {
         "schedule_interval": "أرسل الفاصل الزمني مثل 1d أو 12h أو 30m.",
         "schedule_prompt": "أرسل تعليمات المهمة المجدولة.",
         "download_input": "أرسل رابط HTTPS أو HTTP لتنزيل الملف.",
+        "media_input": "أرسل رابط صفحة الفيديو أو الصوت؛ يدعم yt-dlp المواقع التي تتوفر لها مستخرجات.",
+        "media_download": "🎬 تحميل فيديو أو صوت", "direct_download": "🌐 ملف مباشر",
         "key_provider": "أرسل معرّف المزوّد مثل openai أو anthropic.",
         "key_label": "أرسل اسمًا للمفتاح (حروف إنجليزية وأرقام فقط).",
         "key_secret": "أرسل قيمة API Key الآن. ستُحذف الرسالة مباشرة.",
@@ -93,6 +96,8 @@ WORDS = {
         "schedule_interval": "Send an interval such as 1d, 12h or 30m.",
         "schedule_prompt": "Send the task instructions to schedule.",
         "download_input": "Send an HTTPS or HTTP URL to download.",
+        "media_input": "Send a video/audio page link supported by yt-dlp.",
+        "media_download": "🎬 Video/audio downloader", "direct_download": "🌐 Direct file link",
         "key_provider": "Send provider ID, e.g. openai or anthropic.",
         "key_label": "Send key label (letters/digits only).",
         "key_secret": "Send the API key value now. The message will be deleted.",
@@ -291,7 +296,8 @@ class ControlUI:
                 text += "\n• " + safe(item.filename, 80)
                 rows.append([button("📤 " + item.filename[:28], "file", i),
                              button(t["delete"], "confirm", "file", i)])
-            rows.append([button("🔗 " + t["downloads"], "input", "download")])
+            rows.append([button(t["media_download"], "input", "media"),
+                         button(t["direct_download"], "input", "download")])
             nav(t["refresh"], "downloads")
         elif screen == "keys":
             text = t["keys"] + "\n"
@@ -461,15 +467,12 @@ class ControlUI:
         if not text:
             await message.reply_text(t["input"])
             return True
-        if waiting == "download":
+        if waiting in {"download", "media"}:
             status = await message.reply_text(t["input"])
             try:
-                record = await self.downloads.fetch(owner, text)
+                record = await self.downloads.fetch(owner, text, media=waiting == "media")
                 await status.edit_text(t["success"])
-                if record.sendable_inline:
-                    with open(record.path, "rb") as file:
-                        await context.bot.send_document(chat_id=update.effective_chat.id,
-                                                        document=file, filename=record.filename)
+                await deliver_download(context.bot, update.effective_chat.id, record)
             except Exception:
                 log.exception("button download failed")
                 await status.edit_text(t["error"])
@@ -562,7 +565,7 @@ class ControlUI:
                     return
             elif action == "input":
                 mode = parts[2]
-                if mode not in {"direct", "daily", "download", "research", "schedule_once", "schedule_recurring", "key_add", "tz_custom"}:
+                if mode not in {"direct", "daily", "download", "media", "research", "schedule_once", "schedule_recurring", "key_add", "tz_custom"}:
                     raise ValueError("invalid input mode")
                 if mode == "key_add":
                     context.user_data.pop("ui_wait", None)
@@ -575,7 +578,7 @@ class ControlUI:
                 else:
                     context.user_data.pop("ui_wizard", None)
                     context.user_data["ui_wait"] = mode
-                    prompt = t["tz_prompt"] if mode == "tz_custom" else (t["download_input"] if mode == "download" else (t["research_input"] if mode == "research" else t["input"]))
+                    prompt = t["tz_prompt"] if mode == "tz_custom" else (t["media_input"] if mode == "media" else t["download_input"] if mode == "download" else (t["research_input"] if mode == "research" else t["input"]))
                 await query.answer()
                 await update.effective_message.reply_text(prompt)
                 return
@@ -743,13 +746,7 @@ class ControlUI:
                 if not 0 <= idx < min(12, len(records)):
                     raise ValueError("stale file")
                 record = records[idx]
-                if record.sendable_inline:
-                    with open(record.path, "rb") as stream:
-                        await context.bot.send_document(chat_id=update.effective_chat.id,
-                                                        document=stream, filename=record.filename)
-                else:
-                    await query.answer(t["error"], show_alert=True)
-                    return
+                await deliver_download(context.bot, update.effective_chat.id, record)
                 screen = "downloads"
             else:
                 raise ValueError("unknown callback action")
