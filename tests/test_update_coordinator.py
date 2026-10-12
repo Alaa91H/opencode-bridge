@@ -56,6 +56,17 @@ class UpdateCoordinatorTests(unittest.TestCase):
             ["applying", "verified"],
         )
 
+    def test_unfinished_release_blocks_other_release_activation(self) -> None:
+        other_commit = "b" * 40
+        self.coordinator.transition("v3.3.0", self.sha, "verified")
+        self.coordinator.transition("v3.3.0", self.sha, "applying")
+        self.coordinator.transition("v3.4.0", other_commit, "verified")
+        with self.assertRaisesRegex(ValueError, "needs recovery"):
+            self.coordinator.transition("v3.4.0", other_commit, "applying")
+        self.coordinator.transition("v3.3.0", self.sha, "quarantined")
+        self.coordinator.transition("v3.4.0", other_commit, "applying")
+        self.assertEqual(self.coordinator.latest().phase, "applying")
+
     def test_restart_cannot_claim_same_applying_release(self) -> None:
         self.coordinator.transition("v3.3.0", self.sha, "verified")
         self.coordinator.transition("v3.3.0", self.sha, "applying")
