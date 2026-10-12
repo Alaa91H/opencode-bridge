@@ -520,7 +520,7 @@ class ControlUI:
                         log.warning("Could not remove sensitive chat input")
                 return True
         if wizard and wizard.get("mode") == "key_add":
-            if not self.admin_allowed(update):
+            if not self.admin_allowed(update) or getattr(getattr(update, "effective_chat", None), "type", None) != "private":
                 context.user_data.pop("ui_wizard", None)
                 return True
             stage = wizard["step"]
@@ -705,13 +705,16 @@ class ControlUI:
             action = parts[1]
             screen = "home"
             private_operations = {
-                "hostadd", "hostscope", "hostreplace", "hostactivate",
+                "hostadd", "hostscope", "hostreplace", "hostactivate", "keysel", "keyauto",
                 "backupcreate", "backupsend", "backupsecure", "mirrorurl",
                 "mirrorfile", "toggleos", "togglebackuppurge",
             }
             if (action in private_operations
                     or (action == "go" and len(parts) > 2
-                        and parts[2] in {"keys", "hostkeys", "backups", "mirrors"})):
+                        and parts[2] in {"keys", "hostkeys", "backups", "mirrors"})
+                    or (action == "input" and len(parts) > 2 and parts[2] == "key_add")
+                    or (action in {"confirm", "execute"} and len(parts) > 2
+                        and parts[2] in {"key", "hostkey", "backup"})):
                 if not self.admin_allowed(update) or getattr(
                     getattr(update, "effective_chat", None), "type", None) != "private":
                     await query.answer(t["admin_private"], show_alert=True)
