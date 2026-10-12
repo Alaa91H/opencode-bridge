@@ -73,7 +73,7 @@ WORDS = {
         "backup_keys": "🔒 مع المفاتيح (مشفرة فقط)", "backup_recipient": "🔐 مفتاح تشفير النسخ الاحتياطية",
         "mirrors": "☁️ مرايا مجانية", "mirror_url": "🔗 نسخ رابط إلى مرآة",
         "mirror_input": "أرسل رابطًا عامًا لمشاركة نسخه عبر المزود الخارجي.",
-        "resources": "📊 موارد الخادم", "update_agent": "🤖 تحديث OpenCode الآن",
+        "resources": "📊 موارد الخادم", "services": "🧩 حالة الخدمات", "update_agent": "🤖 تحديث OpenCode الآن",
         "update_system": "🛠 تحديث النظام الآن", "auto_system": "🔄 تحديث النظام تلقائيًا",
         "bridge_check": "🔎 فحص تحديث Bridge الآن (دون تثبيت)",
         "bridge_update": "🚀 تحديث Bridge الآن (بعد التأكيد)",
@@ -151,7 +151,7 @@ WORDS = {
         "backup_keys": "🔒 With keys (encrypted only)", "backup_recipient": "🔐 Backup encryption public key",
         "mirrors": "☁️ Free mirrors", "mirror_url": "🔗 Mirror a URL",
         "mirror_input": "Send a public URL to copy to an external host.",
-        "resources": "📊 Server resources", "update_agent": "🤖 Update OpenCode now",
+        "resources": "📊 Server resources", "services": "🧩 Service status", "update_agent": "🤖 Update OpenCode now",
         "update_system": "🛠 Update OS now", "auto_system": "🔄 Automatic OS updates",
         "bridge_check": "🔎 Check Bridge release now (no install)",
         "bridge_update": "🚀 Update Bridge now (confirm first)",
@@ -254,7 +254,7 @@ class ControlUI:
             return
         owner = str(update.effective_user.id)
         lang = await self._lang(owner)
-        sensitive = {"credentials", "keys", "hostkeys", "backups", "mirrors", "server",
+        sensitive = {"credentials", "keys", "hostkeys", "backups", "mirrors", "server", "services",
                      "resources", "updates", "memory", "workers", "advanced"}
         if screen in sensitive or screen.startswith("advanced."):
             if (not self.admin_allowed(update)
@@ -434,6 +434,14 @@ class ControlUI:
                 f"Uptime: {values['uptime_seconds'] // 3600} hours"
             )
             nav(t["refresh"], "resources")
+        elif screen == "services":
+            from bridge.services.service_monitor import service_overview
+
+            text = t["services"]
+            for state in await service_overview():
+                marker = "✅" if state.status == "active" else "⚠️"
+                text += "\n" + marker + " " + safe(state.unit, 65) + ": " + safe(state.status, 22)
+            nav(t["refresh"], "services")
         elif screen == "server":
             text = t["server_text"]
             nav(t["updates"], "updates")
@@ -441,6 +449,7 @@ class ControlUI:
             nav(t["workers"], "workers")
             nav(t["mirrors"], "mirrors")
             nav(t["resources"], "resources")
+            nav(t["services"], "services")
             nav(t["backups"], "backups")
         elif screen == "updates":
             current_mode = (self.runtime_controls.autopilot_mode()
@@ -787,7 +796,7 @@ class ControlUI:
                     return
             if action == "go":
                 screen = parts[2]
-                restricted = {"credentials", "keys", "hostkeys", "backups", "mirrors", "server",
+                restricted = {"credentials", "keys", "hostkeys", "backups", "mirrors", "server", "services",
                               "resources", "updates", "memory", "workers", "advanced"}
                 if screen in restricted or screen.startswith("advanced."):
                     if (not self.admin_allowed(update)
