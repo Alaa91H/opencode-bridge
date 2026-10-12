@@ -25,6 +25,32 @@ ACTIONS_API = "https://api.github.com/repos/Alaa91H/opencode-bridge/actions/work
 VERSION_RE = re.compile(r"^v([0-9]+)\.([0-9]+)\.([0-9]+)$")
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 QUARANTINE_FILE = "auto-update-quarantine.json"
+AUTO_MODES = ("off", "notify", "auto-safe", "maintenance-window")
+
+
+def deployment_mode(root: Path) -> str:
+    """Read owner policy; fail closed if local runtime controls are invalid."""
+    path = root / "runtime" / "autopilot-mode"
+    if path.is_symlink():
+        raise ValueError("unsafe autopilot policy")
+    if path.exists():
+        mode = path.read_text(encoding="ascii").strip()
+        if mode not in AUTO_MODES:
+            raise ValueError("invalid autopilot policy")
+        return mode
+    legacy = root / "runtime" / "auto-update-enabled"
+    if legacy.is_symlink():
+        raise ValueError("unsafe legacy update policy")
+    if not legacy.exists():
+        return "auto-safe"
+    return "off" if legacy.read_text(encoding="ascii").strip() == "0" else "auto-safe"
+
+
+def maintenance_window_open(now: datetime | None = None) -> bool:
+    """Daily 02:00–04:00 UTC, independent of local DST and server timezone."""
+    hour = (now or datetime.now(UTC)).astimezone(UTC).hour
+    return 2 <= hour < 4
+
 
 
 def _quarantine_path(root: Path) -> Path:
@@ -137,11 +163,14 @@ def verified_ci(commit: str, tag: str, *, api=api_json) -> bool:
 def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
            deploy=None) -> dict[str, str]:
     """Validate a stable release against the exact remote before activation."""
-    if (os.environ.get("OPENCODE_AUTO_UPDATE", "1") != "1"
-            or ((root / "runtime" / "auto-update-enabled").is_file()
-            and (root / "runtime" / "auto-update-enabled").read_text(encoding="ascii").strip() == "0")):
-        return {"status": "skipped", "reason": "automatic updates disabled"}
+    if os.environ.get("OPENCODE_AUTO_UPDATE", "1") != "1":
+        return {"status": "skipped", "reason": "automatic updates disabled by environment"}
     try:
+        mode = deployment_mode(root)
+        if mode == "off":
+            return {"status": "skipped", "reason": "automatic updates disabled"}
+        if mode == "maintenance-window" and not maintenance_window_open():
+            return {"status": "skipped", "reason": "outside 02:00–04:00 UTC maintenance window"}
         remote = git_run("remote", "get-url", "origin", cwd=root)
         if normalize_github_repository(remote) != EXPECTED_REPOSITORY:
             return {"status": "skipped", "reason": "unexpected Git remote"}
@@ -172,6 +201,8 @@ def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
             return {"status": "skipped", "reason": "release tag and VERSION disagree"}
         if not verified_ci(commit, tag, api=api):
             return {"status": "skipped", "reason": "tagged CI not successful yet"}
+        if mode == "notify":
+            return {"status": "available", "tag": tag, "commit": commit}
         command = [str(root / "scripts" / "deploy.sh"), tag]
         try:
             if deploy is None:
@@ -195,7 +226,7 @@ def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
 def main() -> int:
     result = update()
     print(json.dumps(result, ensure_ascii=False))
-    return 0 if result["status"] in {"updated", "up_to_date", "skipped"} else 1
+    return 0 if result["status"] in {"updated", "up_to_date", "skipped", "available"} else 1
 
 
 if __name__ == "__main__":
