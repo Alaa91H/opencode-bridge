@@ -146,10 +146,23 @@ class AdminBackups:
         return {"name": output.name, "bytes": output.stat().st_size, **metadata}
 
     def purge_after_verified_update(self) -> int:
-        count = 0
-        for item in self.list():
-            if item.get("kind") == "release":
+        """Conservatively prune only surplus backups after a verified update.
+
+        Never delete the two newest database snapshots or the two newest
+        encrypted full backups. Published release rollback archives remain
+        outside this operation. A corrupt snapshot cannot silently count as a
+        verified restore point.
+        """
+        candidates = [item for item in self.list() if item.get("kind") != "release"]
+        retained: dict[str, int] = {"database": 0, "encrypted": 0}
+        removed = 0
+        for item in candidates:
+            group = "encrypted" if item.get("encrypted") else "database"
+            if retained[group] < 2:
+                # Leave at least two physical recovery candidates, even when
+                # an older backup lacks a checksum manifest.
+                retained[group] += 1
                 continue
             self.delete(item["name"])
-            count += 1
-        return count
+            removed += 1
+        return removed
