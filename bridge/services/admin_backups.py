@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import shutil
 import sqlite3
 import subprocess
@@ -70,10 +71,24 @@ class AdminBackups:
             finally:
                 output.close()
                 source.close()
+            # Stream instead of loading the entire database into memory.
+            # The host may have only 1 GiB RAM, while SQLite may be larger.
             destination = self.root / name
-            secure_write(destination, target.read_bytes())
+            fd, temporary = tempfile.mkstemp(prefix=".snapshot-", dir=self.root)
+            digest = hashlib.sha256()
+            try:
+                with os.fdopen(fd, "wb") as sink, target.open("rb") as stream:
+                    os.chmod(temporary, 0o600)
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        sink.write(chunk)
+                        digest.update(chunk)
+                    sink.flush()
+                    os.fsync(sink.fileno())
+                os.replace(temporary, destination)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
         info = {"created_utc": datetime.now(UTC).isoformat(),
-                "includes_keys": False}
+                "includes_keys": False, "sha256": digest.hexdigest()}
         secure_write(destination.with_suffix(".json"), json.dumps(info).encode())
         return {"name": name, "bytes": destination.stat().st_size, **info}
 
@@ -165,6 +180,18 @@ class AdminBackups:
                         digest.update(chunk)
                 return path.stat().st_size > 0 and digest.hexdigest() == expected
             if path.suffix != ".db":
+                return False
+            # Valid SQLite alone does not prove that the snapshot is unchanged.
+            # Older unsigned snapshots remain visible for manual recovery,
+            # but must not authorize automatic deletion of newer copies.
+            expected = item.get("sha256")
+            if not isinstance(expected, str) or len(expected) != 64:
+                return False
+            digest = hashlib.sha256()
+            with path.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            if digest.hexdigest() != expected:
                 return False
             with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
                 return db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
