@@ -74,6 +74,7 @@ WORDS = {
         "mirror_input": "أرسل رابطًا عامًا لمشاركة نسخه عبر المزود الخارجي.",
         "resources": "📊 موارد الخادم", "update_agent": "🤖 تحديث OpenCode الآن",
         "update_system": "🛠 تحديث النظام الآن", "auto_system": "🔄 تحديث النظام تلقائيًا",
+        "bridge_check": "🔎 فحص تحديث Bridge الآن (دون تثبيت)",
         "backup_policy": "🗑 حذف النسخ الاحتياطية بعد تحديث ناجح",
         "admin_private": "تتطلب هذه العملية محادثة خاصة مع مالك البوت.",
         "pending_update": "بدأ فحص التحديث. سيتم عرض نتيجة العملية هنا.",
@@ -148,6 +149,7 @@ WORDS = {
         "mirror_input": "Send a public URL to copy to an external host.",
         "resources": "📊 Server resources", "update_agent": "🤖 Update OpenCode now",
         "update_system": "🛠 Update OS now", "auto_system": "🔄 Automatic OS updates",
+        "bridge_check": "🔎 Check Bridge release now (no install)",
         "backup_policy": "🗑 Delete backups after successful upgrade",
         "admin_private": "This action requires the bot owner's private chat.",
         "pending_update": "Update check started. The result will appear here.",
@@ -456,6 +458,7 @@ class ControlUI:
             os_enabled = self.runtime_controls.system_auto_update()
             text += "\nOS: " + (t["on"] if os_enabled else t["off"])
             rows.append([button(t["auto_system"], "toggleos")])
+            rows.append([button(t["bridge_check"], "checkbridge")])
             rows.append([button(t["update_agent"], "confirm", "updateagent", 0)])
             rows.append([button(t["update_system"], "confirm", "updatesystem", 0)])
             rows.append([button(t["backup_policy"] + (
@@ -746,7 +749,7 @@ class ControlUI:
             private_operations = {
                 "hostadd", "hostscope", "hostreplace", "hostactivate", "keysel", "keyauto",
                 "backupcreate", "backupsend", "backupsecure", "mirrorurl",
-                "mirrorfile", "toggleos", "togglebackuppurge", "autopilot", "toggleupdate",
+                "mirrorfile", "toggleos", "togglebackuppurge", "autopilot", "toggleupdate", "checkbridge",
             }
             if (action in private_operations
                     or (action == "go" and len(parts) > 2
@@ -893,6 +896,22 @@ class ControlUI:
                 link = await self.mirrors.mirror_file(provider, __import__("pathlib").Path(records[index].path))
                 await update.effective_message.reply_text(link)
                 screen = "mirrors"
+            elif action == "checkbridge":
+                await query.answer()
+                notice = await update.effective_message.reply_text(t["pending_update"])
+
+                async def finish_bridge_check() -> None:
+                    try:
+                        result = await update_now("bridge-check")
+                        await notice.edit_text(result[-3500:])
+                    except Exception:
+                        log.exception("Bridge update check failed")
+                        await notice.edit_text(t["error"])
+
+                task = asyncio.create_task(finish_bridge_check())
+                self._running_updates.add(task)
+                task.add_done_callback(self._running_updates.discard)
+                return
             elif action == "autopilot":
                 if len(parts) != 3:
                     raise ValueError("invalid policy callback")
