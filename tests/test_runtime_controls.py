@@ -69,3 +69,19 @@ class RuntimeControlsTests(unittest.TestCase):
             (root / "autopilot-mode").write_text("unrecognized\n", encoding="ascii")
             with self.assertRaises(ValueError):
                 RuntimeControls(root).auto_update()
+
+
+    def test_last_release_operation_survives_controls_restart(self):
+        from bridge.services.update_coordinator import UpdateCoordinator
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertIsNone(RuntimeControls(root).last_release_operation())
+            sha = "e" * 40
+            UpdateCoordinator(root).transition("v3.3.0", sha, "verified")
+            last = RuntimeControls(root).last_release_operation()
+            self.assertEqual(last.phase, "verified")
+            self.assertEqual(last.tag, "v3.3.0")
+            UpdateCoordinator(root).transition("v3.3.0", sha, "quarantined")
+            self.assertEqual(RuntimeControls(root).last_release_operation().phase,
+                             "quarantined")
