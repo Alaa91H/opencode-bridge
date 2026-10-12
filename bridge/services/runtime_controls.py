@@ -95,6 +95,12 @@ class RuntimeControls:
             temp.unlink(missing_ok=True)
         return value
 
+    def last_release_operation(self):
+        """Return the last recorded release phase without exposing secrets."""
+        from bridge.services.update_coordinator import UpdateCoordinator
+
+        return UpdateCoordinator(self.root).latest()
+
     def failed_update_release(self) -> str | None:
         """Expose a failed Bridge release to the private owner panel.
 
