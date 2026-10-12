@@ -18,8 +18,9 @@ from bridge.services.host_credentials import secure_write
 
 
 class AdminBackups:
-    def __init__(self, project: Path):
+    def __init__(self, project: Path, release_root: Path | None = None):
         self.project = Path(project)
+        self.release_root = release_root or Path("/home/ubuntu/opencode-backups/releases")
         self.root = self.project / "runtime" / "admin-backups"
         self.lock = asyncio.Lock()
 
@@ -37,6 +38,18 @@ class AdminBackups:
                                 "bytes": path.stat().st_size})
             except (OSError, ValueError):
                 continue
+        if self.release_root.is_dir():
+            import re
+            for file in self.release_root.iterdir():
+                if not re.fullmatch(
+                    r"opencode-bridge-[0-9a-f]{12}-[0-9]{8}T[0-9]{6}Z\.tar\.gz",
+                    file.name,
+                ) or file.is_symlink() or not file.is_file():
+                    continue
+                results.append({
+                    "name": file.name, "bytes": file.stat().st_size,
+                    "created_utc": datetime.fromtimestamp(file.stat().st_mtime, UTC).isoformat(),
+                    "includes_keys": False, "encrypted": False, "kind": "release"})
         return sorted(results, key=lambda x: x["name"], reverse=True)[:30]
 
     async def create(self) -> dict:
@@ -66,6 +79,11 @@ class AdminBackups:
 
     def get(self, name: str) -> Path:
         import re
+        if re.fullmatch(r"opencode-bridge-[0-9a-f]{12}-[0-9]{8}T[0-9]{6}Z\.tar\.gz", name):
+            path = self.release_root / name
+            if path.is_symlink() or not path.is_file():
+                raise FileNotFoundError(name)
+            return path
         if not re.fullmatch(r"backup-[0-9]{8}T?[0-9]{6}-[a-f0-9]{8}\.(db|age)", name):
             raise ValueError("Invalid backup name")
         path = self.root / name
@@ -76,7 +94,10 @@ class AdminBackups:
     def delete(self, name: str) -> None:
         path = self.get(name)
         path.unlink()
-        path.with_suffix(".json").unlink(missing_ok=True)
+        if path.parent == self.release_root:
+            path.with_name(path.name + ".sha256").unlink(missing_ok=True)
+        else:
+            path.with_suffix(".json").unlink(missing_ok=True)
 
     async def create_encrypted(self) -> dict:
         """Secret-inclusive backup is never sent or stored unencrypted."""
@@ -129,6 +150,8 @@ class AdminBackups:
     def purge_after_verified_update(self) -> int:
         count = 0
         for item in self.list():
+            if item.get("kind") == "release":
+                continue
             self.delete(item["name"])
             count += 1
         return count
