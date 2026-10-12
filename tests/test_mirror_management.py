@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from bridge.services.mirrors import MirrorService, PROVIDERS
+from bridge.services.mirrors import PROVIDERS, MirrorService
 
 
 class MirrorAdmissionTests(unittest.IsolatedAsyncioTestCase):
