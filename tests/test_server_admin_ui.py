@@ -1,5 +1,8 @@
 """Telegram callback integration for private host administration controls."""
 
+# Cross-test fixture imports use a local testing-only namespace.
+# ruff: noqa: I001
+
 from __future__ import annotations
 
 import sqlite3
