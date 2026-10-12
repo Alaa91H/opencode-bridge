@@ -32,8 +32,8 @@ class RuntimeControls:
         previous = self.root / "auto-update-enabled"
         if previous.is_symlink():
             raise ValueError("Symlink legacy update policy is not permitted")
-        return ("auto-safe" if not previous.exists()
-                or previous.read_text(encoding="ascii").strip() == "1" else "off")
+        return ("auto-safe" if previous.exists()
+                and previous.read_text(encoding="ascii").strip() == "1" else "off")
 
     def set_autopilot_mode(self, mode: str) -> None:
         if mode not in AUTOPILOT_MODES:
