@@ -70,6 +70,19 @@ class AdminBackupTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await self.backups.create_encrypted()
 
+    async def test_auto_purge_preserves_two_recovery_candidates(self):
+        names = [(await self.backups.create())["name"] for _ in range(5)]
+        self.assertEqual(len(self.backups.list()), 5)
+        self.assertEqual(self.backups.purge_after_verified_update(), 3)
+        survivors = self.backups.list()
+        self.assertEqual(len(survivors), 2)
+        self.assertTrue(all(item["name"] in names for item in survivors))
+        for item in survivors:
+            with sqlite3.connect(self.backups.get(item["name"])) as db:
+                self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+        self.assertEqual(self.backups.purge_after_verified_update(), 0)
+
+
 
 class RuntimePolicyTests(unittest.TestCase):
     def test_os_update_and_purge_are_independently_controlled(self):
