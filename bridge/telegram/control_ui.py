@@ -835,6 +835,14 @@ class ControlUI:
             elif action == "toggleupdate":
                 self.runtime_controls.set_auto_update(not self.runtime_controls.auto_update())
                 screen = "updates"
+            elif action == "toggleos":
+                self.runtime_controls.set_system_auto_update(
+                    not self.runtime_controls.system_auto_update())
+                screen = "updates"
+            elif action == "togglebackuppurge":
+                self.runtime_controls.set_purge_backups_after_update(
+                    not self.runtime_controls.purge_backups_after_update())
+                screen = "updates"
             elif action == "zram":
                 self.runtime_controls.set_memory(zram_percent=parts[2] if parts[2] == "auto" else int(parts[2]))
                 screen = "memory"
