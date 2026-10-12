@@ -93,7 +93,10 @@ WORDS = {
         "help_text": "اختر مهمة مباشرة أو يومية، ثم أرسل تعليماتك كنص. المهمة اليومية تتابع بعد تجدد الرصيد عند 12:00 UTC. من قسم الوكيل يمكنك تغيير الوكيل والنموذج والتفكير. لعرض الأوامر القديمة استخدم /help.",
         "server_text": "إدارة الخادم: التحديثات والذاكرة وحالة النشر.",
         "memory_text": "إعدادات الذاكرة (تُطبّق بواسطة خدمة النظام خلال ساعة تقريبًا).",
-        "updates_text": "تحديث GitHub Releases تلقائيًا: {state}",
+        "updates_text": "وضع تحديث Bridge تلقائيًا: {state}",
+        "mode_off": "⏸ إيقاف", "mode_notify": "👁 إشعار فقط",
+        "mode_safe": "✅ تلقائي آمن", "mode_window": "🕗 نافذة 08–10 UTC",
+        "mode_window_help": "نافذة التحديث اليومية: 08:00–10:00 UTC.",
         "quarantine_text": "⚠️ فشل تفعيل إصدار Bridge {tag}؛ توقفت محاولات هذا الإصدار تلقائيًا. سيُجرَّب إصدار أحدث بعد اجتياز الاختبارات.",
         "quarantine_invalid": "⚠️ سجل التحديث الفاشل تالف؛ تم إيقاف التفعيل تلقائيًا لحين معالجة الحالة.",
         "advanced_text": "أزرار لجميع أدوات الإدارة الإضافية؛ اختر الأداة ثم أرسل خياراتها دون /.",
@@ -165,7 +168,10 @@ WORDS = {
         "help_text": "Choose Direct task or Daily task, then send plain instructions. Daily tasks resume after the 12:00 UTC quota reset. Use Agent manager to select the agent, model and reasoning. Legacy commands remain available via /help.",
         "server_text": "Server controls: updates, memory and deployment status.",
         "memory_text": "Memory policy (root service applies updates within roughly an hour).",
-        "updates_text": "Automatic GitHub Releases updates: {state}",
+        "updates_text": "Bridge update mode: {state}",
+        "mode_off": "⏸ Off", "mode_notify": "👁 Notify only",
+        "mode_safe": "✅ Auto-safe", "mode_window": "🕗 Window 08–10 UTC",
+        "mode_window_help": "Daily deployment window: 08:00–10:00 UTC.",
         "quarantine_text": "⚠️ Bridge {tag} failed activation and is quarantined. A newer verified release can be tried automatically.",
         "quarantine_invalid": "⚠️ Corrupt update quarantine state: automatic activation is blocked until repaired.",
         "advanced_text": "Additional administration tools. Choose an action and send arguments without /.",
@@ -428,8 +434,13 @@ class ControlUI:
             nav(t["resources"], "resources")
             nav(t["backups"], "backups")
         elif screen == "updates":
-            current = self.runtime_controls.auto_update() if self.runtime_controls else False
-            text = t["updates_text"].format(state=t["on"] if current else t["off"])
+            current_mode = (self.runtime_controls.autopilot_mode()
+                            if self.runtime_controls else "off")
+            names = {"off": "mode_off", "notify": "mode_notify",
+                     "auto-safe": "mode_safe", "maintenance-window": "mode_window"}
+            text = t["updates_text"].format(state=t[names[current_mode]])
+            if current_mode == "maintenance-window":
+                text += "\n" + t["mode_window_help"]
             if self.runtime_controls is not None:
                 try:
                     held_tag = self.runtime_controls.failed_update_release()
@@ -438,7 +449,10 @@ class ControlUI:
                 else:
                     if held_tag:
                         text += "\n" + t["quarantine_text"].format(tag=held_tag)
-            rows.append([button(t["off"] if current else t["on"], "toggleupdate")])
+            for value, label in (("off", "mode_off"), ("notify", "mode_notify"),
+                                 ("auto-safe", "mode_safe"), ("maintenance-window", "mode_window")):
+                rows.append([button(("● " if current_mode == value else "○ ") + t[label],
+                                    "autopilot", value)])
             os_enabled = self.runtime_controls.system_auto_update()
             text += "\nOS: " + (t["on"] if os_enabled else t["off"])
             rows.append([button(t["auto_system"], "toggleos")])
@@ -732,7 +746,7 @@ class ControlUI:
             private_operations = {
                 "hostadd", "hostscope", "hostreplace", "hostactivate", "keysel", "keyauto",
                 "backupcreate", "backupsend", "backupsecure", "mirrorurl",
-                "mirrorfile", "toggleos", "togglebackuppurge",
+                "mirrorfile", "toggleos", "togglebackuppurge", "autopilot", "toggleupdate",
             }
             if (action in private_operations
                     or (action == "go" and len(parts) > 2
@@ -879,7 +893,13 @@ class ControlUI:
                 link = await self.mirrors.mirror_file(provider, __import__("pathlib").Path(records[index].path))
                 await update.effective_message.reply_text(link)
                 screen = "mirrors"
+            elif action == "autopilot":
+                if len(parts) != 3:
+                    raise ValueError("invalid policy callback")
+                self.runtime_controls.set_autopilot_mode(parts[2])
+                screen = "updates"
             elif action == "toggleupdate":
+                # Legacy callbacks retain their meaning without bypassing policy.
                 self.runtime_controls.set_auto_update(not self.runtime_controls.auto_update())
                 screen = "updates"
             elif action == "toggleos":
