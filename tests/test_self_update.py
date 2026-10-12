@@ -72,7 +72,7 @@ class SelfUpdatePolicyTests(unittest.TestCase):
                 if args[0] == "status":
                     return ""
                 if args[0] == "rev-parse":
-                    return commit
+                    return commit if release["tag"] == "v3.3.0" else "b" * 40
                 if args[0] == "show":
                     return release["tag"][1:]
                 if args[0] == "fetch":
@@ -83,7 +83,8 @@ class SelfUpdatePolicyTests(unittest.TestCase):
                 if url == self_update.RELEASE_API:
                     return {"tag_name": release["tag"], "draft": False, "prerelease": False}
                 return {"workflow_runs": [{
-                    "head_sha": commit, "head_branch": release["tag"],
+                    "head_sha": commit if release["tag"] == "v3.3.0" else "b" * 40,
+                    "head_branch": release["tag"],
                     "event": "push", "status": "completed", "conclusion": "success",
                 }]}
 
