@@ -53,8 +53,9 @@ def deployment_mode(root: Path) -> str:
     legacy = root / "runtime" / "auto-update-enabled"
     if legacy.is_symlink():
         raise ValueError("unsafe legacy update policy")
+    # No implicit production opt-in: a missing legacy switch means OFF.
     if not legacy.exists():
-        return "auto-safe"
+        return "off"
     return "off" if legacy.read_text(encoding="ascii").strip() == "0" else "auto-safe"
 
 
