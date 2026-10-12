@@ -49,6 +49,22 @@ class AgentUpgradeVerificationTests(unittest.IsolatedAsyncioTestCase):
         with patch("bridge.services.server_admin.asyncio.create_subprocess_exec", spawn):
             return await update_now("agent"), calls
 
+    async def test_bridge_check_is_read_only_and_never_runs_an_upgrade(self) -> None:
+        calls: list[tuple[str, ...]] = []
+
+        async def spawn(*args, **_kwargs):
+            calls.append(tuple(args))
+            return FakeProcess(0, '{"status":"available","tag":"v3.3.0"}\n')
+
+        with patch("bridge.services.server_admin.asyncio.create_subprocess_exec", spawn):
+            status = await update_now("bridge-check")
+        self.assertIn("Bridge update check passed:", status)
+        self.assertIn("v3.3.0", status)
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0][-1] == "--check")
+        self.assertTrue(calls[0][-2].endswith("self_update.py"))
+        self.assertFalse(any("upgrade" in arg for call in calls for arg in call))
+
     async def test_success_requires_active_unit(self) -> None:
         status, calls = await self.simulate(
             [(0, "1.0.0\n"), (0, "updated\n"), (0, "1.1.0\n"),
