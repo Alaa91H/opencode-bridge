@@ -63,8 +63,10 @@ WORDS = {
         "hostadd": "➕ إضافة اعتماد", "hostreplace": "✏️ استبدال اعتماد",
         "host_scope": "اختر الخدمة:", "host_label": "أرسل اسم الاعتماد.",
         "host_value": "أرسل التوكن في رسالة خاصة؛ سنحاول حذف الرسالة.",
+        "restart_required": "تفعيل توكن الخدمة سيصبح نافذًا بعد إعادة تشغيل خدمتها. لن يُعرض التوكن نفسه.",
         "backups": "🗄 النسخ الاحتياطية", "backup_create": "➕ نسخة جديدة",
         "backup_send": "📤 إرسال", "backup_delete": "🗑 حذف نسخة",
+        "backup_warning": "نسخ قاعدة البيانات غير المشفرة قد تحتوي نصوص مهام حساسة. إرسال المفاتيح مسموح فقط في نسخة مشفرة.",
         "backup_keys": "🔒 مع المفاتيح (مشفرة فقط)", "backup_recipient": "🔐 مفتاح تشفير النسخ الاحتياطية",
         "mirrors": "☁️ مرايا مجانية", "mirror_url": "🔗 نسخ رابط إلى مرآة",
         "mirror_input": "أرسل رابطًا عامًا لمشاركة نسخه عبر المزود الخارجي.",
@@ -128,8 +130,10 @@ WORDS = {
         "hostadd": "➕ Add credential", "hostreplace": "✏️ Replace credential",
         "host_scope": "Select service:", "host_label": "Send the credential label.",
         "host_value": "Send the token in a private message; we will attempt to delete it.",
+        "restart_required": "The selected service must restart before its new token takes effect. Token values are never shown.",
         "backups": "🗄 Backups", "backup_create": "➕ Create backup",
         "backup_send": "📤 Send", "backup_delete": "🗑 Delete backup",
+        "backup_warning": "Unencrypted DB snapshots may include sensitive task text. Secret-inclusive backups are encrypted only.",
         "backup_keys": "🔒 With keys (encrypted only)", "backup_recipient": "🔐 Backup encryption public key",
         "mirrors": "☁️ Free mirrors", "mirror_url": "🔗 Mirror a URL",
         "mirror_input": "Send a public URL to copy to an external host.",
@@ -227,11 +231,12 @@ class ControlUI:
             return
         owner = str(update.effective_user.id)
         lang = await self._lang(owner)
-        if (screen in {"keys", "server", "updates", "memory", "workers", "advanced"}
-                or screen.startswith("advanced.")) and not self.admin_allowed(update):
-            return
-        if screen in {"keys", "hostkeys", "backups", "mirrors"} and getattr(getattr(update, "effective_chat", None), "type", None) != "private":
-            return
+        sensitive = {"keys", "hostkeys", "backups", "mirrors", "server",
+                     "resources", "updates", "memory", "workers", "advanced"}
+        if screen in sensitive or screen.startswith("advanced."):
+            if (not self.admin_allowed(update)
+                    or getattr(getattr(update, "effective_chat", None), "type", None) != "private"):
+                return
         if persistent:
             await update.effective_message.reply_text(
                 WORDS[lang]["home_text"], reply_markup=self.keyboard(lang))
@@ -379,7 +384,7 @@ class ControlUI:
                 rows.append([button("☁ Catbox", "mirrorfile", "catbox", i),
                              button("☁ TmpFiles", "mirrorfile", "tmpfiles", i)])
         elif screen == "backups":
-            text = t["backups"]
+            text = t["backups"] + "\n" + t["backup_warning"]
             entries = self.backups.list() if self.backups else []
             if not entries:
                 text += "\n" + t["empty"]
@@ -509,7 +514,8 @@ class ControlUI:
                     await self.host_credentials.save(wizard["scope"], wizard["name"], text,
                                                      replace=wizard.get("replace", False))
                     context.user_data.pop("ui_wizard", None)
-                    await message.reply_text(WORDS[await self._lang(owner)]["saved"])
+                    await message.reply_text(WORDS[await self._lang(owner)]["saved"]
+                                             + "\n" + WORDS[await self._lang(owner)]["restart_required"])
                 except Exception:
                     log.warning("Host credential operation failed")
                     await message.reply_text(WORDS[await self._lang(owner)]["error"])
@@ -720,7 +726,7 @@ class ControlUI:
                     await query.answer(t["admin_private"], show_alert=True)
                     return
             if (action in {"workers", "keysel", "keyauto", "toggleupdate", "zram", "swap", "legacy", "researchmode"}
-                    or (action == "input" and len(parts) > 2 and parts[2] == "key_add")
+                    or (action == "input" and len(parts) > 2 and parts[2] in {"key_add", "age_recipient"})
                     or (action == "confirm" and len(parts) > 2 and parts[2] in {"key"})
                     or (action == "execute" and len(parts) > 2 and parts[2] in {"key"})):
                 if not self.admin_allowed(update):
@@ -728,10 +734,13 @@ class ControlUI:
                     return
             if action == "go":
                 screen = parts[2]
-                if (screen in {"keys", "server", "updates", "memory", "workers", "advanced"}
-                        or screen.startswith("advanced.")) and not self.admin_allowed(update):
-                    await query.answer("Admin only", show_alert=True)
-                    return
+                restricted = {"keys", "hostkeys", "backups", "mirrors", "server",
+                              "resources", "updates", "memory", "workers", "advanced"}
+                if screen in restricted or screen.startswith("advanced."):
+                    if (not self.admin_allowed(update)
+                            or getattr(getattr(update, "effective_chat", None), "type", None) != "private"):
+                        await query.answer(t["admin_private"], show_alert=True)
+                        return
             elif action == "input":
                 mode = parts[2]
                 if mode not in {"direct", "daily", "download", "media", "research", "schedule_once", "schedule_recurring", "key_add", "tz_custom", "age_recipient"}:
@@ -792,6 +801,7 @@ class ControlUI:
                     raise ValueError("Outdated host credential index")
                 item = entries[index]
                 await self.host_credentials.activate(item["scope"], item["name"])
+                await update.effective_message.reply_text(t["restart_required"])
                 screen = "hostkeys"
             elif action == "keysel":
                 entries = self.provider_keys.catalog()

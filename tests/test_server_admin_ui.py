@@ -101,6 +101,16 @@ class AdminUIIntegrationTests(unittest.IsolatedAsyncioTestCase):
         await self.press(callback("togglebackuppurge"))
         self.assertTrue(self.controls.purge_backups_after_update())
 
+    async def test_non_admin_cannot_open_sensitive_reply_keyboard_screens(self):
+        self.ui.admin_allowed = lambda _: False
+        for screen in ("hostkeys", "backups", "mirrors", "keys", "resources", "server"):
+            self.message.reply_text.reset_mock()
+            await self.ui.show(self.update, self.context, screen)
+            self.message.reply_text.assert_not_awaited()
+            await self.press(callback("go", screen))
+            self.query.answer.assert_awaited()
+        self.assertNotIn("ui_wizard", self.context.user_data)
+
     async def test_group_chat_cannot_access_credential_controls(self):
         self.update.effective_chat.type = "group"
         await self.press(callback("hostadd"))
