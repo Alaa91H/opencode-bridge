@@ -304,5 +304,28 @@ class UIFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.bot.edit_message_text.await_count, 0)
 
 
+    async def test_update_mode_buttons_drive_persistent_policy(self):
+        from bridge.services.runtime_controls import RuntimeControls
+        from bridge.telegram.control_ui import WORDS
+
+        controls = RuntimeControls(Path(self.temp.name) / "auto-controls")
+        self.ui.runtime_controls = controls
+        self.update.effective_chat.type = "private"
+        text, markup = await self.ui.render("1", "updates")
+        self.assertIn(WORDS["en"]["mode_safe"], text)
+        choices = [b.callback_data for row in markup.inline_keyboard for b in row]
+        for mode in ("off", "notify", "auto-safe", "maintenance-window"):
+            self.assertIn(callback("autopilot", mode), choices)
+            await self.press(callback("autopilot", mode))
+            self.assertEqual(RuntimeControls(controls.root).autopilot_mode(), mode)
+        await self.press(callback("autopilot", "invalid"))
+        self.assertEqual(controls.autopilot_mode(), "maintenance-window")
+
+        self.update.effective_chat.type = "group"
+        await self.press(callback("autopilot", "off"))
+        self.assertEqual(controls.autopilot_mode(), "maintenance-window",
+                         "Autopilot state must be private-owner only")
+
+
 if __name__ == "__main__":
     unittest.main()
