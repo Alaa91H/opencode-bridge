@@ -920,7 +920,7 @@ class ControlUI:
                 await self.models.select_variant(owner, int(parts[2]), int(parts[3]))
                 screen = "agent"
             elif action == "confirm":
-                if parts[2] not in {"cancel", "schedule", "file", "new", "key", "task"}:
+                if parts[2] not in {"cancel", "schedule", "file", "new", "key", "task", "hostkey", "backup", "updateagent", "updatesystem"}:
                     raise ValueError("unsupported confirmation")
                 context.user_data["ui_confirm"] = (parts[2], parts[3])
                 text = t["confirm_text"]
@@ -936,7 +936,37 @@ class ControlUI:
                 kind, value = parts[2], parts[3]
                 if context.user_data.pop("ui_confirm", None) != (kind, value):
                     raise ValueError("confirmation required")
-                if kind == "new":
+                if kind in {"hostkey", "backup", "updateagent", "updatesystem"}:
+                    if not self.admin_allowed(update) or getattr(
+                        getattr(update, "effective_chat", None), "type", None) != "private":
+                        raise ValueError("Private administrator chat required")
+                if kind == "hostkey":
+                    entries = self.host_credentials.catalog()
+                    idx = int(value)
+                    if not 0 <= idx < min(len(entries), 24):
+                        raise ValueError("Stale credential index")
+                    entry = entries[idx]
+                    await self.host_credentials.delete(entry["scope"], entry["name"])
+                    screen = "hostkeys"
+                elif kind == "backup":
+                    entries = self.backups.list()
+                    idx = int(value)
+                    if not 0 <= idx < min(len(entries), 12):
+                        raise ValueError("Stale backup index")
+                    self.backups.delete(entries[idx]["name"])
+                    screen = "backups"
+                elif kind in {"updateagent", "updatesystem"}:
+                    from bridge.services.server_admin import update_now
+                    import asyncio
+                    await query.answer()
+                    notice = await update.effective_message.reply_text(t["pending_update"])
+                    kind_name = "agent" if kind == "updateagent" else "system"
+                    async def complete_update() -> None:
+                        result = await update_now(kind_name)
+                        await notice.edit_text(result[-3500:])
+                    asyncio.create_task(complete_update())
+                    return
+                elif kind == "new":
                     await self.agents.fresh_session(owner)
                     screen = "agent"
                 elif kind == "key":
