@@ -38,14 +38,14 @@ class AtomicDeployment:
             raise ValueError("invalid release version")
         if not re.fullmatch(r"[0-9a-fA-F]{64}", artifact.sha256):
             raise ValueError("invalid release checksum")
+        if artifact.source.is_symlink() or not artifact.source.is_file():
+            raise ValueError("release artifact must be an ordinary file")
         digest = hashlib.sha256()
         with artifact.source.open("rb") as stream:
             for block in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(block)
         if digest.hexdigest().lower() != artifact.sha256.lower():
             raise ValueError("release checksum mismatch")
-        if artifact.source.is_symlink() or not artifact.source.is_file():
-            raise ValueError("release artifact must be an ordinary file")
         # The active tree and release store must never be redirected through
         # a symlink to an arbitrary directory outside this deployment root.
         if self.releases.is_symlink():
