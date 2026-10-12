@@ -12,28 +12,47 @@ import re
 from pathlib import Path
 
 
+AUTOPILOT_MODES = ("off", "notify", "auto-safe", "maintenance-window")
+MAINTENANCE_WINDOW_UTC = (2, 4)
+
+
 class RuntimeControls:
     def __init__(self, root: Path) -> None:
         self.root = root
 
+    def autopilot_mode(self) -> str:
+        """Explicit policy takes precedence; old installations retain their switch."""
+        path = self.root / "autopilot-mode"
+        if path.is_symlink():
+            raise ValueError("Symlink autopilot policy is not permitted")
+        if path.exists():
+            mode = path.read_text(encoding="ascii").strip()
+            if mode not in AUTOPILOT_MODES:
+                raise ValueError("Invalid autopilot mode")
+            return mode
+        previous = self.root / "auto-update-enabled"
+        if previous.is_symlink():
+            raise ValueError("Symlink legacy update policy is not permitted")
+        return ("auto-safe" if not previous.exists()
+                or previous.read_text(encoding="ascii").strip() == "1" else "off")
+
+    def set_autopilot_mode(self, mode: str) -> None:
+        if mode not in AUTOPILOT_MODES:
+            raise ValueError("Unsupported autopilot mode")
+        from bridge.services.host_credentials import secure_write
+        # Persist policy atomically, never write arbitrary shell commands.
+        secure_write(self.root / "autopilot-mode", (mode + "\n").encode("ascii"))
+        # Preserve old callers' enable/disable intent across upgrades.
+        secure_write(
+            self.root / "auto-update-enabled",
+            b"1\n" if mode in ("auto-safe", "maintenance-window", "notify") else b"0\n",
+        )
+
     def auto_update(self) -> bool:
-        file = self.root / "auto-update-enabled"
-        try:
-            return file.read_text(encoding="ascii").strip() != "0"
-        except FileNotFoundError:
-            return True
+        return self.autopilot_mode() in ("auto-safe", "maintenance-window")
 
     def set_auto_update(self, enabled: bool) -> None:
-        self.root.mkdir(parents=True, exist_ok=True)
-        path = self.root / "auto-update-enabled"
-        temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-        try:
-            with temp.open("x", encoding="ascii") as stream:
-                stream.write("1\n" if enabled else "0\n")
-            os.chmod(temp, 0o600)
-            os.replace(temp, path)
-        finally:
-            temp.unlink(missing_ok=True)
+        self.set_autopilot_mode("auto-safe" if enabled else "off")
 
     def memory(self) -> dict[str, int | str]:
         defaults: dict[str, int | str] = {"zram_percent": "auto", "swap_gib": "auto"}
