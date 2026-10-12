@@ -231,6 +231,25 @@ class UIFlowTests(unittest.IsolatedAsyncioTestCase):
         await self.press(callback("schedule", 11))
         self.assertIn(("toggle", "Daily scan", False), self.schedules.created)
 
+    async def test_priority_and_deletion_buttons(self):
+        await self.press(callback("priority", 8, 1))
+        self.assertEqual(self.tasks.priorities, [("1", 8, 1)])
+        await self.press(callback("confirm", "task", 8))
+        self.assertFalse(self.tasks.deleted)
+        await self.press(callback("execute", "task", 8))
+        self.assertEqual(self.tasks.deleted, [("1", 8)])
+
+    async def test_selected_country_changes_schedule_time(self):
+        from datetime import UTC, datetime
+        await self.press(callback("tz", 0))
+        self.assertEqual((await self.prefs.get("1")).timezone, "Europe/Berlin")
+        await self.press(callback("input", "schedule_once"))
+        for value in ("Meeting", "2026-12-01 12:00", "Reminder"):
+            self.message.text = value
+            await self.ui.on_text(self.update, self.context)
+        self.assertEqual(self.scheduler.created[-1][-1],
+                         datetime(2026, 12, 1, 11, tzinfo=UTC))
+
     async def test_invalid_callback_and_input_are_nonfatal(self):
         await self.press(callback("agent", 999))
         self.query.answer.assert_awaited()
