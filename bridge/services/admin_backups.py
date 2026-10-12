@@ -134,22 +134,24 @@ class AdminBackups:
             folder = Path(temporary)
             plaintext = folder / "snapshot.tar.gz"
             database = self.project / "sessions.db"
-            if database.is_file():
-                src = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
-                dst = sqlite3.connect(folder / "sessions.db")
-                try:
-                    src.backup(dst)
-                    if dst.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                        raise ValueError("Backup database verification failed")
-                finally:
-                    dst.close()
-                    src.close()
+            if database.is_symlink() or not database.is_file():
+                raise ValueError("Cannot create a recovery backup without a safe SQLite database")
+            src = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+            dst = sqlite3.connect(folder / "sessions.db")
+            try:
+                src.backup(dst)
+                if dst.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise ValueError("Backup database verification failed")
+            finally:
+                dst.close()
+                src.close()
             with tarfile.open(plaintext, "w:gz") as archive:
                 if (folder / "sessions.db").is_file():
                     archive.add(folder / "sessions.db", arcname="sessions.db")
                 for rel in (".env", "runtime/private/provider-keys.json",
                             "runtime/private/host-credentials.json",
-                            "runtime/memory-policy.json", "runtime/auto-update-enabled"):
+                            "runtime/memory-policy.json", "runtime/auto-update-enabled",
+                            "runtime/autopilot-mode", "runtime/host-auto-update-enabled"):
                     file = self.project / rel
                     if file.is_file() and not file.is_symlink():
                         archive.add(file, arcname=rel)
@@ -157,12 +159,34 @@ class AdminBackups:
             subprocess.run(["age", "-r", key, "-o", str(encrypted), str(plaintext)],  # noqa: S603,S607 -- fixed executable and validated recipient
                            check=True, capture_output=True, timeout=120)
             output = self.root / encrypted.name
-            secure_write(output, encrypted.read_bytes())
+            if output.is_symlink():
+                raise ValueError("Refusing symlink backup destination")
+            fd, temporary_file = tempfile.mkstemp(prefix=".encrypted-", dir=self.root)
+            digest = hashlib.sha256()
+            size = 0
+            try:
+                with os.fdopen(fd, "wb") as sink, encrypted.open("rb") as stream:
+                    os.fchmod(sink.fileno(), 0o600)
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        sink.write(chunk)
+                        digest.update(chunk)
+                        size += len(chunk)
+                    sink.flush()
+                    os.fsync(sink.fileno())
+                if size == 0:
+                    raise ValueError("Encrypted backup was empty")
+                os.replace(temporary_file, output)
+            finally:
+                Path(temporary_file).unlink(missing_ok=True)
         metadata = {
             "created_utc": datetime.now(UTC).isoformat(), "includes_keys": True,
-            "encrypted": True, "sha256": hashlib.sha256(output.read_bytes()).hexdigest()}
-        secure_write(output.with_name(output.name + ".json"), json.dumps(metadata).encode())
-        return {"name": output.name, "bytes": output.stat().st_size, **metadata}
+            "encrypted": True, "sha256": digest.hexdigest()}
+        try:
+            secure_write(output.with_name(output.name + ".json"), json.dumps(metadata).encode())
+        except BaseException:
+            output.unlink(missing_ok=True)
+            raise
+        return {"name": output.name, "bytes": size, **metadata}
 
     def _backup_usable(self, item: dict) -> bool:
         """Only verified backups qualify as retained recovery candidates."""
