@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import ClassVar
 
 
-class ProgressStage(str, Enum):
+class ProgressStage(StrEnum):
     QUEUED = "queued"
     DOWNLOADING = "downloading"
     ANALYZING = "analyzing"

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import sys
 import stat
+import sys
 import tempfile
 import unittest
 import warnings
@@ -18,9 +18,14 @@ import httpx
 from bridge.infrastructure.deployment.atomic import AtomicDeployment, ReleaseArtifact
 from bridge.infrastructure.media.archives import UnsafeArchive, extract_zip, zip_manifest
 from bridge.infrastructure.sandbox.runner import BuildSandbox, SandboxBackend, SandboxLimits
-from bridge.infrastructure.workspaces.manager import Workspace, WorkspaceManager, WorkspacePolicy
 from bridge.infrastructure.security.secrets import SystemdCredentialSource
-from bridge.services.download_service import DownloadError, DownloadService, DownloadTooLarge, validate_url
+from bridge.infrastructure.workspaces.manager import Workspace, WorkspaceManager, WorkspacePolicy
+from bridge.services.download_service import (
+    DownloadError,
+    DownloadService,
+    DownloadTooLarge,
+    validate_url,
+)
 
 
 class DownloadSecurityRegressions(unittest.IsolatedAsyncioTestCase):

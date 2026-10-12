@@ -51,7 +51,7 @@ class CancellationTests(unittest.IsolatedAsyncioTestCase):
         async def timeout_after_closing(awaitable, *, timeout):
             del timeout
             awaitable.close()
-            raise asyncio.TimeoutError
+            raise TimeoutError
 
         with patch("bridge.infrastructure.processes.cancellable.asyncio.wait_for", side_effect=timeout_after_closing):
             # Closing the synthetic coroutine mirrors wait_for cancellation without leaking it.

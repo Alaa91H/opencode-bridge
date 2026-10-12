@@ -6,19 +6,19 @@ required permission before performing any administrative operation.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import Enum
-from typing import Mapping
+from enum import StrEnum
 
 
-class Role(str, Enum):
+class Role(StrEnum):
     READER = "reader"
     OPERATOR = "operator"
     ADMIN = "admin"
     OWNER = "owner"
 
 
-class Permission(str, Enum):
+class Permission(StrEnum):
     READ = "read"
     OPERATE = "operate"
     ADMINISTER = "administer"

@@ -1,10 +1,14 @@
-from datetime import UTC, datetime
 import json
 import tempfile
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 
-from bridge.infrastructure.opencode.credential_pool import CredentialPool, OpenCodeCredential, parse_credential_pool
+from bridge.infrastructure.opencode.credential_pool import (
+    CredentialPool,
+    OpenCodeCredential,
+    parse_credential_pool,
+)
 
 
 class CredentialPoolTests(unittest.TestCase):

@@ -9,8 +9,8 @@ Only Telegram's own transport is substituted, with a recording bot, because the
 Bot API cannot be called from a unit test.
 """
 
-import json
 import asyncio
+import json
 import tempfile
 import threading
 import unittest

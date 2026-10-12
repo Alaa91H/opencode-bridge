@@ -4,12 +4,12 @@ import unittest
 
 import httpx
 
-from bridge.infrastructure.opencode.credential_pool import CredentialPool, OpenCodeCredential
 from bridge.infrastructure.opencode.client_v2 import (
     OpenCodeClientV2,
     OpenCodeHttpConfig,
     OpenCodeRequest,
 )
+from bridge.infrastructure.opencode.credential_pool import CredentialPool, OpenCodeCredential
 
 
 class OpenCodeClientContractTests(unittest.IsolatedAsyncioTestCase):

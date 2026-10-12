@@ -4,20 +4,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from enum import Enum
+from enum import StrEnum
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 UTC = UTC
 
 
-class MisfirePolicy(str, Enum):
+class MisfirePolicy(StrEnum):
     SKIP = "skip"
     RUN_ONCE = "run_once"
     CATCH_UP = "catch_up"
     COALESCE = "coalesce"
 
 
-class OverlapPolicy(str, Enum):
+class OverlapPolicy(StrEnum):
     FORBID = "forbid"
     ALLOW = "allow"
     REPLACE = "replace"

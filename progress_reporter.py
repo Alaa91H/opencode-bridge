@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from bridge.config.runtime_flags import enabled as runtime_flag_enabled
-
-from bridge.domain.tasks.live_output import AgentLiveAssembler
 import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from bridge.config.runtime_flags import enabled as runtime_flag_enabled
+from bridge.domain.tasks.live_output import AgentLiveAssembler
 from opencode_client import OpenCodeClient
 from progress import ProgressStore, render_progress, serialize_progress, summarize_agent_event
 from task_queue import QueuedTask, TaskQueueStore

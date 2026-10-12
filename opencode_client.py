@@ -8,7 +8,11 @@ from typing import Any
 
 import httpx
 
-from bridge.domain.tasks.retry_policy import ProviderTaskError, TaskCancelledError, classify_credential_failure
+from bridge.domain.tasks.retry_policy import (
+    ProviderTaskError,
+    TaskCancelledError,
+    classify_credential_failure,
+)
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 4096

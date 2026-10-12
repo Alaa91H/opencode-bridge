@@ -5,8 +5,8 @@ with real files on a real filesystem. Only the Telegram send path is absent,
 because that belongs to the command adapter.
 """
 
-import json
 import asyncio
+import json
 import tempfile
 import threading
 import unittest

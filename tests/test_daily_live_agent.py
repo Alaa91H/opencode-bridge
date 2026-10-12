@@ -9,7 +9,7 @@ from bridge.domain.tasks.daily_continuation import continuation_delay_seconds, i
 from bridge.domain.tasks.live_output import AgentLiveAssembler, redact_output
 from bridge.domain.tasks.retry_policy import next_daily_reset_utc
 from bridge.services.task_execution_service import TaskExecutionService
-from tests.test_v2_task_execution_service import FakeAttachmentStore, FakeAgentService, FakeDelivery
+from tests.test_v2_task_execution_service import FakeAgentService, FakeAttachmentStore, FakeDelivery
 
 
 class DailyQuotaClockTests(unittest.TestCase):

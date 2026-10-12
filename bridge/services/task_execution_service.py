@@ -346,7 +346,9 @@ class TaskExecutionService:
             # A successful turn is a checkpoint, not completion, unless the
             # agent explicitly emits the task-complete sentinel.
             from bridge.domain.tasks.daily_continuation import (
-                COMPLETION_SENTINEL, continuation_delay_seconds, is_task_complete,
+                COMPLETION_SENTINEL,
+                continuation_delay_seconds,
+                is_task_complete,
             )
             if daily_continuation and not is_task_complete(reply_text):
                 checkpoint.pop("message_id", None)  # next day = NEW turn, same session

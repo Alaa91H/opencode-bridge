@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class ExecutionProfile(str, Enum):
+class ExecutionProfile(StrEnum):
     SAFE = "safe"
     DEVELOPMENT = "development"
     POWER = "power"

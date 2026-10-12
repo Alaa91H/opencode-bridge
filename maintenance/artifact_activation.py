@@ -10,8 +10,8 @@ import shutil
 import sqlite3
 import tarfile
 import tempfile
-from pathlib import Path, PurePosixPath
 from collections.abc import Callable
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 _SHA = re.compile(r"[0-9a-f]{40}\Z")

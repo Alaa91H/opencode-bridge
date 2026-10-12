@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class UXAction(str, Enum):
+class UXAction(StrEnum):
     RETRY = "retry"
     CANCEL = "cancel"
     DUPLICATE = "duplicate"
