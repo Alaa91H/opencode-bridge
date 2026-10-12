@@ -168,6 +168,9 @@ class ControlUI:
             return
         owner = str(update.effective_user.id)
         lang = await self._lang(owner)
+        if (screen in {"keys", "server", "updates", "memory", "workers", "advanced"}
+                or screen.startswith("advanced.")) and not self.admin_allowed(update):
+            return
         if persistent:
             await update.effective_message.reply_text(
                 WORDS[lang]["home_text"], reply_markup=self.keyboard(lang))
@@ -439,6 +442,8 @@ class ControlUI:
                 await status.edit_text(t["error"])
             return True
         if isinstance(waiting, str) and waiting.startswith("legacy:"):
+            if not self.admin_allowed(update):
+                return True
             try:
                 await self.legacy_dispatch(waiting.partition(":")[2], update, context, text)
             except Exception:
@@ -446,6 +451,8 @@ class ControlUI:
                 await message.reply_text(t["error"])
             return True
         if isinstance(waiting, str) and waiting.startswith("researchmode:"):
+            if not self.admin_allowed(update):
+                return True
             mode = self.research_modes.get(waiting.partition(":")[2])
             if mode is None:
                 await message.reply_text(t["error"])
@@ -499,7 +506,7 @@ class ControlUI:
             parts = query.data.split(":")
             action = parts[1]
             screen = "home"
-            if (action in {"workers", "keysel", "keyauto", "toggleupdate", "zram", "swap"}
+            if (action in {"workers", "keysel", "keyauto", "toggleupdate", "zram", "swap", "legacy", "researchmode"}
                     or (action == "input" and len(parts) > 2 and parts[2] == "key_add")
                     or (action == "confirm" and len(parts) > 2 and parts[2] in {"key"})
                     or (action == "execute" and len(parts) > 2 and parts[2] in {"key"})):
@@ -508,6 +515,10 @@ class ControlUI:
                     return
             if action == "go":
                 screen = parts[2]
+                if (screen in {"keys", "server", "updates", "memory", "workers", "advanced"}
+                        or screen.startswith("advanced.")) and not self.admin_allowed(update):
+                    await query.answer("Admin only", show_alert=True)
+                    return
             elif action == "input":
                 mode = parts[2]
                 if mode not in {"direct", "daily", "download", "research", "schedule_once", "schedule_recurring", "key_add"}:

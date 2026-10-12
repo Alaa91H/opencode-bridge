@@ -570,6 +570,13 @@ async def _dispatch_advanced_button(name: str, update: Update, context: ContextT
     if handler is None:
         raise ValueError("Advanced command handler unavailable")
     previous = context.args
+    if update.message is None and update.effective_message is not None:
+        from types import SimpleNamespace
+        update = SimpleNamespace(
+            message=update.effective_message, effective_message=update.effective_message,
+            effective_user=update.effective_user, effective_chat=update.effective_chat,
+            effective_bot=update.effective_bot, update_id=update.update_id, get_bot=update.get_bot,
+        )
     try:
         context.args = payload.split()
         await handler(update, context)
