@@ -14,7 +14,12 @@ from typing import Any
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 
-from bridge.domain.schedules.user_timezones import COUNTRIES, display_local, local_to_utc, validate_zone
+from bridge.domain.schedules.user_timezones import (
+    COUNTRIES,
+    display_local,
+    local_to_utc,
+    validate_zone,
+)
 from bridge.telegram.download_delivery import deliver_download
 
 log = logging.getLogger(__name__)
