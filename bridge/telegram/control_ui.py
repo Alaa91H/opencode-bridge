@@ -75,6 +75,7 @@ WORDS = {
         "resources": "📊 موارد الخادم", "update_agent": "🤖 تحديث OpenCode الآن",
         "update_system": "🛠 تحديث النظام الآن", "auto_system": "🔄 تحديث النظام تلقائيًا",
         "bridge_check": "🔎 فحص تحديث Bridge الآن (دون تثبيت)",
+        "bridge_update": "🚀 تحديث Bridge الآن (بعد التأكيد)",
         "backup_policy": "🗑 حذف النسخ الاحتياطية بعد تحديث ناجح",
         "admin_private": "تتطلب هذه العملية محادثة خاصة مع مالك البوت.",
         "pending_update": "بدأ فحص التحديث. سيتم عرض نتيجة العملية هنا.",
@@ -150,6 +151,7 @@ WORDS = {
         "resources": "📊 Server resources", "update_agent": "🤖 Update OpenCode now",
         "update_system": "🛠 Update OS now", "auto_system": "🔄 Automatic OS updates",
         "bridge_check": "🔎 Check Bridge release now (no install)",
+        "bridge_update": "🚀 Update Bridge now (confirm first)",
         "backup_policy": "🗑 Delete backups after successful upgrade",
         "admin_private": "This action requires the bot owner's private chat.",
         "pending_update": "Update check started. The result will appear here.",
@@ -459,6 +461,7 @@ class ControlUI:
             text += "\nOS: " + (t["on"] if os_enabled else t["off"])
             rows.append([button(t["auto_system"], "toggleos")])
             rows.append([button(t["bridge_check"], "checkbridge")])
+            rows.append([button(t["bridge_update"], "confirm", "updatebridge", 0)])
             rows.append([button(t["update_agent"], "confirm", "updateagent", 0)])
             rows.append([button(t["update_system"], "confirm", "updatesystem", 0)])
             rows.append([button(t["backup_policy"] + (
@@ -1006,7 +1009,7 @@ class ControlUI:
                 await self.models.select_variant(owner, int(parts[2]), int(parts[3]))
                 screen = "agent"
             elif action == "confirm":
-                if parts[2] not in {"cancel", "schedule", "file", "new", "key", "task", "hostkey", "backup", "updateagent", "updatesystem"}:
+                if parts[2] not in {"cancel", "schedule", "file", "new", "key", "task", "hostkey", "backup", "updateagent", "updatesystem", "updatebridge"}:
                     raise ValueError("unsupported confirmation")
                 context.user_data["ui_confirm"] = (parts[2], parts[3])
                 text = t["confirm_text"]
@@ -1022,7 +1025,7 @@ class ControlUI:
                 kind, value = parts[2], parts[3]
                 if context.user_data.pop("ui_confirm", None) != (kind, value):
                     raise ValueError("confirmation required")
-                if kind in {"hostkey", "backup", "updateagent", "updatesystem"}:
+                if kind in {"hostkey", "backup", "updateagent", "updatesystem", "updatebridge"}:
                     if not self.admin_allowed(update) or getattr(
                         getattr(update, "effective_chat", None), "type", None) != "private":
                         raise ValueError("Private administrator chat required")
@@ -1041,10 +1044,10 @@ class ControlUI:
                         raise ValueError("Stale backup index")
                     self.backups.delete(entries[idx]["name"])
                     screen = "backups"
-                elif kind in {"updateagent", "updatesystem"}:
+                elif kind in {"updateagent", "updatesystem", "updatebridge"}:
                     await query.answer()
                     notice = await update.effective_message.reply_text(t["pending_update"])
-                    kind_name = "agent" if kind == "updateagent" else "system"
+                    kind_name = {"updateagent": "agent", "updatesystem": "system", "updatebridge": "bridge"}[kind]
                     async def complete_update() -> None:
                         result = await update_now(kind_name, progress=lambda chunk: notice.edit_text((kind_name + ': ' + chunk)[-3500:]))
                         await notice.edit_text(result[-3500:])
