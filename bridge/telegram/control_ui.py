@@ -409,6 +409,14 @@ class ControlUI:
             current = self.runtime_controls.auto_update() if self.runtime_controls else False
             text = t["updates_text"].format(state=t["on"] if current else t["off"])
             rows.append([button(t["off"] if current else t["on"], "toggleupdate")])
+            os_enabled = self.runtime_controls.system_auto_update()
+            text += "\nOS: " + (t["on"] if os_enabled else t["off"])
+            rows.append([button(t["auto_system"], "toggleos")])
+            rows.append([button(t["update_agent"], "confirm", "updateagent", 0)])
+            rows.append([button(t["update_system"], "confirm", "updatesystem", 0)])
+            rows.append([button(t["backup_policy"] + (
+                " ✅" if self.runtime_controls.purge_backups_after_update() else ""),
+                "togglebackuppurge")])
         elif screen == "memory":
             value = self.runtime_controls.memory() if self.runtime_controls else {"zram_percent": 50, "swap_gib": "auto"}
             text = t["memory_text"] + f"\nZRAM: {value['zram_percent']}% RAM\nSwap: {value['swap_gib']} GiB"
