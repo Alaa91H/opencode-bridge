@@ -25,8 +25,6 @@ class AdminBackups:
         self.lock = asyncio.Lock()
 
     def list(self) -> list[dict]:
-        if not self.root.exists():
-            return []
         results = []
         for path in self.root.glob("backup-*"):
             if path.suffix not in {".db", ".age"} or path.is_symlink() or not path.is_file():
