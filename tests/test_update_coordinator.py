@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
+import stat
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -105,6 +107,62 @@ class UpdateCoordinatorTests(unittest.TestCase):
         self.coordinator.transition("v3.3.0", self.sha, "verified")
         with self.assertRaises(ValueError):
             self.coordinator.transition("v3.3.1", self.sha, "verified")
+
+    def test_hardlinked_journal_is_rejected_before_any_database_change(self) -> None:
+        outside = self.root / "unrelated.db"
+        with sqlite3.connect(outside) as db:
+            db.execute("CREATE TABLE important(value TEXT)")
+            db.execute("INSERT INTO important VALUES ('untouched')")
+        self.coordinator.directory.mkdir(mode=0o700)
+        try:
+            os.link(outside, self.coordinator.path)
+        except OSError:
+            self.skipTest("hardlinks unavailable")
+        with self.assertRaisesRegex(ValueError, "unsafe update journal"):
+            self.coordinator.transition("v3.3.0", self.sha, "verified")
+        with sqlite3.connect(outside) as db:
+            self.assertEqual(db.execute("SELECT value FROM important").fetchone()[0],
+                             "untouched")
+
+    def test_symlinked_wal_is_rejected(self) -> None:
+        self.coordinator.directory.mkdir(mode=0o700)
+        outside = self.root / "unrelated"
+        outside.write_text("preserved", encoding="utf-8")
+        sidecar = self.coordinator.path.with_name(
+            self.coordinator.path.name + "-wal",
+        )
+        try:
+            sidecar.symlink_to(outside)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable")
+        with self.assertRaisesRegex(ValueError, "unsafe update journal"):
+            self.coordinator.transition("v3.3.0", self.sha, "verified")
+        self.assertEqual(outside.read_text(), "preserved")
+
+    def test_non_regular_sqlite_path_is_rejected(self) -> None:
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("FIFO unsupported")
+        self.coordinator.directory.mkdir(mode=0o700)
+        os.mkfifo(self.coordinator.path)
+        with self.assertRaisesRegex(ValueError, "unsafe update journal"):
+            self.coordinator.transition("v3.3.0", self.sha, "verified")
+
+    def test_group_writable_runtime_directory_is_rejected(self) -> None:
+        if os.name != "posix":
+            self.skipTest("POSIX permissions required")
+        self.coordinator.directory.mkdir(mode=0o700)
+        self.coordinator.directory.chmod(0o770)
+        try:
+            with self.assertRaisesRegex(ValueError, "insecure update journal directory"):
+                self.coordinator.transition("v3.3.0", self.sha, "verified")
+        finally:
+            self.coordinator.directory.chmod(0o700)
+
+    def test_created_journal_is_private(self) -> None:
+        self.coordinator.transition("v3.3.0", self.sha, "verified")
+        if os.name == "posix":
+            mode = stat.S_IMODE(self.coordinator.path.stat().st_mode)
+            self.assertEqual(mode & 0o077, 0)
 
     def test_sqlite_journal_is_not_shared_task_database(self) -> None:
         self.coordinator.transition("v3.3.0", self.sha, "verified")
