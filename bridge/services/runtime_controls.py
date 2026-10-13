@@ -39,6 +39,10 @@ class RuntimeControls:
         if mode not in AUTOPILOT_MODES:
             raise ValueError("Unsupported autopilot mode")
         from bridge.services.host_credentials import secure_write
+        # Emergency stop also revokes the stored OS auto-update opt-in.
+        # Exiting the stop never silently re-enables privileged host upgrades.
+        if mode == "emergency-stop":
+            secure_write(self.root / "host-auto-update-enabled", b"0\n")
         # Disable legacy automatic deployment before changing the new mode.
         # An interrupted update or rollback cannot accidentally re-enable it.
         legacy = self.root / "auto-update-enabled"
