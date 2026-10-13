@@ -47,7 +47,7 @@ class PublicDialSecurityTests(unittest.IsolatedAsyncioTestCase):
     async def test_private_or_metadata_dns_never_reaches_dial(self) -> None:
         for address in (
             "127.0.0.1", "::1", "10.0.0.2", "192.168.0.8",
-            "169.254.169.254", "fe80::1", "0.0.0.0",
+            "169.254.169.254", "fe80::1", "0.0.0.0",  # noqa: S104 -- hostile fixture
         ):
             with self.subTest(address=address):
                 fake = _FakeNetwork()
