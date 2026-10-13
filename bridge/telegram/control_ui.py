@@ -101,6 +101,8 @@ WORDS = {
         "updates_text": "وضع تحديث Bridge تلقائيًا: {state}",
         "mode_off": "⏸ إيقاف", "mode_notify": "🔎 فحص فقط دون تثبيت",
         "mode_safe": "✅ تلقائي آمن", "mode_window": "🕗 نافذة 08–10 UTC",
+        "mode_emergency": "🛑 إيقاف طارئ شامل",
+        "emergency_help": "الإيقاف الطارئ مفعل: توقفت التحديثات والصيانة المؤثرة حتى إلغائه.",
         "mode_window_help": "نافذة التحديث اليومية: 08:00–10:00 UTC.",
         "quarantine_text": "⚠️ فشل تفعيل إصدار Bridge {tag}؛ توقفت محاولات هذا الإصدار تلقائيًا. سيُجرَّب إصدار أحدث بعد اجتياز الاختبارات.",
         "quarantine_invalid": "⚠️ سجل التحديث الفاشل تالف؛ تم إيقاف التفعيل تلقائيًا لحين معالجة الحالة.",
@@ -180,6 +182,8 @@ WORDS = {
         "updates_text": "Bridge update mode: {state}",
         "mode_off": "⏸ Off", "mode_notify": "🔎 Check only (no install)",
         "mode_safe": "✅ Auto-safe", "mode_window": "🕗 Window 08–10 UTC",
+        "mode_emergency": "🛑 Emergency stop",
+        "emergency_help": "Emergency stop active: upgrades and mutating maintenance are suspended.",
         "mode_window_help": "Daily deployment window: 08:00–10:00 UTC.",
         "quarantine_text": "⚠️ Bridge {tag} failed activation and is quarantined. A newer verified release can be tried automatically.",
         "quarantine_invalid": "⚠️ Corrupt update quarantine state: automatic activation is blocked until repaired.",
@@ -455,10 +459,13 @@ class ControlUI:
             current_mode = (self.runtime_controls.autopilot_mode()
                             if self.runtime_controls else "off")
             names = {"off": "mode_off", "notify": "mode_notify",
-                     "auto-safe": "mode_safe", "maintenance-window": "mode_window"}
+                     "auto-safe": "mode_safe", "maintenance-window": "mode_window",
+                     "emergency-stop": "mode_emergency"}
             text = t["updates_text"].format(state=t[names[current_mode]])
             if current_mode == "maintenance-window":
                 text += "\n" + t["mode_window_help"]
+            elif current_mode == "emergency-stop":
+                text += "\n" + t["emergency_help"]
             if self.runtime_controls is not None:
                 try:
                     held_tag = self.runtime_controls.failed_update_release()
@@ -477,7 +484,8 @@ class ControlUI:
                             tag=safe(operation.tag, 32), phase=safe(operation.phase, 40),
                             date=safe(operation.updated_utc, 35))
             for value, label in (("off", "mode_off"), ("notify", "mode_notify"),
-                                 ("auto-safe", "mode_safe"), ("maintenance-window", "mode_window")):
+                                 ("auto-safe", "mode_safe"), ("maintenance-window", "mode_window"),
+                                 ("emergency-stop", "mode_emergency")):
                 rows.append([button(("● " if current_mode == value else "○ ") + t[label],
                                     "autopilot", value)])
             os_enabled = self.runtime_controls.system_auto_update()

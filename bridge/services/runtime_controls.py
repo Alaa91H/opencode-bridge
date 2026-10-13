@@ -11,8 +11,8 @@ import os
 import re
 from pathlib import Path
 
-AUTOPILOT_MODES = ("off", "notify", "auto-safe", "maintenance-window")
-MAINTENANCE_WINDOW_UTC = (2, 4)
+AUTOPILOT_MODES = ("off", "notify", "auto-safe", "maintenance-window", "emergency-stop")
+MAINTENANCE_WINDOW_UTC = (8, 10)
 
 
 class RuntimeControls:
@@ -39,13 +39,17 @@ class RuntimeControls:
         if mode not in AUTOPILOT_MODES:
             raise ValueError("Unsupported autopilot mode")
         from bridge.services.host_credentials import secure_write
-        # Persist policy atomically, never write arbitrary shell commands.
+        # Emergency stop also revokes the stored OS auto-update opt-in.
+        # Exiting the stop never silently re-enables privileged host upgrades.
+        if mode == "emergency-stop":
+            secure_write(self.root / "host-auto-update-enabled", b"0\n")
+        # Disable legacy automatic deployment before changing the new mode.
+        # An interrupted update or rollback cannot accidentally re-enable it.
+        legacy = self.root / "auto-update-enabled"
+        secure_write(legacy, b"0\n")
         secure_write(self.root / "autopilot-mode", (mode + "\n").encode("ascii"))
-        # Preserve old callers' enable/disable intent across upgrades.
-        secure_write(
-            self.root / "auto-update-enabled",
-            b"1\n" if mode in ("auto-safe", "maintenance-window") else b"0\n",
-        )
+        if mode in ("auto-safe", "maintenance-window"):
+            secure_write(legacy, b"1\n")
 
     def auto_update(self) -> bool:
         return self.autopilot_mode() in ("auto-safe", "maintenance-window")
@@ -133,6 +137,8 @@ class RuntimeControls:
         return path.read_text(encoding="ascii").strip() == "1"
 
     def set_system_auto_update(self, enabled: bool) -> None:
+        if enabled and self.autopilot_mode() == "emergency-stop":
+            raise ValueError("OS auto-update cannot be enabled during emergency stop")
         from bridge.services.host_credentials import secure_write
         secure_write(self.root / "host-auto-update-enabled", b"1\n" if enabled else b"0\n")
 

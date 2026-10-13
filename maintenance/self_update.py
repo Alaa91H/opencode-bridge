@@ -37,7 +37,7 @@ def release_coordinator(root: Path):
     from bridge.services.update_coordinator import UpdateCoordinator
 
     return UpdateCoordinator(root / "runtime")
-AUTO_MODES = ("off", "notify", "auto-safe", "maintenance-window")
+AUTO_MODES = ("off", "notify", "auto-safe", "maintenance-window", "emergency-stop")
 
 
 def deployment_mode(root: Path) -> str:
@@ -56,7 +56,10 @@ def deployment_mode(root: Path) -> str:
     # No implicit production opt-in: a missing legacy switch means OFF.
     if not legacy.exists():
         return "off"
-    return "off" if legacy.read_text(encoding="ascii").strip() == "0" else "auto-safe"
+    value = legacy.read_text(encoding="ascii").strip()
+    if value not in {"0", "1"}:
+        raise ValueError("invalid legacy update policy")
+    return "auto-safe" if value == "1" else "off"
 
 
 def maintenance_window_open(now: datetime | None = None) -> bool:
@@ -180,6 +183,8 @@ def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
         return {"status": "skipped", "reason": "automatic updates disabled by environment"}
     try:
         mode = deployment_mode(root)
+        if mode == "emergency-stop":
+            return {"status": "skipped", "reason": "emergency stop is active"}
         if mode == "off" and not (check_only or manual):
             return {"status": "skipped", "reason": "automatic updates disabled"}
         if mode == "maintenance-window" and not (check_only or manual) and not maintenance_window_open():

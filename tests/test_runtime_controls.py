@@ -48,7 +48,8 @@ class RuntimeControlsTests(unittest.TestCase):
             controls = RuntimeControls(root)
             self.assertEqual(controls.autopilot_mode(), "off")
             for mode, deploys in (("notify", False), ("off", False),
-                                  ("auto-safe", True), ("maintenance-window", True)):
+                                  ("auto-safe", True), ("maintenance-window", True),
+                                  ("emergency-stop", False)):
                 with self.subTest(mode=mode):
                     controls.set_autopilot_mode(mode)
                     refreshed = RuntimeControls(root)
@@ -62,6 +63,39 @@ class RuntimeControlsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 controls.set_autopilot_mode("unrestricted-root")
             self.assertEqual(controls.autopilot_mode(), "auto-safe")
+
+    def test_emergency_stop_blocks_new_os_opt_in_and_disables_legacy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            controls = RuntimeControls(Path(temp))
+            controls.set_autopilot_mode("auto-safe")
+            controls.set_system_auto_update(True)
+            controls.set_autopilot_mode("emergency-stop")
+            self.assertFalse(controls.auto_update())
+            self.assertEqual((Path(temp) / "auto-update-enabled").read_text().strip(), "0")
+            with self.assertRaises(ValueError):
+                controls.set_system_auto_update(True)
+            self.assertFalse(controls.system_auto_update(),
+                             "Emergency stop must revoke OS auto-update consent")
+            controls.set_autopilot_mode("off")
+            controls.set_system_auto_update(False)
+            self.assertFalse(controls.system_auto_update())
+
+    def test_interrupted_policy_write_disables_legacy_updater_first(self):
+        from unittest.mock import patch
+
+        from bridge.services.host_credentials import secure_write as original_write
+
+        with tempfile.TemporaryDirectory() as temp:
+            controls = RuntimeControls(Path(temp))
+            controls.set_autopilot_mode("auto-safe")
+            def interrupt(path, payload):
+                if Path(path).name == "autopilot-mode":
+                    raise OSError("simulated power interruption")
+                original_write(path, payload)
+            with patch("bridge.services.host_credentials.secure_write", side_effect=interrupt):
+                with self.assertRaises(OSError):
+                    controls.set_autopilot_mode("emergency-stop")
+            self.assertEqual((Path(temp) / "auto-update-enabled").read_text().strip(), "0")
 
     def test_invalid_autopilot_mode_is_not_treated_as_enabled(self):
         with tempfile.TemporaryDirectory() as temp:
