@@ -1,3 +1,24 @@
+## [3.3.0] - 2026-10-13
+
+### Consolidated release since v3.2.0
+
+- Hardened verified-release coordination with SQLite WAL journal, exclusive activation, quarantine after failed deployments, and restart-safe operation history.
+- Added owner-controlled Bridge update modes (`off`, `notify`, `auto-safe`, `maintenance-window`) and an `emergency-stop` that blocks Bridge/agent/OS updates and scheduled mutating maintenance. Unset update controls are off by default.
+- Added explicit `TELEGRAM_OWNER_ID` support. If multiple Telegram users are allowed, privileged host controls now require an explicitly allowlisted owner; single-user installations keep their existing owner.
+- Restricted unattended Ubuntu updates to explicit owner opt-in, avoiding automatic destructive `apt autoremove --purge`.
+- Added protected SQLite snapshot checksums, offline verification of encrypted age archives, bounded-memory backup creation, safe backup-retention accounting, and a synthetic real-age recovery smoke test (optional when age tools are absent).
+- Added a read-only redacted host-inventory CLI and updated the T01–T18 operational evidence register.
+- Enforced fail-closed managed-download index validation, bounded public-IP TCP connections against DNS rebinding in direct HTTP downloads, 24-hour maximum local retention, UTC-midnight expiry guards and crash-released interprocess locks.
+- Added an optional systemd user timer for UTC-midnight cleanup; this timer is **not enabled automatically**, pending staging and end-to-end concurrency validation.
+- Expanded security, crash-recovery, backup and download regression coverage across Python 3.12, 3.13 and 3.14 in GitHub Actions.
+
+### Upgrade and testing notes
+
+- For multi-user Telegram installations, privately configure `TELEGRAM_OWNER_ID` as one of the IDs in `TELEGRAM_ALLOWED_USERS` before trying owner-only server controls.
+- Automatic Bridge and Ubuntu upgrades stay disabled without explicit opt-in; inspect the update mode before changing it. Emergency stop does not pause regular user tasks.
+- A completed GitHub Actions build does **not** certify production operation. Before enabling automatic upgrades or the cache timer, validate offline age-key restoration, service restart, rollback, network isolation and a staging soak test.
+- This is a source release and does not automatically deploy the bot to the host. Unfinished T01–T18 staging acceptance requirements remain tracked in `docs/autonomous-operations-evidence-2026-10-13-ar.md`.
+
 ## [3.2.0] - 2026-10-12
 
 - Telegram panels for host credentials, encrypted/private SQLite backups, free anonymous mirrors and host resource inspection.
