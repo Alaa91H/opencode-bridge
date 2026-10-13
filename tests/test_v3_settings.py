@@ -131,6 +131,35 @@ port = 5000
                 task_override={"telegram": {"allowed_users": [42]}},
             )
 
+    def test_explicit_telegram_owner_must_be_allowlisted(self) -> None:
+        from bridge.telegram.role_policy import resolve_owner_id
+
+        config = {"TELEGRAM_ALLOWED_USERS": "100,200"}
+        without = BridgeSettings.load(env=config)
+        self.assertIsNone(without.telegram.owner_id)
+        self.assertIsNone(resolve_owner_id(without.telegram.allowed_users,
+                                           without.telegram.owner_id))
+
+        configured = BridgeSettings.load(
+            env={**config, "TELEGRAM_OWNER_ID": "200"},
+        )
+        self.assertEqual(configured.telegram.owner_id, 200)
+        self.assertEqual(
+            resolve_owner_id(configured.telegram.allowed_users, configured.telegram.owner_id),
+            200,
+        )
+        for invalid in ("not-a-user-id", "-4", "0", "300"):
+            with self.subTest(owner=invalid), self.assertRaises(SettingsError):
+                BridgeSettings.load(env={**config, "TELEGRAM_OWNER_ID": invalid})
+
+    def test_owner_id_can_be_configured_with_toml(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "bridge.toml"
+            path.write_text('[telegram]\nallowed_users = [25, 55]\nowner_id = 55\n',
+                            encoding="utf-8")
+            settings = BridgeSettings.load(env={}, config_path=path)
+            self.assertEqual(settings.telegram.owner_id, 55)
+
     def test_public_dict_redacts_secrets(self) -> None:
         settings = BridgeSettings.load(
             env={

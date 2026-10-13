@@ -6,7 +6,7 @@ required permission before performing any administrative operation.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -50,3 +50,20 @@ class RolePolicy:
             return False
         role = self.role_for(actor_id)
         return role is not None and permission in _ALLOWED[role]
+
+
+def resolve_owner_id(allowed_users: Iterable[int], explicit_owner_id: int | None) -> int | None:
+    """Never infer ownership from the numeric ordering of Telegram IDs.
+
+    An explicitly configured owner must be a positive, allowlisted user ID.
+    Backward compatibility is limited to the unambiguous one-user installation.
+    Multi-user installations without an explicit owner cannot administer host
+    credentials, backups, software updates or reboot controls.
+    """
+    users = {item for item in allowed_users if type(item) is int and item > 0}
+    if explicit_owner_id is not None:
+        return (explicit_owner_id if type(explicit_owner_id) is int
+                and explicit_owner_id in users else None)
+    if len(users) != 1:
+        return None
+    return next(iter(users))

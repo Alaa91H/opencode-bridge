@@ -74,6 +74,7 @@ from bridge.telegram.panels import (
     PanelRouter,
     build_panels,
 )
+from bridge.telegram.role_policy import resolve_owner_id
 from formatter import MAX_MESSAGE_LENGTH
 from messages import (
     HELP_TEXT,
@@ -109,6 +110,7 @@ log = logging.getLogger("opencode_bridge")
 TELEGRAM_BOT_TOKEN = SETTINGS.telegram.bot_token
 TELEGRAM_PROXY_URL = SETTINGS.telegram.proxy_url
 ALLOWED_USERS = set(SETTINGS.telegram.allowed_users)
+CONTROL_OWNER_ID = resolve_owner_id(ALLOWED_USERS, SETTINGS.telegram.owner_id)
 ALLOWED_CHAT_IDS = set(SETTINGS.telegram.allowed_chat_ids)
 OPENCODE_HOST = SETTINGS.opencode.host
 OPENCODE_PORT = SETTINGS.opencode.port
@@ -258,11 +260,24 @@ def _is_allowed(update: Update) -> bool:
     return _access_controller().is_allowed(update)
 
 
+def _is_control_owner(update: Update) -> bool:
+    """Only a validated owner in a private chat may operate the host."""
+    user = getattr(update, "effective_user", None)
+    chat = getattr(update, "effective_chat", None)
+    actor = getattr(user, "id", None)
+    return bool(
+        CONTROL_OWNER_ID is not None and type(actor) is int
+        and actor == CONTROL_OWNER_ID
+        and getattr(chat, "type", None) == "private"
+        and _is_allowed(update)
+    )
+
+
 def _reboot_callback_adapter() -> RebootCallbackAdapter:
     global _reboot_callback_instance
     if _reboot_callback_instance is None:
         _reboot_callback_instance = RebootCallbackAdapter(
-            is_allowed=_is_allowed,
+            is_allowed=_is_control_owner,
             request_path=REBOOT_REQUEST_PATH,
             decision_path=REBOOT_DECISION_PATH,
             read_state=read_state,
@@ -610,8 +625,7 @@ def _control_ui() -> ControlUI:
             backups=AdminBackups(BRIDGE_DIR),
             mirrors=MirrorService(BRIDGE_DIR / "runtime" / "downloads"),
             project=BRIDGE_DIR,
-            admin_allowed=lambda update: (_is_allowed(update) and bool(ALLOWED_USERS) and
-                                          update.effective_user.id == min(ALLOWED_USERS)),
+            admin_allowed=_is_control_owner,
             legacy_dispatch=_dispatch_advanced_button,
             research_modes=RESEARCH_COMMAND_MODES,
         )

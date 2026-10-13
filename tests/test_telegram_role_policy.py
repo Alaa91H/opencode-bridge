@@ -2,7 +2,7 @@
 
 import unittest
 
-from bridge.telegram.role_policy import Permission, Role, RolePolicy
+from bridge.telegram.role_policy import Permission, Role, RolePolicy, resolve_owner_id
 
 
 class RolePolicyTests(unittest.TestCase):
@@ -30,6 +30,19 @@ class RolePolicyTests(unittest.TestCase):
         policy = RolePolicy({1: Role.OWNER})
         for permission in Permission:
             self.assertTrue(policy.allows(1, permission))
+
+    def test_owner_does_not_default_to_lowest_user_id(self):
+        self.assertIsNone(resolve_owner_id({7, 200}, None))
+        self.assertEqual(resolve_owner_id({7, 200}, 200), 200)
+        self.assertEqual(resolve_owner_id({200}, None), 200)
+        self.assertIsNone(resolve_owner_id(set(), None))
+
+    def test_owner_config_must_be_explicitly_allowlisted(self):
+        self.assertIsNone(resolve_owner_id({7, 200}, 42))
+        self.assertIsNone(resolve_owner_id({7}, True))
+        self.assertIsNone(resolve_owner_id({7}, -7))
+        self.assertIsNone(resolve_owner_id({7, 200}, "200"))
+        self.assertEqual(resolve_owner_id({7, 200}, 7), 7)
 
     def test_invalid_assignments_fail_closed(self):
         policy = RolePolicy({1: "owner", 2: None, 3: Role.OWNER})
