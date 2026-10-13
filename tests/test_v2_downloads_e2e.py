@@ -248,6 +248,45 @@ class DownloadServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(Path(keep.path).is_file())
         self.assertFalse(Path(other.path).exists())
 
+    async def test_utc_midnight_removes_only_prior_day_downloads(self) -> None:
+        _FileServer.body = b"fixture"
+        service = self.service(ttl_hours=720)
+        previous = await service.fetch(OWNER, f"{self.base}/prior.bin")
+        current = await service.fetch(OWNER, f"{self.base}/current.bin")
+        self.assertEqual(service.ttl_hours, 24)
+        cutoff = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        index = json.loads(service.index_path.read_text(encoding="utf-8"))
+        index[previous.id]["created_at"] = (cutoff - timedelta(seconds=1)).isoformat()
+        index[current.id]["created_at"] = cutoff.isoformat()
+        service._write_index(index)
+        result = service.cleanup_expired(now=cutoff + timedelta(minutes=1),
+                                         previous_utc_day=True)
+        self.assertEqual(result["removed"], 1)
+        self.assertFalse(Path(previous.path).exists())
+        self.assertTrue(Path(current.path).exists())
+
+    async def test_cleanup_index_failure_preserves_original_file(self) -> None:
+        from unittest.mock import patch
+
+        _FileServer.body = b"retention-data"
+        service = self.service()
+        record = await service.fetch(OWNER, f"{self.base}/retain.bin")
+        old_index = service.index_path.read_bytes()
+        with patch.object(service, "_write_index", side_effect=OSError):
+            with self.assertRaises(OSError):
+                service.cleanup_expired(now=datetime.now(UTC) + timedelta(days=2))
+        self.assertTrue(Path(record.path).is_file())
+        self.assertEqual(service.index_path.read_bytes(), old_index)
+
+    async def test_utc_cleanup_requires_timezone_aware_clock(self) -> None:
+        _FileServer.body = b"protected"
+        service = self.service()
+        record = await service.fetch(OWNER, f"{self.base}/protected.bin")
+        with self.assertRaises(ValueError):
+            service.cleanup_expired(now=datetime.now(UTC).replace(tzinfo=None),
+                                    previous_utc_day=True)
+        self.assertTrue(Path(record.path).is_file())
+
     async def test_explicit_delete_removes_file_and_index_entry(self) -> None:
         _FileServer.body = _payload(1024)
         service = self.service()

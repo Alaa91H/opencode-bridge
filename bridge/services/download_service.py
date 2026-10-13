@@ -226,7 +226,7 @@ class DownloadService:
         self.root = Path(root).resolve()
         self.max_total_bytes = max(1, min(DEFAULT_MAX_TOTAL_BYTES, int(max_total_bytes)))
         self.max_file_bytes = max(1, min(self.max_total_bytes, int(max_file_bytes)))
-        self.ttl_hours = max(1, int(ttl_hours))
+        self.ttl_hours = max(1, min(DEFAULT_TTL_HOURS, int(ttl_hours)))
         self.direct_send_limit = max(1, int(direct_send_limit))
         self.timeout_seconds = float(timeout_seconds)
         self.ytdlp_path = ytdlp_path or shutil.which("yt-dlp")
@@ -556,31 +556,44 @@ class DownloadService:
         self._prune_empty()
         return True
 
-    def cleanup_expired(self, *, now: datetime | None = None) -> dict[str, int]:
-        """Remove files past their expiry. Returns counts for the audit log."""
+    def cleanup_expired(
+        self, *, now: datetime | None = None, previous_utc_day: bool = False,
+    ) -> dict[str, int]:
+        """Retire TTL-expired files and, optionally, files from prior UTC days.
+
+        Commit index changes before removing any file. A failed disk write
+        cannot leave dangling index references to already-deleted files.
+        """
         moment = now or datetime.now(UTC)
+        if moment.tzinfo is None:
+            raise ValueError("Cleanup requires a timezone-aware clock")
+        midnight = moment.astimezone(UTC).replace(
+            hour=0, minute=0, second=0, microsecond=0,
+        )
         index = self._read_index()
-        removed = 0
+        retired: list[DownloadRecord] = []
         freed = 0
         for key, entry in list(index.items()):
-            try:
-                record = DownloadRecord.from_dict(entry)
-            except (KeyError, TypeError, ValueError):
-                index.pop(key, None)
+            record = DownloadRecord.from_dict(entry)
+            created = datetime.fromisoformat(record.created_at)
+            if created.tzinfo is None:
+                raise DownloadError("Download creation date is missing its timezone")
+            before_midnight = previous_utc_day and created.astimezone(UTC) < midnight
+            if not (_expired(record, moment) or before_midnight):
                 continue
-            if not _expired(record, moment):
-                continue
-            index.pop(key, None)
+            index.pop(key)
+            retired.append(record)
             freed += record.size_bytes
-            try:
-                self._resolve_inside(Path(record.path)).unlink(missing_ok=True)
-            except (DownloadError, OSError):
-                pass
-            removed += 1
-        if removed:
+        if retired:
             self._write_index(index)
+            for record in retired:
+                try:
+                    self._resolve_inside(Path(record.path)).unlink(missing_ok=True)
+                except (DownloadError, OSError):
+                    # Retain orphaned data for diagnosis rather than hide errors.
+                    pass
             self._prune_empty()
-        return {"removed": removed, "freed_bytes": freed}
+        return {"removed": len(retired), "freed_bytes": freed}
 
     def _prune_empty(self) -> None:
         try:

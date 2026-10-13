@@ -1,0 +1,11 @@
+[Unit]
+Description=OpenCode Bridge managed download cache UTC-day expiry
+After=opencode-bridge-telegram.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/opencode-bridge
+ExecStart=/home/ubuntu/opencode-bridge/venv/bin/python /home/ubuntu/opencode-bridge/scripts/expire-midnight-downloads.py
+NoNewPrivileges=yes
+PrivateTmp=yes
+TimeoutStartSec=3min

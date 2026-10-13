@@ -13,6 +13,8 @@ import sys
 UNIT_NAMES = (
     "opencode-serve.service",
     "opencode-bridge-telegram.service",
+    "opencode-bridge-download-cleanup.service",
+    "opencode-bridge-download-cleanup.timer",
     "opencode-bridge.target",
 )
 DROPIN_DIRNAME = "bridge-release.conf"
