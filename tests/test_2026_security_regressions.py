@@ -52,7 +52,10 @@ class DownloadSecurityRegressions(unittest.IsolatedAsyncioTestCase):
             service = DownloadService(Path(temp))
             with patch("bridge.services.download_service._assert_resolved_public", new=AsyncMock()), \
                  patch("bridge.services.download_service.httpx.AsyncClient",
-                       side_effect=lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs)):
+                       side_effect=lambda **kwargs: real_client(
+                           transport=httpx.MockTransport(handler),
+                           **{key: val for key, val in kwargs.items() if key != "transport"},
+                       )):
                 with self.assertRaises(DownloadError):
                     await service.fetch("user", "https://public.example/download")
         self.assertEqual(seen, ["https://public.example/download"])
