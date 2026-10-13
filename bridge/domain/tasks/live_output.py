@@ -76,7 +76,7 @@ class AgentLiveAssembler:
             return ""
         self._part_messages[key] = message_id
         part_type = part.get("type")
-        self._known_types[key] = str(part_type)
+        self._known_types[key] = "synthetic" if part.get("synthetic") else str(part_type)
         if part_type != "text" or part.get("synthetic"):
             self._untyped_deltas.pop(key, None)
             return ""
