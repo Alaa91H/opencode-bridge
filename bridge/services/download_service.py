@@ -226,7 +226,7 @@ class DownloadService:
         self.root = Path(root).resolve()
         self.max_total_bytes = max(1, min(DEFAULT_MAX_TOTAL_BYTES, int(max_total_bytes)))
         self.max_file_bytes = max(1, min(self.max_total_bytes, int(max_file_bytes)))
-        self.ttl_hours = max(1, int(ttl_hours))
+        self.ttl_hours = max(1, min(DEFAULT_TTL_HOURS, int(ttl_hours)))
         self.direct_send_limit = max(1, int(direct_send_limit))
         self.timeout_seconds = float(timeout_seconds)
         self.ytdlp_path = ytdlp_path or shutil.which("yt-dlp")
