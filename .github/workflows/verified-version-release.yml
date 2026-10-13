@@ -1,0 +1,137 @@
+name: Verified version release
+
+# A version bump is not itself a release. Only a successful main-branch
+# development build plus the independent Python compatibility gate may
+# create the immutable tag and dispatch the existing tagged release workflow.
+on:
+  workflow_run:
+    workflows: ["Build and Release"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verified-release-main
+  cancel-in-progress: false
+
+jobs:
+  dispatch-tagged-release:
+    name: Tag verified main revision
+    if: >-
+      ${{ github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main' &&
+          github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: write
+    env:
+      VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Verify version bump and main revision
+        id: version
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$VERIFIED_SHA"
+          version="$(tr -d '\r\n' < VERSION)"
+          previous="$(git show HEAD^:VERSION | tr -d '\r\n')"
+          if [[ "$version" == "$previous" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No version change; nothing to publish."
+            exit 0
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid semantic version: $version" >&2
+            exit 1
+          fi
+          if ! python3 - "$previous" "$version" <<'PY'
+          import sys
+          old, new = (tuple(map(int, value.split("."))) for value in sys.argv[1:])
+          if new <= old:
+              raise SystemExit("Release version must increase")
+          PY
+          then
+            exit 1
+          fi
+          current_main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [[ "$current_main" != "$VERIFIED_SHA" ]]; then
+            echo "main moved after validation; refusing stale release." >&2
+            exit 1
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for matching Python compatibility tests
+        if: steps.version.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          found=false
+          for attempt in $(seq 1 48); do
+            result="$(gh run list -R "$GITHUB_REPOSITORY" \
+              --workflow python-compatibility.yml \
+              --commit "$VERIFIED_SHA" --event push --limit 15 \
+              --json headSha,status,conclusion \
+              --jq '.[0] | if . == null then "missing" else .status + ":" + (.conclusion // "pending") end')"
+            case "$result" in
+              completed:success)
+                found=true
+                break
+                ;;
+              completed:*)
+                echo "Compatibility checks did not pass: $result" >&2
+                exit 1
+                ;;
+              *)
+                echo "Compatibility gate pending ($attempt/48): $result"
+                sleep 10
+                ;;
+            esac
+          done
+          if [[ "$found" != true ]]; then
+            echo "Compatibility gate did not finish successfully within the limit." >&2
+            exit 1
+          fi
+
+      - name: Tag immutable revision and run existing release pipeline
+        if: steps.version.outputs.changed == 'true'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -Eeuo pipefail
+          current_main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [[ "$current_main" != "$VERIFIED_SHA" ]]; then
+            echo "main moved before tagging; refusing stale release." >&2
+            exit 1
+          fi
+          git fetch --tags origin
+          if git rev-parse -q --verify "refs/tags/$RELEASE_TAG" >/dev/null; then
+            current_tag="$(git rev-list -n 1 "$RELEASE_TAG")"
+            if [[ "$current_tag" != "$VERIFIED_SHA" ]]; then
+              echo "Version tag already points at a different commit." >&2
+              exit 1
+            fi
+          else
+            git -c user.name='github-actions[bot]' \
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                tag -a "$RELEASE_TAG" -m "Verified OpenCode Bridge $RELEASE_TAG"
+            git push origin "refs/tags/$RELEASE_TAG"
+          fi
+          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already published for $RELEASE_TAG."
+            exit 0
+          fi
+          # GITHUB_TOKEN tag pushes intentionally do not run workflows. Dispatch
+          # the existing tagged build explicitly so release assets are built
+          # and published only after that job's tests succeed.
+          gh workflow run quality-gate.yml -R "$GITHUB_REPOSITORY" --ref "$RELEASE_TAG"
