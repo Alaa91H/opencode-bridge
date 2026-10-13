@@ -43,6 +43,16 @@ async def update_now(kind: str, progress=None) -> str:
     """Stream bounded operational status; only known non-build commands."""
     if kind not in {"agent", "system", "bridge-check", "bridge"}:
         raise ValueError("Unsupported update target")
+    if kind != "bridge-check":
+        from bridge.services.runtime_controls import RuntimeControls
+
+        project = Path(__file__).resolve().parents[2]
+        try:
+            mode = RuntimeControls(project / "runtime").autopilot_mode()
+        except (OSError, ValueError):
+            return "Update blocked: invalid owner update policy"
+        if mode == "emergency-stop":
+            return "Update blocked: owner emergency stop is active"
 
     async def run(command, timeout):
         from time import monotonic
