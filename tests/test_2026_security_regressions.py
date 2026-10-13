@@ -100,6 +100,34 @@ class DownloadSecurityRegressions(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(service.list("42")), 1)
             self.assertEqual(responses, 2)
 
+    async def test_corrupt_download_index_never_resets_quota(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            service = DownloadService(Path(temp), allow_private_hosts=True)
+            service.ensure_directories()
+            service.index_path.write_text('{"bad":"not an entry"}', encoding="utf-8")
+            with self.assertRaises(DownloadError):
+                service.used_bytes()
+            with self.assertRaises(DownloadError):
+                service.cleanup_expired()
+            self.assertEqual(service.index_path.read_text(), '{"bad":"not an entry"}')
+
+    async def test_download_index_symlink_does_not_follow_or_overwrite_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            service = DownloadService(root / "downloads", allow_private_hosts=True)
+            service.ensure_directories()
+            other = root / "foreign-index.json"
+            other.write_text("do not change", encoding="utf-8")
+            try:
+                service.index_path.symlink_to(other)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks are unsupported")
+            with self.assertRaises(DownloadError):
+                service.list("owner")
+            with self.assertRaises(DownloadError):
+                service.used_bytes()
+            self.assertEqual(other.read_text(), "do not change")
+
     async def test_download_index_write_failure_removes_orphan(self) -> None:
         real_client = httpx.AsyncClient
         with tempfile.TemporaryDirectory() as temp:

@@ -256,15 +256,29 @@ class DownloadServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(Path(record.path).exists())
         self.assertEqual(service.list(OWNER, include_expired=True), [])
 
-    async def test_corrupt_index_entries_are_discarded_not_fatal(self) -> None:
+    async def test_corrupt_index_blocks_download_without_data_loss(self) -> None:
         service = self.service()
-        service.ensure_directories()
+        _FileServer.body = b"preserved"
+        old = await service.fetch(OWNER, f"{self.base}/previous.bin")
+        original = Path(old.path).read_bytes()
         service.index_path.write_text("{not json", encoding="utf-8")
-        self.assertEqual(service.list(OWNER), [])
+        with self.assertRaises(DownloadError):
+            service.list(OWNER)
+        with self.assertRaises(DownloadError):
+            service.used_bytes()
+        _FileServer.body = b"replacement"
+        requests_before = len(_FileServer.requests)
+        with self.assertRaises(DownloadError):
+            await service.fetch(OWNER, f"{self.base}/after.bin")
+        self.assertEqual(len(_FileServer.requests), requests_before)
+        self.assertEqual(Path(old.path).read_bytes(), original)
+        self.assertEqual(service.index_path.read_text(), "{not json")
+
+    async def test_missing_index_is_only_case_where_store_starts_empty(self) -> None:
+        service = self.service()
+        self.assertFalse(service.index_path.exists())
         self.assertEqual(service.used_bytes(), 0)
-        _FileServer.body = b"y"
-        record = await service.fetch(OWNER, f"{self.base}/after.bin")
-        self.assertTrue(Path(record.path).is_file())
+        self.assertEqual(service.list(OWNER), [])
 
     # ---------------------------------------------------------- capabilities
 

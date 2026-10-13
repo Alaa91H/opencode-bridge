@@ -258,11 +258,46 @@ class DownloadService:
     # --------------------------------------------------------------- index
 
     def _read_index(self) -> dict[str, dict[str, Any]]:
+        """Never mistake an unreadable or tampered index for empty storage.
+
+        Treating corruption as an empty index loses ownership/expiry records
+        and allows quota overcommit while previously stored files remain.
+        Only a genuinely missing index is an empty new download store.
+        """
+        if self.index_path.is_symlink():
+            raise DownloadError("Unsafe download index; recovery required")
         try:
+            if self.index_path.stat().st_size > 8 * 1024 * 1024:
+                raise DownloadError("Download index exceeds safe size limit")
             payload = json.loads(self.index_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        except FileNotFoundError:
             return {}
-        return payload if isinstance(payload, dict) else {}
+        except (OSError, UnicodeError, ValueError) as exc:
+            if isinstance(exc, DownloadError):
+                raise
+            raise DownloadError("Unreadable download index; recovery required") from None
+        if not isinstance(payload, dict):
+            raise DownloadError("Invalid download index; recovery required")
+        for key, entry in payload.items():
+            try:
+                if not isinstance(key, str) or not isinstance(entry, dict):
+                    raise ValueError("malformed index entry")
+                record = DownloadRecord.from_dict(entry)
+                if (record.id != key or record.size_bytes <= 0
+                        or not re.fullmatch(r"[0-9a-f]{32}", key)):
+                    raise ValueError("invalid download identity or size")
+                stored = Path(record.path)
+                if (not stored.is_absolute() or stored.is_symlink()
+                        or not stored.resolve().is_relative_to(self.root)
+                        or not stored.is_file()
+                        or stored.stat().st_size != record.size_bytes):
+                    raise ValueError("download file no longer matches its record")
+                expiry = datetime.fromisoformat(record.expires_at)
+                if expiry.tzinfo is None:
+                    raise ValueError("missing download expiry timezone")
+            except (KeyError, TypeError, ValueError, OSError, OverflowError, RuntimeError):
+                raise DownloadError("Unsafe download index entry; recovery required") from None
+        return payload
 
     def _write_index(self, payload: dict[str, dict[str, Any]]) -> None:
         self.ensure_directories()
@@ -422,6 +457,7 @@ class DownloadService:
 
     async def _fetch_locked(self, owner_id: str, url: str, *, filename: str | None) -> DownloadRecord:
         self.ensure_directories()
+        self._read_index()  # Fail closed before opening untrusted network connections.
         normalized = validate_url(url, allow_private_hosts=self.allow_private_hosts)
         directory = self._owner_directory(owner_id)
         record_id = uuid.uuid4().hex
