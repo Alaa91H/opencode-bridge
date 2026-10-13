@@ -272,7 +272,7 @@ class DownloadService:
 
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return fd
-        except BaseException as exc:
+        except Exception as exc:
             os.close(fd)
             if isinstance(exc, BlockingIOError):
                 raise DownloadBusy("Managed download storage is busy") from None
