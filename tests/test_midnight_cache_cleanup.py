@@ -77,6 +77,15 @@ class MidnightCleanupTests(unittest.TestCase):
         self.assertEqual(result["status"], "skipped")
         self.assertTrue(Path(old.path).exists())
 
+    def test_emergency_stop_blocks_midnight_cache_deletion(self) -> None:
+        old = self.record(yesterday=True)
+        (self.project / "runtime" / "autopilot-mode").write_text(
+            "emergency-stop\n", encoding="ascii",
+        )
+        result = module.midnight_cleanup(self.project, self.midnight)
+        self.assertEqual(result["status"], "skipped")
+        self.assertTrue(Path(old.path).is_file())
+
     def test_outside_midnight_window_is_read_only(self) -> None:
         old = self.record(yesterday=True)
         for hour in (1, 12, 23):
