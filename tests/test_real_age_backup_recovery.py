@@ -36,14 +36,14 @@ class RealAgeRecoverySmokeTests(unittest.IsolatedAsyncioTestCase):
             recovery.mkdir(mode=0o700)
             identity = recovery / "identity.txt"
 
-            keygen = subprocess.run(  # noqa: S603 -- fixed, trusted binary and test-only identity
+            keygen = subprocess.run(
                 ["age-keygen", "-o", str(identity)],
                 check=True, capture_output=True, text=True, timeout=20,
             )
             self.assertEqual(keygen.returncode, 0)
             if os.name == "posix":
                 identity.chmod(0o600)
-            recipient = subprocess.run(  # noqa: S603 -- fixed read-only age-keygen args
+            recipient = subprocess.run(
                 ["age-keygen", "-y", str(identity)],
                 check=True, capture_output=True, text=True, timeout=20,
             ).stdout.strip()
@@ -74,7 +74,7 @@ class RealAgeRecoverySmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("ephemeral", json.dumps(result.__dict__))
 
             archive = recovery / "restored.tar.gz"
-            subprocess.run(  # noqa: S603 -- fixed trusted age binary and isolated synthetic data
+            subprocess.run(
                 ["age", "--decrypt", "--identity", str(identity),
                  "--output", str(archive), str(encrypted)],
                 check=True, capture_output=True, timeout=45,
