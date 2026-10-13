@@ -39,13 +39,13 @@ class RuntimeControls:
         if mode not in AUTOPILOT_MODES:
             raise ValueError("Unsupported autopilot mode")
         from bridge.services.host_credentials import secure_write
-        # Persist policy atomically, never write arbitrary shell commands.
+        # Disable legacy automatic deployment before changing the new mode.
+        # An interrupted update or rollback cannot accidentally re-enable it.
+        legacy = self.root / "auto-update-enabled"
+        secure_write(legacy, b"0\n")
         secure_write(self.root / "autopilot-mode", (mode + "\n").encode("ascii"))
-        # Preserve old callers' enable/disable intent across upgrades.
-        secure_write(
-            self.root / "auto-update-enabled",
-            b"1\n" if mode in ("auto-safe", "maintenance-window") else b"0\n",
-        )
+        if mode in ("auto-safe", "maintenance-window"):
+            secure_write(legacy, b"1\n")
 
     def auto_update(self) -> bool:
         return self.autopilot_mode() in ("auto-safe", "maintenance-window")
