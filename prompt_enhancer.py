@@ -59,6 +59,38 @@ NEWS_RE = re.compile(r"(?:\b(?:news|headlines|breaking)\b|(?:أخبار|اخبا
 FACTCHECK_RE = re.compile(r"(?:\b(?:fact[ -]?check|verify)\b|(?:تحقق|دقق|تدقيق))", re.IGNORECASE)
 EXTRACT_RE = re.compile(r"(?:\b(?:extract|parse)\b|(?:استخرج|استخراج))", re.IGNORECASE)
 
+# A one-line exchange-rate question should not trigger multi-axis deep research.
+QUICK_EXCHANGE_RE = re.compile(
+    r"(?:\b(?:dollar|usd|euro|eur|exchange rate|currency rate)\b|"
+    r"(?:دولار|الدولار|يورو|اليورو|سعر الصرف|أسعار الصرف))",
+    re.IGNORECASE,
+)
+QUICK_PRICE_HINT_RE = re.compile(
+    r"(?:\b(?:price|rate|today|how much)\b|(?:سعر|أسعار|كم|بكم|شو|اليوم|هلق|هلّق))",
+    re.IGNORECASE,
+)
+
+
+def _quick_exchange_lookup(text: str) -> bool:
+    return (
+        len(text) <= 100
+        and bool(QUICK_EXCHANGE_RE.search(text))
+        and bool(QUICK_PRICE_HINT_RE.search(text))
+        and not DEEP_RESEARCH_RE.search(text)
+    )
+
+
+def _quick_exchange_instruction() -> str:
+    return (
+        "نوع النية: أسعار صرف حديثة. نفّذ تحققًا سريعًا ومركّزًا من مصدر حديث مناسب، "
+        "واستخدم مصدرًا مستقلًا ثانيًا عند وجود تعارض أو شك. لا تبحث عن الذهب أو أخبار غير مطلوبة. "
+        "ابدأ بالأسعار مباشرة وبإيجاز؛ ميّز سعر السوق الموازية عن السعر الرسمي، "
+        "والشراء عن البيع، والليرة الجديدة عن القديمة، مع المدينة ووقت التحديث إن توفّرا. "
+        "لا تعرض رقمًا قديمًا على أنه سعر اليوم، ولا تختلق تحديثًا لحظيًا. "
+        "إذا تعذّر التحقق، قل ذلك بشكل واضح. ضع روابط المصادر المستخدمة فعليًا فقط."
+    )
+
+
 
 class ResearchDepth(StrEnum):
     """How much evidence-gathering structure to request from the agent."""
@@ -171,6 +203,8 @@ def _research_depth(clean_text: str, requested_mode: ResearchMode | None) -> Res
         return _mode_depth(requested_mode)
     if DEEP_RESEARCH_RE.search(clean_text):
         return ResearchDepth.EXTREME
+    if _quick_exchange_lookup(clean_text):
+        return ResearchDepth.STANDARD
     if TEMPORAL_RE.search(clean_text) or COMPARISON_RE.search(clean_text) or HIGH_STAKES_RE.search(clean_text):
         return ResearchDepth.DEEP
     return ResearchDepth.STANDARD
@@ -269,7 +303,10 @@ def enhance_prompt(user_text: str, requested_mode: ResearchMode | None = None) -
         "حافظ على نية المستخدم الأصلية. حلّل النية والسياق، اختر الأدوات الضرورية فقط، نفّذ، تحقّق، ثم اذكر النتيجة والقيود الحقيقية باختصار.",
     ]
     if is_research:
-        sections.append(_research_instruction(depth, intent, is_technical, requested_mode))
+        if requested_mode is None and _quick_exchange_lookup(clean_text):
+            sections.append(_quick_exchange_instruction())
+        else:
+            sections.append(_research_instruction(depth, intent, is_technical, requested_mode))
     else:
         sections.append(
             "وضع التنفيذ: AUTO. استخدم سياق الجلسة والملفات ذات الصلة، وحدّد الهدف والقيود ومعيار النجاح قبل العمل. "
