@@ -68,13 +68,13 @@ from bridge.telegram.control_ui import ControlUI
 from bridge.telegram.draft_intake import DraftIntakeAdapter
 from bridge.telegram.execution import TelegramExecutionDelivery
 from bridge.telegram.middleware import TelegramAccessController
-from bridge.telegram.role_policy import resolve_owner_id
 from bridge.telegram.panels import (
     ACT,
     PanelContext,
     PanelRouter,
     build_panels,
 )
+from bridge.telegram.role_policy import resolve_owner_id
 from formatter import MAX_MESSAGE_LENGTH
 from messages import (
     HELP_TEXT,
