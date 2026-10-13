@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from bridge.config.runtime_flags import enabled as runtime_flag_enabled
-from bridge.domain.tasks.live_output import AgentLiveAssembler
+from bridge.domain.tasks.live_output import AgentLiveAssembler, redact_output
 from opencode_client import OpenCodeClient
 from progress import ProgressStore, render_progress, serialize_progress, summarize_agent_event
 from task_queue import QueuedTask, TaskQueueStore
@@ -60,10 +60,9 @@ class LiveProgressReporter:
         self._display = display_preferences
         self._last_rendered = 0.0
         self._last_message = ""
-        self._live_enabled = runtime_flag_enabled("AGENT_LIVE_OUTPUT", default=True)
+        self._live_enabled = runtime_flag_enabled("AGENT_LIVE_OUTPUT", default=False)
         self._live_parser = AgentLiveAssembler()
         self._live_buffer = ""
-        self._live_message_id: int | None = None
         self._live_message_text = ""
         self._live_last_sent = 0.0
 
@@ -139,42 +138,39 @@ class LiveProgressReporter:
         await self.refresh(force=force)
 
     async def _publish_live(self, *, flush: bool = False) -> None:
-        """Rate-limit Telegram edits and segment live assistant output by message."""
+        """Edit the existing status message; never create a separate tool log."""
         if not self._live_enabled or not self._live_buffer:
             return
-        if not flush and time.monotonic() - self._live_last_sent < 1.5 and len(self._live_buffer) < 2600:
+        if not await self._show_progress() or self.progress.message_id is None:
+            self._live_buffer = ""
+            return
+        now = time.monotonic()
+        if not flush and now - self._live_last_sent < 1.5 and len(self._live_buffer) < 2600:
+            return
+        # Keep only a short user-facing preview. Full text arrives once, in the
+        # same status message, from finalize_text().
+        pending = (self._live_message_text + self._live_buffer)[-2900:]
+        prefix = "عم بكتب الجواب…\n\n"
+        updated = prefix + redact_output(pending)
+        if updated == self._last_message:
+            self._live_buffer = ""
             return
         try:
-            while self._live_buffer:
-                room = 3400 - len(self._live_message_text)
-                if room <= 0:
-                    self._live_message_id = None
-                    self._live_message_text = ""
-                    room = 3400
-                segment = self._live_buffer[:room]
-                updated = self._live_message_text + segment
-                if self._live_message_id is None:
-                    sent = await self.bot.send_message(
-                        chat_id=self.task.chat_id,
-                        text="📡 مخرجات الوكيل المباشرة:\n" + updated,
-                        disable_web_page_preview=True,
-                    )
-                    self._live_message_id = int(sent.message_id)
-                else:
-                    await self.bot.edit_message_text(
-                        chat_id=self.task.chat_id,
-                        message_id=self._live_message_id,
-                        text="📡 مخرجات الوكيل المباشرة:\n" + updated,
-                        disable_web_page_preview=True,
-                    )
-                self._live_buffer = self._live_buffer[len(segment):]
-                self._live_message_text = updated
-                self._live_last_sent = time.monotonic()
-                if not flush:
-                    break
+            await self.bot.edit_message_text(
+                chat_id=self.task.chat_id,
+                message_id=self.progress.message_id,
+                text=updated,
+                reply_markup=None,
+                disable_web_page_preview=True,
+            )
+            self._live_buffer = ""
+            self._live_message_text = pending
+            self._live_last_sent = now
+            self._last_message = updated
+            self._last_rendered = now
         except Exception as exc:
-            # Streaming must never fail the actual agent operation.
-            log.warning("تعذر إرسال البث المباشر للمهمة %s: %s", self.task.id, type(exc).__name__)
+            # Previews must never fail an actual task or leak into new messages.
+            log.warning("تعذر تحديث معاينة الرد للمهمة %s: %s", self.task.id, type(exc).__name__)
 
     async def consume_events(self, client: OpenCodeClient, session_id: str) -> None:
         try:
@@ -207,6 +203,8 @@ class LiveProgressReporter:
         if self.progress.message_id is None:
             return
         if not final and not await self._show_progress():
+            return
+        if not final and self._live_message_text:
             return
         now = time.monotonic()
         if not force and now - self._last_rendered < UPDATE_INTERVAL_SECONDS:
