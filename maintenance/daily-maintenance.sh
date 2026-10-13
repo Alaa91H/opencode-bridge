@@ -41,6 +41,29 @@ if ! flock -n 9; then
   exit 0
 fi
 
+# Honor the owner's emergency stop before any package or service mutation.
+# A malformed or symlinked policy also stops privileged maintenance safely.
+MODE_PATH="${RUNTIME_DIR}/autopilot-mode"
+if [[ -L "$MODE_PATH" ]]; then
+  echo "Automatic maintenance blocked: unsafe autopilot policy"
+  exit 1
+fi
+if [[ -e "$MODE_PATH" ]]; then
+  [[ -f "$MODE_PATH" ]] || { echo "Invalid autopilot mode file"; exit 1; }
+  MODE_VALUE="$(cat "$MODE_PATH")"
+  case "$MODE_VALUE" in
+    off|notify|auto-safe|maintenance-window) ;;
+    emergency-stop)
+      echo "Automatic maintenance paused by owner emergency-stop"
+      exit 0
+      ;;
+    *)
+      echo "Automatic maintenance blocked by invalid policy"
+      exit 1
+      ;;
+  esac
+fi
+
 STARTED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 RUN_ID="$(date -u +'%Y%m%dT%H%M%SZ')"
 STATUS="نجاح"
