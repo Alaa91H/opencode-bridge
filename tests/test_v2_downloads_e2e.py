@@ -278,6 +278,15 @@ class DownloadServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(Path(record.path).is_file())
         self.assertEqual(service.index_path.read_bytes(), old_index)
 
+    async def test_utc_cleanup_requires_timezone_aware_clock(self) -> None:
+        _FileServer.body = b"protected"
+        service = self.service()
+        record = await service.fetch(OWNER, f"{self.base}/protected.bin")
+        with self.assertRaises(ValueError):
+            service.cleanup_expired(now=datetime.now(UTC).replace(tzinfo=None),
+                                    previous_utc_day=True)
+        self.assertTrue(Path(record.path).is_file())
+
     async def test_explicit_delete_removes_file_and_index_entry(self) -> None:
         _FileServer.body = _payload(1024)
         service = self.service()
