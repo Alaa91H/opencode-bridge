@@ -259,7 +259,23 @@ class LiveProgressReporter:
             self._last_message = text
             self._last_rendered = time.monotonic()
         except Exception as exc:
-            log.warning("تعذر تحديث رسالة النتيجة النهائية للمهمة %s: %s", self.task.id, exc)
+            if "not modified" in str(exc).lower():
+                return
+            log.warning("تعذر تعديل رسالة النتيجة النهائية للمهمة %s: %s", self.task.id, type(exc).__name__)
+            # A failed edit must not leave the user with a permanent progress
+            # message. Send a new final answer only as a last-resort fallback.
+            try:
+                sent = await self.bot.send_message(
+                    chat_id=self.task.chat_id,
+                    text=text,
+                    disable_web_page_preview=True,
+                )
+                self.progress_store.set_message_id(self.task.id, int(sent.message_id))
+                await self.queue.set_status_message_id(self.task.id, int(sent.message_id))
+                self._last_message = text
+                self._last_rendered = time.monotonic()
+            except Exception as send_exc:
+                log.warning("تعذر تسليم الرد النهائي للمهمة %s: %s", self.task.id, type(send_exc).__name__)
 
     async def _persist(self) -> None:
         await self.queue.update_activity(self.task.id, serialize_progress(self.progress))
