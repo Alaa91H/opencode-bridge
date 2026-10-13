@@ -24,9 +24,11 @@ import os
 import re
 import shutil
 import socket
+import stat
 import tempfile
 import unicodedata
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -56,6 +58,10 @@ class DownloadError(RuntimeError):
 
 class DownloadTooLarge(DownloadError):
     pass
+
+
+class DownloadBusy(DownloadError):
+    """Another download or cleanup currently owns the shared storage lock."""
 
 
 @dataclass(frozen=True)
@@ -235,6 +241,76 @@ class DownloadService:
         # spend the same remaining disk budget or overwrite index changes.
         self._transfer_lock = asyncio.Lock()
 
+    def _acquire_file_lock(self) -> int:
+        """Nonblocking OS lock shared by multiple Bridge processes.
+
+        A dead process releases its operating-system lock automatically.
+        Never trust a preexisting symlink, FIFO or multiply-linked lock file.
+        """
+        self.ensure_directories()
+        path = self.root / ".downloads.lock"
+        if path.is_symlink():
+            raise DownloadError("Unsafe shared download lock")
+        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            fd = os.open(path, flags, 0o600)
+        except OSError:
+            raise DownloadError("Cannot open shared download lock") from None
+        try:
+            metadata = os.fstat(fd)
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                raise DownloadError("Unsafe shared download lock")
+            if hasattr(os, "fchmod"):
+                os.fchmod(fd, 0o600)
+            if os.name == "nt":
+                import msvcrt
+
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
+        except Exception as exc:
+            os.close(fd)
+            if isinstance(exc, BlockingIOError):
+                raise DownloadBusy("Managed download storage is busy") from None
+            if isinstance(exc, DownloadError):
+                raise
+            raise DownloadError("Shared download lock is unavailable") from None
+
+    @staticmethod
+    def _release_file_lock(fd: int) -> None:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        finally:
+            # POSIX flock is released when the file descriptor is closed.
+            os.close(fd)
+
+    @contextmanager
+    def _storage_guard(self):
+        fd = self._acquire_file_lock()
+        try:
+            yield
+        finally:
+            self._release_file_lock(fd)
+
+    async def _acquire_file_lock_async(self) -> int:
+        # Do not block the event loop while another process downloads.
+        for attempt in range(100):
+            try:
+                return self._acquire_file_lock()
+            except DownloadBusy:
+                if attempt == 99:
+                    raise
+                await asyncio.sleep(0.1)
+        raise DownloadBusy("Managed download storage is busy")
+
     # ------------------------------------------------------------- storage
 
     def ensure_directories(self) -> None:
@@ -344,9 +420,13 @@ class DownloadService:
                     media: bool = False) -> DownloadRecord:
         """Queue media (yt-dlp) or direct HTTP under a common 20 GiB quota."""
         async with self._transfer_lock:
-            if media:
-                return await self._fetch_media_locked(owner_id, url)
-            return await self._fetch_locked(owner_id, url, filename=filename)
+            lock_fd = await self._acquire_file_lock_async()
+            try:
+                if media:
+                    return await self._fetch_media_locked(owner_id, url)
+                return await self._fetch_locked(owner_id, url, filename=filename)
+            finally:
+                self._release_file_lock(lock_fd)
 
     async def _fetch_media_locked(self, owner_id: str, url: str) -> DownloadRecord:
         """Run a bounded yt-dlp extractor without executing downloaded content.
@@ -542,6 +622,10 @@ class DownloadService:
     # -------------------------------------------------------------- removal
 
     def delete(self, owner_id: str, download_id: str) -> bool:
+        with self._storage_guard():
+            return self._delete_locked(owner_id, download_id)
+
+    def _delete_locked(self, owner_id: str, download_id: str) -> bool:
         record = self.get(owner_id, download_id)
         if record is None:
             return False
@@ -557,6 +641,12 @@ class DownloadService:
         return True
 
     def cleanup_expired(
+        self, *, now: datetime | None = None, previous_utc_day: bool = False,
+    ) -> dict[str, int]:
+        with self._storage_guard():
+            return self._cleanup_expired_locked(now=now, previous_utc_day=previous_utc_day)
+
+    def _cleanup_expired_locked(
         self, *, now: datetime | None = None, previous_utc_day: bool = False,
     ) -> dict[str, int]:
         """Retire TTL-expired files and, optionally, files from prior UTC days.

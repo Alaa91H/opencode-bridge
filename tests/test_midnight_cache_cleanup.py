@@ -9,7 +9,7 @@ import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from bridge.services.download_service import DownloadRecord, DownloadService
+from bridge.services.download_service import DownloadBusy, DownloadRecord, DownloadService
 
 PROJECT = Path(__file__).resolve().parents[1]
 SCRIPT = PROJECT / "scripts" / "expire-midnight-downloads.py"
@@ -59,6 +59,13 @@ class MidnightCleanupTests(unittest.TestCase):
         self.assertEqual(result["removed"], 1)
         self.assertFalse(Path(old.path).exists())
         self.assertTrue(Path(new.path).exists())
+
+    def test_running_download_process_blocks_midnight_cleanup(self) -> None:
+        old = self.record(yesterday=True)
+        with self.service._storage_guard():
+            with self.assertRaises(DownloadBusy):
+                module.midnight_cleanup(self.project, self.midnight)
+        self.assertTrue(Path(old.path).is_file())
 
     def test_skips_if_queue_is_busy(self) -> None:
         old = self.record(yesterday=True)
