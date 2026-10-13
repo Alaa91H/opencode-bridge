@@ -420,9 +420,13 @@ class DownloadService:
                     media: bool = False) -> DownloadRecord:
         """Queue media (yt-dlp) or direct HTTP under a common 20 GiB quota."""
         async with self._transfer_lock:
-            if media:
-                return await self._fetch_media_locked(owner_id, url)
-            return await self._fetch_locked(owner_id, url, filename=filename)
+            lock_fd = await self._acquire_file_lock_async()
+            try:
+                if media:
+                    return await self._fetch_media_locked(owner_id, url)
+                return await self._fetch_locked(owner_id, url, filename=filename)
+            finally:
+                self._release_file_lock(lock_fd)
 
     async def _fetch_media_locked(self, owner_id: str, url: str) -> DownloadRecord:
         """Run a bounded yt-dlp extractor without executing downloaded content.
@@ -618,6 +622,10 @@ class DownloadService:
     # -------------------------------------------------------------- removal
 
     def delete(self, owner_id: str, download_id: str) -> bool:
+        with self._storage_guard():
+            return self._delete_locked(owner_id, download_id)
+
+    def _delete_locked(self, owner_id: str, download_id: str) -> bool:
         record = self.get(owner_id, download_id)
         if record is None:
             return False
@@ -633,6 +641,12 @@ class DownloadService:
         return True
 
     def cleanup_expired(
+        self, *, now: datetime | None = None, previous_utc_day: bool = False,
+    ) -> dict[str, int]:
+        with self._storage_guard():
+            return self._cleanup_expired_locked(now=now, previous_utc_day=previous_utc_day)
+
+    def _cleanup_expired_locked(
         self, *, now: datetime | None = None, previous_utc_day: bool = False,
     ) -> dict[str, int]:
         """Retire TTL-expired files and, optionally, files from prior UTC days.
