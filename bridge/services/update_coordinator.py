@@ -83,9 +83,19 @@ class UpdateCoordinator:
             pass
         else:
             os.close(fd)
+        descriptor = os.open(self.path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            final_stat = os.fstat(descriptor)
+            if not stat.S_ISREG(final_stat.st_mode) or final_stat.st_nlink != 1:
+                raise ValueError("unsafe update journal descriptor")
+            if os.name == "posix":
+                if final_stat.st_uid != os.geteuid():
+                    raise ValueError("update journal descriptor has another owner")
+                os.fchmod(descriptor, 0o600)
+        finally:
+            os.close(descriptor)
         connection = sqlite3.connect(self.path, timeout=5.0)
         try:
-            os.chmod(self.path, 0o600)
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA busy_timeout=5000")
             connection.execute("PRAGMA journal_mode=WAL")
