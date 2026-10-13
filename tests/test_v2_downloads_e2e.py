@@ -248,6 +248,23 @@ class DownloadServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(Path(keep.path).is_file())
         self.assertFalse(Path(other.path).exists())
 
+    async def test_utc_midnight_removes_only_prior_day_downloads(self) -> None:
+        _FileServer.body = b"fixture"
+        service = self.service(ttl_hours=720)
+        previous = await service.fetch(OWNER, f"{self.base}/prior.bin")
+        current = await service.fetch(OWNER, f"{self.base}/current.bin")
+        self.assertEqual(service.ttl_hours, 24)
+        cutoff = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        index = json.loads(service.index_path.read_text(encoding="utf-8"))
+        index[previous.id]["created_at"] = (cutoff - timedelta(seconds=1)).isoformat()
+        index[current.id]["created_at"] = cutoff.isoformat()
+        service._write_index(index)
+        result = service.cleanup_expired(now=cutoff + timedelta(minutes=1),
+                                         previous_utc_day=True)
+        self.assertEqual(result["removed"], 1)
+        self.assertFalse(Path(previous.path).exists())
+        self.assertTrue(Path(current.path).exists())
+
     async def test_explicit_delete_removes_file_and_index_entry(self) -> None:
         _FileServer.body = _payload(1024)
         service = self.service()
