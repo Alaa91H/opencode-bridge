@@ -58,6 +58,27 @@ class TelegramConversationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bot.edit_message_text.await_args.kwargs["text"], "الجواب النهائي.")
         self.assertEqual(bot.edit_message_text.await_args.kwargs["message_id"], 45)
 
+    async def test_final_answer_is_fallback_sent_when_status_edit_fails(self):
+        task = SimpleNamespace(id=9, owner_id="17", chat_id=99, status_message_id=None)
+        bot = SimpleNamespace(
+            send_message=AsyncMock(side_effect=[
+                SimpleNamespace(message_id=46),
+                SimpleNamespace(message_id=47),
+            ]),
+            edit_message_text=AsyncMock(side_effect=RuntimeError("message cannot be edited")),
+        )
+        queue = SimpleNamespace(
+            set_status_message_id=AsyncMock(),
+            update_activity=AsyncMock(),
+        )
+        reporter = LiveProgressReporter(task, bot, queue, ProgressStore())
+        await reporter.start()
+        await reporter.finalize_text("جواب مؤكد")
+        self.assertEqual(bot.send_message.await_count, 2)
+        self.assertEqual(bot.send_message.await_args.kwargs["text"], "جواب مؤكد")
+        self.assertEqual(reporter.progress.message_id, 47)
+        self.assertEqual(queue.set_status_message_id.await_args.args, (9, 47))
+
     async def test_default_mode_does_not_emit_live_tool_messages(self):
         task = SimpleNamespace(id=8, owner_id="17", chat_id=99, status_message_id=None)
         bot = SimpleNamespace(
