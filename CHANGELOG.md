@@ -1,3 +1,24 @@
+## [3.4.0] - 2026-10-13
+
+### Telegram conversation quality
+
+- Deliver concise, natural user-facing answers while preserving one editable Telegram status message per request.
+- Hide internal prompts, tool results, reasoning, and synthetic SSE content from live previews; verify assistant authorship before any optional text preview.
+- Prefer focused verification for short exchange-rate questions while retaining explicitly requested deep research.
+- Restore final-answer delivery with a guarded fallback if Telegram refuses to edit the existing status message.
+- Add targeted regression coverage for message delivery, streaming privacy, currency intent, and failed edits.
+
+### Verified release publishing
+
+- Publish version changes only after the main-branch development build and the independent Python 3.12/3.13 compatibility suite succeed.
+- Create a version tag for the verified, current main revision, then explicitly dispatch the existing tag-triggered build and GitHub Release publication workflow.
+- Keep releases fail-closed on stale revisions, non-increasing versions, conflicting tags, or failed checks. No host deployment is implied.
+
+### Upgrade notes
+
+- The recommended `AGENT_LIVE_OUTPUT=0` default is used unless the existing private runtime `.env` overrides it. Set it to `0` explicitly for installations that previously enabled raw SSE streaming.
+- This is a GitHub source release, **not** confirmation that the Telegram service was upgraded or smoke-tested on its production host.
+
 ## [3.3.0] - 2026-10-13
 
 ### Consolidated release since v3.2.0
