@@ -43,6 +43,17 @@ class SafeLivePreviewTests(unittest.TestCase):
         self.assertEqual(relay.consume({"type": "message.part.updated", "properties": {
             "part": {"id": "p", "messageID": "a1", "type": "reasoning", "text": "hidden"}}}), "")
 
+    def test_synthetic_text_parts_never_emit_followup_deltas(self):
+        relay = AgentLiveAssembler()
+        relay.consume({"type": "message.updated", "properties": {
+            "info": {"id": "a1", "role": "assistant"}}})
+        self.assertEqual(relay.consume({"type": "message.part.updated", "properties": {
+            "part": {"id": "synthetic-1", "messageID": "a1",
+                     "type": "text", "synthetic": True, "text": "internal"}}}), "")
+        self.assertEqual(relay.consume({"type": "message.part.delta", "properties": {
+            "partID": "synthetic-1", "messageID": "a1",
+            "field": "text", "delta": "private"}}), "")
+
     def test_tool_errors_are_suppressed_and_redaction_still_works(self):
         relay = AgentLiveAssembler()
         relay.consume({"type": "message.updated", "properties": {
