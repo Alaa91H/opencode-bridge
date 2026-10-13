@@ -50,7 +50,7 @@ class PublicOnlyNetworkBackend(httpcore.AsyncNetworkBackend):
                 ip_text = str(address)
                 if ip_text not in destinations:
                     destinations.append(ip_text)
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError):
             raise OSError("Public DNS validation failed") from None
 
         last_failure: Exception | None = None
