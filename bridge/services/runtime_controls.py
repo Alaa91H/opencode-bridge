@@ -133,6 +133,8 @@ class RuntimeControls:
         return path.read_text(encoding="ascii").strip() == "1"
 
     def set_system_auto_update(self, enabled: bool) -> None:
+        if enabled and self.autopilot_mode() == "emergency-stop":
+            raise ValueError("OS auto-update cannot be enabled during emergency stop")
         from bridge.services.host_credentials import secure_write
         secure_write(self.root / "host-auto-update-enabled", b"1\n" if enabled else b"0\n")
 
