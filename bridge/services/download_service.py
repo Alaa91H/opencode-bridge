@@ -16,7 +16,6 @@ Design constraints that shape this module:
 from __future__ import annotations
 
 import asyncio
-import stat
 import ipaddress
 import json
 import logging
@@ -25,6 +24,7 @@ import os
 import re
 import shutil
 import socket
+import stat
 import tempfile
 import unicodedata
 import uuid
