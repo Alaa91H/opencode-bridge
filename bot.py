@@ -384,15 +384,19 @@ def _download_command_adapter() -> DownloadCommands:
 
 
 def _download_cleanup_loop() -> None:
-    """Remove downloads past their retention window. Never raises."""
+    """Purge prior UTC-day cache only if all queued work can tolerate it."""
     try:
-        result = _downloads().cleanup_expired()
-        if result["removed"]:
+        from bridge.services.cache_retention import midnight_cleanup
+
+        result = midnight_cleanup(BRIDGE_DIR, datetime.now(UTC))
+        if result.get("status") == "completed" and result["removed"]:
             log.info(
                 "تنظيف التنزيلات: حُذف %s ملف (%s بايت)",
                 result["removed"],
                 result["freed_bytes"],
             )
+        elif result.get("status") == "skipped":
+            log.info("تأجيل تنظيف التنزيلات: %s", result.get("reason", "safety gate"))
     except Exception as exc:
         log.info("تعذر تنظيف التنزيلات: %s", type(exc).__name__)
 
