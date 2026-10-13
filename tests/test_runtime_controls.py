@@ -74,14 +74,15 @@ class RuntimeControlsTests(unittest.TestCase):
             self.assertEqual((Path(temp) / "auto-update-enabled").read_text().strip(), "0")
             with self.assertRaises(ValueError):
                 controls.set_system_auto_update(True)
-            self.assertTrue(controls.system_auto_update(),
-                            "Existing host update switch remains stored, but root gate must pause it")
+            self.assertFalse(controls.system_auto_update(),
+                             "Emergency stop must revoke OS auto-update consent")
             controls.set_autopilot_mode("off")
             controls.set_system_auto_update(False)
             self.assertFalse(controls.system_auto_update())
 
     def test_interrupted_policy_write_disables_legacy_updater_first(self):
         from unittest.mock import patch
+        from bridge.services.host_credentials import secure_write as original_write
 
         with tempfile.TemporaryDirectory() as temp:
             controls = RuntimeControls(Path(temp))
@@ -89,8 +90,7 @@ class RuntimeControlsTests(unittest.TestCase):
             def interrupt(path, payload):
                 if Path(path).name == "autopilot-mode":
                     raise OSError("simulated power interruption")
-                from bridge.services.host_credentials import secure_write
-                secure_write(path, payload)
+                original_write(path, payload)
             with patch("bridge.services.host_credentials.secure_write", side_effect=interrupt):
                 with self.assertRaises(OSError):
                     controls.set_autopilot_mode("emergency-stop")
