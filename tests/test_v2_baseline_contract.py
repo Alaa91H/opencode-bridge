@@ -119,6 +119,8 @@ class V2BaselineContractTests(unittest.TestCase):
             units,
             {
                 "opencode-bridge-telegram.service",
+                "opencode-bridge-download-cleanup.service",
+                "opencode-bridge-download-cleanup.timer",
                 "opencode-bridge.target",
                 "opencode-serve.service",
                 "opencode-bridge-maintenance.service",
