@@ -265,6 +265,19 @@ class DownloadServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(Path(previous.path).exists())
         self.assertTrue(Path(current.path).exists())
 
+    async def test_cleanup_index_failure_preserves_original_file(self) -> None:
+        from unittest.mock import patch
+
+        _FileServer.body = b"retention-data"
+        service = self.service()
+        record = await service.fetch(OWNER, f"{self.base}/retain.bin")
+        old_index = service.index_path.read_bytes()
+        with patch.object(service, "_write_index", side_effect=OSError):
+            with self.assertRaises(OSError):
+                service.cleanup_expired(now=datetime.now(UTC) + timedelta(days=2))
+        self.assertTrue(Path(record.path).is_file())
+        self.assertEqual(service.index_path.read_bytes(), old_index)
+
     async def test_explicit_delete_removes_file_and_index_entry(self) -> None:
         _FileServer.body = _payload(1024)
         service = self.service()
