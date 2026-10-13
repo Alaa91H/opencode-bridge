@@ -61,6 +61,21 @@ class PromptEnhancerTests(unittest.TestCase):
         self.assertEqual(result.research_depth, ResearchDepth.NONE)
         self.assertNotIn("منهج الأدلة", result.text)
 
+    def test_short_live_currency_lookup_stays_focused(self) -> None:
+        result = enhance_prompt("شو اسعار الدولار بسوريا اليوم")
+        self.assertTrue(result.is_research)
+        self.assertEqual(result.research_depth, ResearchDepth.STANDARD)
+        self.assertIn("الشراء عن البيع", result.text)
+        self.assertIn("السعر الرسمي", result.text)
+        self.assertNotIn("قسّم الموضوع داخليًا إلى محاور", result.text)
+        self.assertNotIn("بحث عميق", result.text)
+        self.assertNotIn("ابحث عمدًا عن أدلة مخالفة", result.text)
+
+    def test_explicit_deep_request_overrides_quick_currency_lookup(self) -> None:
+        result = enhance_prompt("شو سعر الدولار اليوم", requested_mode=ResearchMode.DEEP_RESEARCH)
+        self.assertEqual(result.research_depth, ResearchDepth.DEEP)
+        self.assertIn("بحث عميق", result.text)
+
     def test_english_request_does_not_force_arabic(self) -> None:
         result = enhance_prompt("Give me the latest security news")
         self.assertFalse(result.is_arabic)

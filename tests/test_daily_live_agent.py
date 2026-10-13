@@ -27,36 +27,74 @@ class DailyQuotaClockTests(unittest.TestCase):
 
 
 class LiveSseTests(unittest.TestCase):
+    def assistant(self, relay):
+        return relay.consume({"type": "message.updated", "properties": {
+            "info": {"id": "assistant-1", "role": "assistant"}}})
+
     def test_delta_before_snapshot_and_snapshot_deduplication(self):
         relay = AgentLiveAssembler()
+        self.assertEqual(self.assistant(relay), "")
         delta = {"type": "message.part.delta", "properties": {
             "partID": "p1", "field": "text", "delta": "hello"}}
         partial = {"type": "message.part.updated", "properties": {
-            "part": {"id": "p1", "type": "text", "text": ""}}}
+            "part": {"id": "p1", "messageID": "assistant-1", "type": "text", "text": ""}}}
         full = {"type": "message.part.updated", "properties": {
-            "part": {"id": "p1", "type": "text", "text": "hello world"}}}
-        self.assertEqual(relay.consume(delta), "")  # unknown: might be hidden reasoning
+            "part": {"id": "p1", "messageID": "assistant-1", "type": "text", "text": "hello world"}}}
+        self.assertEqual(relay.consume(delta), "")
         self.assertEqual(relay.consume(partial), "hello")
         self.assertEqual(relay.consume(full), " world")
         self.assertEqual(relay.consume(full), "")
 
     def test_reasoning_is_never_forwarded_even_when_delta_comes_first(self):
         relay = AgentLiveAssembler()
+        self.assistant(relay)
         self.assertEqual(relay.consume({"type": "message.part.delta", "properties": {
             "partID": "hidden", "field": "text", "delta": "private thinking"}}), "")
         self.assertEqual(relay.consume({"type": "message.part.updated", "properties": {
-            "part": {"id": "hidden", "type": "reasoning", "text": "private thinking"}}}), "")
+            "part": {"id": "hidden", "messageID": "assistant-1",
+                     "type": "reasoning", "text": "private thinking"}}}), "")
 
-    def test_tool_output_once_and_redacted(self):
+    def test_tool_results_and_errors_never_reach_telegram(self):
         relay = AgentLiveAssembler()
-        event = {"type": "message.part.updated", "properties": {"part": {
-            "id": "tool1", "type": "tool", "tool": "bash", "state": {
-                "status": "completed", "input": {"secret": "not-sent"},
-                "output": "password=superSecretToken123"}}}}
-        self.assertIn("[REDACTED]", relay.consume(event))
-        self.assertEqual(relay.consume(event), "")
+        self.assistant(relay)
+        for status in ("completed", "error"):
+            event = {"type": "message.part.updated", "properties": {"part": {
+                "id": "tool1", "messageID": "assistant-1", "type": "tool",
+                "tool": "websearch", "state": {
+                    "status": status, "input": {"query": "secret query"},
+                    "output": "password=superSecretToken123",
+                    "error": "token=secret_from_tool"}}}}
+            self.assertEqual(relay.consume(event), "")
         self.assertEqual(redact_output("Authorization: Bearer ABCdef0123456789"),
                          "Authorization: Bearer [REDACTED]")
+
+    def test_user_prompt_and_unknown_author_are_not_streamed(self):
+        relay = AgentLiveAssembler()
+        prompt = "أنت عم تنفّذ طلب وصل من بوت تيليغرام مُصرَّح."
+        user = {"type": "message.updated", "properties": {
+            "info": {"id": "user-1", "role": "user"}}}
+        user_part = {"type": "message.part.updated", "properties": {
+            "part": {"id": "up", "messageID": "user-1", "type": "text", "text": prompt}}}
+        self.assertEqual(relay.consume(user), "")
+        self.assertEqual(relay.consume(user_part), "")
+        self.assertEqual(relay.consume({"type": "message.part.updated", "properties": {
+            "part": {"id": "unknown", "messageID": "untracked", "type": "text", "text": prompt}}}), "")
+        self.assertEqual(relay.consume({"type": "message.part.delta", "properties": {
+            "partID": "up", "messageID": "user-1", "field": "text", "delta": prompt}}), "")
+
+    def test_verified_assistant_only_and_stale_snapshots(self):
+        relay = AgentLiveAssembler()
+        self.assertEqual(relay.consume({"type": "message.part.updated", "properties": {
+            "part": {"id": "pa", "messageID": "assistant-1", "type": "text", "text": "answer"}}}), "")
+        self.assistant(relay)
+        snapshot = {"type": "message.part.updated", "properties": {
+            "part": {"id": "pa", "messageID": "assistant-1", "type": "text", "text": "answer"}}}
+        self.assertEqual(relay.consume(snapshot), "answer")
+        self.assertEqual(relay.consume(snapshot), "")
+        self.assertEqual(relay.consume({"type": "message.part.updated", "properties": {
+            "part": {"id": "pa", "messageID": "assistant-1", "type": "text", "text": "ans"}}}), "")
+        self.assertEqual(relay.consume({"type": "message.part.delta", "properties": {
+            "partID": "pa", "field": "reasoning", "delta": "hidden"}}), "")
 
 
 class DailyServiceTests(unittest.IsolatedAsyncioTestCase):

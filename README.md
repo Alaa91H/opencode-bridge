@@ -64,6 +64,13 @@ The bridge never installs a parser or codec on demand. If an appropriate read-on
 
 The defaults are 20 MiB per incoming file, 10 attachments per task, 50 MiB aggregate size, and a 10-minute pending-instruction window. They are configurable with `TELEGRAM_ATTACHMENT_MAX_BYTES`, `TELEGRAM_ATTACHMENT_MAX_COUNT`, `TELEGRAM_ATTACHMENT_MAX_TOTAL_BYTES`, and `TELEGRAM_ATTACHMENT_PENDING_SECONDS`.
 
+## Telegram Conversation Experience
+
+- A normal request uses **one editable status message**, replaced by the final answer. OpenCode prompts, tool inputs, raw search results, error dumps and reasoning are not posted into the chat.
+- `AGENT_LIVE_OUTPUT=0` is the recommended default. Setting it to `1` enables an optional *assistant-text-only* preview in that **same message**, not a stream of tool-log messages. Missing author metadata is rejected rather than guessed.
+- Brief currency-rate questions use focused verification and concise answers, distinguishing official and parallel rates, buying and selling, old and new Syrian pounds, and source timestamps when available. Explicit deep-research requests retain the full protocol.
+- Detailed operational status remains accessible through the existing task-progress interfaces without exposing raw tool payloads.
+
 ## Persistent Scheduled Jobs
 
 Scheduled work is stored separately from individual executions, so definitions remain durable across bridge restarts and can be edited without losing their identity or history.
