@@ -16,6 +16,7 @@ Design constraints that shape this module:
 from __future__ import annotations
 
 import asyncio
+import stat
 import ipaddress
 import json
 import logging
@@ -27,6 +28,7 @@ import socket
 import tempfile
 import unicodedata
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -56,6 +58,10 @@ class DownloadError(RuntimeError):
 
 class DownloadTooLarge(DownloadError):
     pass
+
+
+class DownloadBusy(DownloadError):
+    """Another download or cleanup currently owns the shared storage lock."""
 
 
 @dataclass(frozen=True)
