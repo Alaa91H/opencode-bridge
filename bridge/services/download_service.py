@@ -35,6 +35,8 @@ from urllib.parse import unquote, urlparse
 
 import httpx
 
+from bridge.services.pinned_public_transport import PublicOnlyHTTPTransport
+
 log = logging.getLogger("opencode_bridge.downloads")
 UTC = UTC
 
@@ -463,11 +465,16 @@ class DownloadService:
         record_id = uuid.uuid4().hex
         target = self._resolve_inside(directory / f"{record_id}.part")
 
-        async with httpx.AsyncClient(
-            follow_redirects=False,
-            trust_env=False,  # Host proxy environment must not bypass SSRF checks.
-            timeout=httpx.Timeout(self.timeout_seconds, connect=15.0),
-        ) as client:
+        client_options: dict[str, Any] = {
+            "follow_redirects": False,
+            "trust_env": False,  # Never honor a host environment proxy for untrusted URLs.
+            "timeout": httpx.Timeout(self.timeout_seconds, connect=15.0),
+        }
+        if not self.allow_private_hosts:
+            # Validate DNS at the socket boundary and dial that exact numeric
+            # public IP. A pre-connect DNS check alone is not a rebinding fix.
+            client_options["transport"] = PublicOnlyHTTPTransport()
+        async with httpx.AsyncClient(**client_options) as client:
             response = await self._request_public(client, normalized)
             try:
                 if response.status_code >= 400:
