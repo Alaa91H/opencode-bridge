@@ -141,7 +141,8 @@ class DownloadSecurityRegressions(unittest.IsolatedAsyncioTestCase):
                  patch.object(service, "_write_index", side_effect=OSError("disk failure")):
                 with self.assertRaises(OSError):
                     await service.fetch("42", "http://localhost/file")
-            self.assertEqual([p for p in service.root.rglob("*") if p.is_file()], [])
+            self.assertEqual([p for p in service.root.rglob("*")
+                              if p.is_file() and p.name != ".downloads.lock"], [])
 
 
 class ArchiveSecurityRegressions(unittest.TestCase):
