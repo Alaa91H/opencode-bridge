@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+import stat
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -46,9 +47,42 @@ class UpdateCoordinator:
         self.path = self.directory / "update-operations.sqlite3"
 
     def _connect(self) -> sqlite3.Connection:
-        if self.directory.is_symlink() or self.path.is_symlink():
-            raise ValueError("unsafe update journal path")
+        if self.directory.is_symlink():
+            raise ValueError("unsafe update journal directory")
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        directory_stat = self.directory.lstat()
+        if not stat.S_ISDIR(directory_stat.st_mode):
+            raise ValueError("invalid update journal directory")
+        if os.name == "posix" and (
+            directory_stat.st_uid != os.geteuid()
+            or directory_stat.st_mode & 0o022
+        ):
+            raise ValueError("insecure update journal directory ownership or permissions")
+
+        # SQLite writes associated WAL and SHM files. A link, hard link or
+        # device at any one of these locations must block activation entirely.
+        for path in (self.path, self.path.with_name(self.path.name + "-wal"),
+                     self.path.with_name(self.path.name + "-shm")):
+            try:
+                metadata = path.lstat()
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                raise ValueError("unsafe update journal or sidecar file")
+            if os.name == "posix" and metadata.st_uid != os.geteuid():
+                raise ValueError("update journal file is owned by another user")
+            if path != self.path and metadata.st_mode & 0o077:
+                raise ValueError("update journal sidecar is not private")
+        try:
+            fd = os.open(
+                self.path,
+                os.O_CREAT | os.O_EXCL | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+            )
+        except FileExistsError:
+            pass
+        else:
+            os.close(fd)
         connection = sqlite3.connect(self.path, timeout=5.0)
         try:
             os.chmod(self.path, 0o600)
