@@ -82,6 +82,7 @@ class RuntimeControlsTests(unittest.TestCase):
 
     def test_interrupted_policy_write_disables_legacy_updater_first(self):
         from unittest.mock import patch
+
         from bridge.services.host_credentials import secure_write as original_write
 
         with tempfile.TemporaryDirectory() as temp:
