@@ -188,6 +188,37 @@ class SelfUpdatePolicyTests(unittest.TestCase):
             self.assertEqual(result["status"], "error")
             self.assertEqual(result["reason"], "ValueError")
 
+    def test_emergency_stop_blocks_manual_and_automated_release_actions(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "runtime").mkdir()
+            (root / "runtime" / "autopilot-mode").write_text(
+                "emergency-stop\n", encoding="ascii",
+            )
+            requested = []
+            for options in ({}, {"manual": True}, {"check_only": True}):
+                result = self_update.update(
+                    root=root, git_run=lambda *args, **kw: requested.append(args),
+                    api=lambda _: requested.append("api"),
+                    deploy=lambda _: requested.append("deploy"),
+                    **options,
+                )
+                self.assertEqual(result["status"], "skipped")
+                self.assertIn("emergency stop", result["reason"])
+            self.assertEqual(requested, [], "Stopped mode cannot mutate Git or invoke deployment")
+
+    def test_malformed_legacy_policy_cannot_implicitly_activate(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            runtime = root / "runtime"
+            runtime.mkdir()
+            flag = runtime / "auto-update-enabled"
+            for value in ("yes", "2", "1\\n0", "", "true"):
+                with self.subTest(flag=value):
+                    flag.write_text(value, encoding="ascii")
+                    with self.assertRaises(ValueError):
+                        self_update.deployment_mode(root)
+
     def test_legacy_mode_defaults_match_existing_config(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
