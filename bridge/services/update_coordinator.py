@@ -176,6 +176,30 @@ class UpdateCoordinator:
             )
         return UpdateOperation(tag, commit, phase, stamp)
 
+    def reconcile_interrupted(self, deployed_commit: str | None) -> UpdateOperation | None:
+        """Resolve an ``applying`` record left behind by an updater that was killed.
+
+        ``deploy.sh`` writes ``runtime/deployed-ref`` only after the new release passed
+        its service and health checks. If that reference equals the interrupted commit the
+        deployment finished and only the final ledger write was lost -> ``healthy``.
+        Anything else means the deployment failed or died half-way -> ``quarantined``, so
+        the release is never retried blindly. Returns the resolved operation, or ``None``
+        when nothing was pending.
+        """
+        if not self.path.exists():
+            return None
+        with closing(self._connect()) as db, db:
+            pending = db.execute(
+                "SELECT tag, commit_sha FROM release_operations WHERE phase = ? "
+                "ORDER BY updated_utc DESC, rowid DESC LIMIT 1", ("applying",),
+            ).fetchone()
+        if pending is None:
+            return None
+        finished = (isinstance(deployed_commit, str) and _SHA.fullmatch(deployed_commit) is not None
+                    and deployed_commit == pending["commit_sha"])
+        return self.transition(pending["tag"], pending["commit_sha"],
+                               "healthy" if finished else "quarantined")
+
     def latest(self) -> UpdateOperation | None:
         if not self.path.exists():
             return None
@@ -199,3 +223,32 @@ class UpdateCoordinator:
                 (limit,),
             ).fetchall()
         return [(str(r["commit_sha"])[:12], r["phase"], r["created_utc"]) for r in rows]
+
+
+def write_quarantine(runtime_dir: Path, tag: str, commit: str, reason: str) -> None:
+    """Persist the same schema-1 quarantine record the release updater reads.
+
+    Atomic, private and free of logs or secrets. A symlinked destination is refused.
+    """
+    import json
+    import tempfile
+
+    UpdateCoordinator._validate(tag, commit, "quarantined")
+    target = Path(runtime_dir) / "auto-update-quarantine.json"
+    if target.is_symlink():
+        raise ValueError("unsafe quarantine file")
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    payload = {"schema": 1, "tag": tag, "commit": commit,
+               "failed_at": datetime.now(UTC).isoformat(), "reason": reason[:80]}
+    fd, name = tempfile.mkstemp(prefix=".update-quarantine-", dir=target.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            if hasattr(os, "fchmod"):
+                os.fchmod(stream.fileno(), 0o600)
+            json.dump(payload, stream, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, target)
+    finally:
+        Path(name).unlink(missing_ok=True)

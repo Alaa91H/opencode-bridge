@@ -40,6 +40,7 @@ from bridge.services.agent_service import AgentService
 from bridge.services.config_service import ConfigurationService
 from bridge.services.download_service import DownloadService
 from bridge.services.draft_service import DraftService
+from bridge.services.host_control import HostControl
 from bridge.services.host_credentials import HostCredentialManager
 from bridge.services.maintenance_service import MaintenanceReportService
 from bridge.services.media_service import MediaTaskService
@@ -632,6 +633,8 @@ def _control_ui() -> ControlUI:
             admin_allowed=_is_control_owner,
             legacy_dispatch=_dispatch_advanced_button,
             research_modes=RESEARCH_COMMAND_MODES,
+            host_control=HostControl(BRIDGE_DIR),
+            audit=audit.write,
         )
     return _control_ui_instance
 

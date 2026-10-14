@@ -5,8 +5,15 @@ import asyncio
 import os
 import shutil
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
+
+# Non-secret update settings that a transient systemd unit would otherwise not inherit
+# from the Bridge service environment (.env). OPENCODE_AUTO_UPDATE=0 stays a real kill switch.
+_UPDATE_ENV_PASSTHROUGH = ("OPENCODE_AUTO_UPDATE", "OPENCODE_UPDATE_REPOSITORY",
+                           "OPENCODE_UPDATE_DEPLOY_TIMEOUT")
+_UPDATE_WAIT_SECONDS = 180
 
 
 def resources(project: Path) -> dict:
@@ -37,6 +44,46 @@ def resources(project: Path) -> dict:
         "disk_free": disk.free,
         "disk_used": disk.used,
     }
+
+
+async def _apply_bridge_detached(project: Path, progress=None) -> str:
+    """Run the verified release deployment outside this service's cgroup.
+
+    ``deploy.sh`` restarts ``opencode-bridge-telegram.service``; any child of this very
+    process would be killed with it before the health check, the deployment record and the
+    ledger could be completed. A transient systemd unit survives that restart, and the next
+    bot process reports the outcome (see ``update_report``). If systemd cannot create the
+    unit the update is NOT attempted in-process: failing closed beats a half-applied release.
+    """
+    from bridge.services import update_report
+    from bridge.services.host_control import DetachedUnavailable, launch_transient
+
+    updater = project / "maintenance" / "self_update.py"
+    environment = {key: os.environ[key] for key in _UPDATE_ENV_PASSTHROUGH if key in os.environ}
+    started = time.time()
+    try:
+        unit = await launch_transient(
+            [sys.executable, str(updater), "--apply"], name="opencode-bridge-update",
+            working_directory=project, environment=environment)
+    except DetachedUnavailable as exc:
+        return (f"Bridge update was not started: {exc}.\n"
+                "The update restarts this bot, so it must run in its own systemd unit. "
+                "Nothing was changed.")
+    runtime = project / "runtime"
+    deadline = time.monotonic() + _UPDATE_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        await asyncio.sleep(3)
+        result = update_report.read_result(runtime, since=started)
+        if result is not None:
+            update_report.consume_result(runtime)
+            return update_report.describe(result)
+        if progress is not None:
+            try:
+                await progress(f"running in background unit {unit}")
+            except Exception:
+                pass
+    return (f"Bridge update is running in the background ({unit}). This bot may restart; "
+            "the final result will be sent here automatically.")
 
 
 async def update_now(kind: str, progress=None) -> str:
@@ -87,15 +134,13 @@ async def update_now(kind: str, progress=None) -> str:
                 await process.wait()
 
     try:
-        if kind in {"bridge", "bridge-check"}:
+        if kind == "bridge":
+            return await _apply_bridge_detached(Path(__file__).resolve().parents[2], progress)
+        if kind == "bridge-check":
             updater = Path(__file__).resolve().parents[2] / "maintenance" / "self_update.py"
-            # Both paths verify the exact release commit and CI. The check-only
-            # command can never activate it; --apply requires a confirmed owner action.
-            action = "--check" if kind == "bridge-check" else "--apply"
-            code, report = await run([sys.executable, str(updater), action],
-                                     90 if kind == "bridge-check" else 300)
-            label = "Bridge update check" if kind == "bridge-check" else "Bridge update"
-            return f"{label} {'completed' if code == 0 else 'failed'} (exit={code}):\n" + report[-2500:]
+            # Read-only: verifies the exact release commit and CI, never activates it.
+            code, report = await run([sys.executable, str(updater), "--check"], 90)
+            return f"Bridge update check {'completed' if code == 0 else 'failed'} (exit={code}):\n" + report[-2500:]
         if kind == "agent":
             old_status, old_version = await run(["opencode", "--version"], 30)
             if old_status or not old_version.strip():

@@ -13,8 +13,14 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/home/ubuntu/opencode-bridge/venv/bin/python -m run_v3
 Restart=on-failure
 RestartSec=3
+# Back off exponentially (3s -> 60s) instead of restarting forever at a fixed pace (systemd >= 254).
+RestartSteps=5
+RestartMaxDelaySec=60
 TimeoutStopSec=30
 NoNewPrivileges=yes
+# Safety ceilings only: the bridge idles at ~45 MiB, so these never constrain normal operation.
+MemoryHigh=50%
+TasksMax=512
 
 [Install]
 WantedBy=opencode-bridge.target

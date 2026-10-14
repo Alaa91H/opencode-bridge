@@ -99,6 +99,11 @@ class RuntimeControls:
             temp.unlink(missing_ok=True)
         return value
 
+    def root_assets_stale(self) -> bool:
+        """True while a deployment changed root-owned assets that root has not refreshed yet."""
+        path = self.root / "root-assets-stale"
+        return path.is_file() and not path.is_symlink()
+
     def last_release_operation(self):
         """Return the last recorded release phase without exposing secrets."""
         from bridge.services.update_coordinator import UpdateCoordinator

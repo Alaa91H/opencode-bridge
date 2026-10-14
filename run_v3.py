@@ -38,6 +38,23 @@ async def post_init(app) -> None:
     await ci_plugin.install(app)
     await resource_commands.install(app)
     await watchdog_plugin.install(app)
+    await _announce_update_outcome(app)
+
+
+async def _announce_update_outcome(app) -> None:
+    """Tell the owner how the last (detached) Bridge update ended; never block start-up."""
+    owner = core.CONTROL_OWNER_ID
+    if owner is None:
+        return
+    from bridge.services.update_report import announce_update_outcome
+
+    async def send(text: str) -> None:
+        await app.bot.send_message(chat_id=owner, text=text)
+
+    try:
+        await announce_update_outcome(send, core.BRIDGE_DIR / "runtime")
+    except Exception:
+        log.warning("update outcome announcement failed", exc_info=True)
 
 
 async def post_shutdown(app) -> None:

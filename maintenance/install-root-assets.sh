@@ -28,6 +28,25 @@ install -m 0644 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-reboot-guard
 install -m 0440 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-admin.sudoers" /etc/sudoers.d/opencode-bridge-admin
 visudo -cf /etc/sudoers.d/opencode-bridge-admin
 
+# Owner-initiated reboot from the Telegram panel is opt-in and idempotent:
+#   OPENCODE_ENABLE_POWER_CONTROL=1  install the single-command sudoers rule
+#   OPENCODE_ENABLE_POWER_CONTROL=0  remove it
+#   (unset)                          leave the current state alone, so the daily
+#                                    maintenance run never silently reverts the choice
+readonly POWER_SUDOERS="/etc/sudoers.d/opencode-bridge-power"
+case "${OPENCODE_ENABLE_POWER_CONTROL:-}" in
+  1)
+    # Validate the source first: a broken file left in /etc/sudoers.d would disable sudo.
+    visudo -cf "${MAINTENANCE_DIR}/opencode-bridge-power.sudoers"
+    install -m 0440 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-power.sudoers" "$POWER_SUDOERS"
+    echo "power_control=enabled"
+    ;;
+  0)
+    rm -f "$POWER_SUDOERS"
+    echo "power_control=disabled"
+    ;;
+esac
+
 systemctl daemon-reload
 systemctl enable opencode-bridge-resource-optimizer.service >/dev/null
 systemctl enable --now opencode-bridge-resource-optimizer.timer >/dev/null
