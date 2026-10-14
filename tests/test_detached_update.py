@@ -202,7 +202,10 @@ class DetachedApplyTests(unittest.IsolatedAsyncioTestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.project = Path(self.tmp.name)
-        (self.project / "runtime").mkdir()
+        # mode=0o700 is umask-proof: the v3.3.0 journal hardening refuses
+        # group/other-writable runtime dirs, and the default mkdir mode
+        # inherits a permissive umask (e.g. 002) on CI and servers.
+        (self.project / "runtime").mkdir(mode=0o700)
 
     async def test_apply_runs_in_its_own_unit_with_the_kill_switch_forwarded(self):
         launch = AsyncMock(return_value="opencode-bridge-update-1")
@@ -268,7 +271,10 @@ class SelfUpdateConfigTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        (self.root / "runtime").mkdir()
+        # mode=0o700 is umask-proof: the v3.3.0 journal hardening refuses
+        # group/other-writable runtime dirs, and the default mkdir mode
+        # inherits a permissive umask (e.g. 002) on CI and servers.
+        (self.root / "runtime").mkdir(mode=0o700)
 
     def test_default_is_unchanged(self):
         self.assertEqual(self_update.configured_repository(self.root, {}), "Alaa91H/opencode-bridge")
