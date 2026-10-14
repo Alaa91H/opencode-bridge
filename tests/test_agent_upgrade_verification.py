@@ -65,20 +65,27 @@ class AgentUpgradeVerificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(calls[0][-2].endswith("self_update.py"))
         self.assertFalse(any("upgrade" in arg for call in calls for arg in call))
 
-    async def test_manual_bridge_update_uses_exact_apply_flag(self) -> None:
-        calls: list[tuple[str, ...]] = []
+    async def test_manual_bridge_update_runs_in_a_detached_unit_not_in_process(self) -> None:
+        # The updater restarts this very service; as a child process it would be killed
+        # mid-deployment. The manual update must be delegated to a transient systemd unit.
+        delegated: list[object] = []
+
+        async def fake_detached(project, progress=None):
+            delegated.append(project)
+            return "delegated"
+
+        spawned: list[tuple[str, ...]] = []
 
         async def spawn(*args, **_kwargs):
-            calls.append(tuple(args))
-            return FakeProcess(0, '{"status":"updated","tag":"v3.3.0"}\n')
+            spawned.append(tuple(args))
+            return FakeProcess(0, "")
 
-        with patch("bridge.services.server_admin.asyncio.create_subprocess_exec", spawn):
+        with patch("bridge.services.server_admin._apply_bridge_detached", fake_detached), \
+                patch("bridge.services.server_admin.asyncio.create_subprocess_exec", spawn):
             status = await update_now("bridge")
-        self.assertIn("Bridge update completed (exit=0)", status)
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][-1], "--apply")
-        self.assertTrue(calls[0][-2].endswith("self_update.py"))
-        self.assertFalse(any("sudo" in arg for call in calls for arg in call))
+        self.assertEqual(status, "delegated")
+        self.assertEqual(len(delegated), 1)
+        self.assertEqual(spawned, [], "no in-process updater child may be started")
 
     async def test_success_requires_active_unit(self) -> None:
         status, calls = await self.simulate(

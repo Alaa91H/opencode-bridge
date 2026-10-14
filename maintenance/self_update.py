@@ -21,12 +21,38 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-EXPECTED_REPOSITORY = "alaa91h/opencode-bridge"
-RELEASE_API = "https://api.github.com/repos/Alaa91H/opencode-bridge/releases/latest"
-ACTIONS_API = "https://api.github.com/repos/Alaa91H/opencode-bridge/actions/workflows/quality-gate.yml/runs"
+DEFAULT_REPOSITORY = "Alaa91H/opencode-bridge"
+_REPOSITORY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}\Z")
 VERSION_RE = re.compile(r"^v([0-9]+)\.([0-9]+)\.([0-9]+)$")
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 QUARANTINE_FILE = "auto-update-quarantine.json"
+
+
+def configured_repository(root: Path = PROJECT_DIR, env: dict[str, str] | None = None) -> str:
+    """Trusted release source: OPENCODE_UPDATE_REPOSITORY, else runtime/update-repository, else default.
+
+    Both inputs are owner-controlled local configuration (never Telegram text). The value is
+    validated strictly because it selects which GitHub project may deploy code to this host.
+    """
+    environment = os.environ if env is None else env
+    value = (environment.get("OPENCODE_UPDATE_REPOSITORY") or "").strip()
+    if not value:
+        path = root / "runtime" / "update-repository"
+        if path.is_symlink():
+            raise ValueError("unsafe update repository file")
+        if path.is_file():
+            value = path.read_text(encoding="utf-8").strip()
+    value = value or DEFAULT_REPOSITORY
+    if not _REPOSITORY_RE.fullmatch(value) or ".." in value:
+        raise ValueError("invalid update repository")
+    return value
+
+
+REPOSITORY = configured_repository()
+EXPECTED_REPOSITORY = REPOSITORY.casefold()
+API_PREFIX = f"https://api.github.com/repos/{REPOSITORY}/"
+RELEASE_API = API_PREFIX + "releases/latest"
+ACTIONS_API = API_PREFIX + "actions/workflows/quality-gate.yml/runs"
 
 
 def release_coordinator(root: Path):
@@ -60,6 +86,15 @@ def deployment_mode(root: Path) -> str:
     if value not in {"0", "1"}:
         raise ValueError("invalid legacy update policy")
     return "auto-safe" if value == "1" else "off"
+
+
+def deploy_timeout() -> int:
+    """Seconds allowed for deploy.sh (restart + health check); clamped to a sane range."""
+    try:
+        value = int(os.environ.get("OPENCODE_UPDATE_DEPLOY_TIMEOUT", "420"))
+    except ValueError:
+        value = 420
+    return max(60, min(value, 1800))
 
 
 def maintenance_window_open(now: datetime | None = None) -> bool:
@@ -141,7 +176,7 @@ def version_of(tag: str) -> tuple[int, int, int] | None:
 
 
 def api_json(url: str) -> dict:
-    if not url.startswith("https://api.github.com/repos/Alaa91H/opencode-bridge/"):
+    if not url.startswith(API_PREFIX):
         raise ValueError("Untrusted update API URL")
     request = urllib.request.Request(  # noqa: S310 -- fixed GitHub HTTPS URL
         url, headers={"Accept": "application/vnd.github+json",
@@ -224,12 +259,15 @@ def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
         if check_only or (mode == "notify" and not manual):
             ledger.transition(tag, commit, "available")
             return {"status": "available", "tag": tag, "commit": commit}
-        command = [str(root / "scripts" / "deploy.sh"), tag]
+        # Run through bash explicitly: a checkout that lost the executable bit (zip/Windows
+        # extraction, some git configurations) would otherwise raise PermissionError, which the
+        # handler below turns into a permanent quarantine of a perfectly good release.
+        command = ["bash", str(root / "scripts" / "deploy.sh"), tag]
         # A crashed operation remains 'applying', blocking unverified reentry.
         ledger.transition(tag, commit, "applying")
         try:
             if deploy is None:
-                subprocess.run(command, cwd=root, check=True, timeout=240,
+                subprocess.run(command, cwd=root, check=True, timeout=deploy_timeout(),
                                env={**os.environ, "OPENCODE_EXPECTED_RELEASE_COMMIT": commit},
                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             else:
@@ -248,6 +286,30 @@ def update(*, root: Path = PROJECT_DIR, api=api_json, git_run=git,
         return {"status": "error", "reason": type(exc).__name__}
 
 
+def record_result(result: dict[str, str], *, trigger: str, root: Path = PROJECT_DIR) -> None:
+    """Leave the outcome where the *next* bot process can find it.
+
+    A Bridge update restarts the bot that requested it, so that process never lives to
+    report the result. Failures here are swallowed: reporting must never change the exit
+    status of a deployment that already succeeded or failed on its own merits.
+    """
+    status = result.get("status")
+    if status not in {"updated", "error", "skipped", "up_to_date", "available"}:
+        return
+    if trigger == "auto" and status not in {"updated", "error"}:
+        return  # Unattended no-op runs must not generate Telegram noise.
+    try:
+        project = str(root)
+        if project not in sys.path:
+            sys.path.insert(0, project)
+        from bridge.services.update_report import write_result
+
+        write_result(root / "runtime", status=status, trigger=trigger, tag=result.get("tag"),
+                     commit=result.get("commit"), reason=result.get("reason"))
+    except Exception:
+        pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_mutually_exclusive_group()
@@ -255,6 +317,8 @@ def main() -> int:
     actions.add_argument("--apply", action="store_true", help="Explicit owner-requested update")
     args = parser.parse_args()
     result = update(check_only=args.check, manual=args.apply)
+    if not args.check:
+        record_result(result, trigger="apply" if args.apply else "auto")
     print(json.dumps(result, ensure_ascii=False))
     return 0 if result["status"] in {"updated", "up_to_date", "skipped", "available"} else 1
 

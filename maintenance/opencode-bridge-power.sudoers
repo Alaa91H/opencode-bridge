@@ -1,0 +1,4 @@
+# OPTIONAL. Installed only by: OPENCODE_ENABLE_POWER_CONTROL=1 sudo -E bash maintenance/install-root-assets.sh
+# Lets the dedicated bridge owner run exactly one fixed command so the Telegram owner panel can
+# reboot the server after a double confirmation. No wildcard and no other argument is permitted.
+ubuntu ALL=(root) NOPASSWD: /usr/bin/systemctl reboot

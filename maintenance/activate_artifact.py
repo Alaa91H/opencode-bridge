@@ -98,7 +98,12 @@ def activate(archive: Path, manifest: Path, source_sha: str, version: str) -> Pa
 
     def prepare(release: Path) -> None:
         run(str(python), str(release / "systemd.py"), timeout=30)
-        run("sudo", "-n", str(release / "maintenance" / "install-root-assets.sh"), timeout=45)
+        # The installer is root-only by design (it lives in a user-writable tree, so it must
+        # not be sudo-whitelisted). Run it only if an administrator explicitly allowed it;
+        # otherwise the daily root maintenance run refreshes the root-owned assets.
+        installer = str(release / "maintenance" / "install-root-assets.sh")
+        if run("sudo", "-n", "-l", installer, timeout=15, check=False).returncode == 0:
+            run("sudo", "-n", installer, timeout=45)
 
     def commit_identity(_release: Path) -> None:
         record = {

@@ -192,6 +192,76 @@ WORDS = {
         "success": "Action completed.", "number_one": "1 — recommended", "number_two": "2 — if needed",
     },
 }
+WORDS["ar"].update({
+    "svcctl": "🛠 التحكم بالخدمات", "procs": "🔬 أكثر العمليات استهلاكًا", "disk": "💽 استخدام القرص",
+    "power": "⏻ إعادة تشغيل السيرفر",
+    "svcctl_text": "🛠 التحكم بالخدمات\nإعادة التشغيل تتم بعد تأكيدك فقط.",
+    "failed_units": "وحدات فاشلة",
+    "restart_opencode": "🔄 إعادة تشغيل OpenCode", "restart_bridge": "🔄 إعادة تشغيل Bridge",
+    "restart_stack": "🔄 إعادة تشغيل المنظومة كاملة",
+    "logs_opencode": "📜 سجل OpenCode", "logs_bridge": "📜 سجل Bridge",
+    "logs_title": "📜 آخر أسطر السجل: {name}", "logs_empty": "لا توجد أسطر.",
+    "logs_unavailable": "تعذّرت قراءة السجل بهذا المستخدم.",
+    "procs_text": "🔬 أعلى العمليات حسب الذاكرة (أسماء فقط، دون أوامر).",
+    "disk_text": "💽 أكبر المجلدات والملفات (+ تعني قياسًا جزئيًا).",
+    "cleanup_btn": "🧹 تنظيف الملفات المنتهية الآن",
+    "power_text": "⏻ سيُعاد تشغيل السيرفر بعد 5 ثوانٍ من تأكيدك وستتوقف أي مهام جارية.",
+    "power_off_text": "⏻ إعادة التشغيل غير مفعّلة. فعّلها مرة واحدة بصلاحية root:\nOPENCODE_ENABLE_POWER_CONTROL=1 sudo -E bash maintenance/install-root-assets.sh",
+    "reboot_btn": "⏻ إعادة تشغيل السيرفر الآن",
+    "host_restarted": "✅ أُعيد التشغيل والخدمة تعمل.",
+    "host_scheduled": "⏳ جُدول التنفيذ خلال ثوانٍ؛ قد ينقطع البوت لحظات ثم يعود.",
+    "host_failed": "❌ فشلت العملية: {detail}", "host_not_active": "⚠️ أُعيد التشغيل لكن الخدمة لم تصبح active.",
+    "host_unavailable": "❌ تعذّر إنشاء وحدة systemd منفصلة؛ لم يتغير شيء. {detail}",
+    "host_cleaned": "✅ اكتمل التنظيف. {detail}", "host_skipped": "ℹ️ لم يُنفَّذ التنظيف: {detail}",
+    "host_power_disabled": "❌ إعادة التشغيل غير مفعّلة على هذا السيرفر.",
+    "assets_stale": "⚠️ أصول root قديمة بعد آخر تحديث؛ تُجدَّد تلقائيًا في الصيانة اليومية أو بتنفيذ install-root-assets.sh بصلاحية root.",
+})
+WORDS["en"].update({
+    "svcctl": "🛠 Service control", "procs": "🔬 Top processes", "disk": "💽 Disk usage",
+    "power": "⏻ Reboot server",
+    "svcctl_text": "🛠 Service control\nRestarts run only after you confirm.",
+    "failed_units": "Failed units",
+    "restart_opencode": "🔄 Restart OpenCode", "restart_bridge": "🔄 Restart Bridge",
+    "restart_stack": "🔄 Restart whole stack",
+    "logs_opencode": "📜 OpenCode log", "logs_bridge": "📜 Bridge log",
+    "logs_title": "📜 Last log lines: {name}", "logs_empty": "No lines.",
+    "logs_unavailable": "The journal is not readable by this user.",
+    "procs_text": "🔬 Top processes by memory (names only, never command lines).",
+    "disk_text": "💽 Largest folders and files (+ means partial measurement).",
+    "cleanup_btn": "🧹 Clean expired files now",
+    "power_text": "⏻ The server reboots 5 seconds after you confirm; running tasks will stop.",
+    "power_off_text": "⏻ Reboot is not enabled. Enable it once as root:\nOPENCODE_ENABLE_POWER_CONTROL=1 sudo -E bash maintenance/install-root-assets.sh",
+    "reboot_btn": "⏻ Reboot server now",
+    "host_restarted": "✅ Restarted and the service is active.",
+    "host_scheduled": "⏳ Scheduled within seconds; the bot may drop briefly and come back.",
+    "host_failed": "❌ Operation failed: {detail}", "host_not_active": "⚠️ Restarted but the service did not become active.",
+    "host_unavailable": "❌ Could not create a separate systemd unit; nothing changed. {detail}",
+    "host_cleaned": "✅ Cleanup finished. {detail}", "host_skipped": "ℹ️ Cleanup not run: {detail}",
+    "host_power_disabled": "❌ Reboot is not enabled on this server.",
+    "assets_stale": "⚠️ Root-owned assets are stale after the last update; the daily maintenance run refreshes them, or run install-root-assets.sh as root.",
+})
+ADMIN_SCREENS = frozenset({
+    "credentials", "keys", "hostkeys", "backups", "mirrors", "server", "services", "resources",
+    "updates", "memory", "workers", "advanced", "svcctl", "procs", "disk", "power"})
+HOST_CONFIRM_KINDS = frozenset({"svcrestart", "cleanup", "reboot"})
+
+
+def is_admin_screen(screen: str) -> bool:
+    """Screens that need the owner in a private chat (single source for show() and handle())."""
+    return (screen in ADMIN_SCREENS or screen.startswith("advanced.")
+            or screen.startswith("logs."))
+
+
+def pre_block(text: str, limit: int = 3400) -> str:
+    """HTML <pre> block that always fits Telegram's message limit after escaping."""
+    raw = text
+    escaped = html.escape(raw, quote=False)
+    while len(escaped) > limit and raw:
+        raw = raw[max(1, len(raw) // 10):]
+        escaped = html.escape(raw, quote=False)
+    return "<pre>" + escaped + "</pre>"
+
+
 BUTTON_KEYS = (("home", "agent"), ("credentials", "backups"), ("direct", "tasks"), ("daily", "schedules"), ("downloads", "mirrors"), ("server", "settings"), ("language", "advanced"), ("help",))
 BINDINGS = {value: key for lang in WORDS.values() for key in
             ("home", "agent", "credentials", "keys", "hostkeys", "backups", "mirrors", "direct", "daily", "tasks", "schedules", "downloads", "server", "settings", "language", "advanced", "help")
@@ -220,7 +290,8 @@ class ControlUI:
                  runtime_controls: Any | None = None, admin_allowed: Any | None = None,
                  legacy_dispatch: Any | None = None, research_modes: dict | None = None,
                  host_credentials: Any | None = None, backups: Any | None = None,
-                 mirrors: Any | None = None, project: Any | None = None):
+                 mirrors: Any | None = None, project: Any | None = None,
+                 host_control: Any | None = None, audit: Any | None = None):
         self.preferences = preferences
         self.agents = agents
         self.models = models
@@ -240,7 +311,28 @@ class ControlUI:
         self.backups = backups
         self.mirrors = mirrors
         self.project = project
+        self.host_control = host_control
+        self._audit_sink = audit
         self._running_updates: set[asyncio.Task] = set()
+
+    def _host(self) -> Any:
+        if self.host_control is None:
+            if self.project is None:
+                raise ValueError("host control is not configured")
+            from pathlib import Path
+
+            from bridge.services.host_control import HostControl
+            self.host_control = HostControl(Path(self.project))
+        return self.host_control
+
+    def _audit(self, update: Any, action: str, target: str, outcome: str) -> None:
+        if self._audit_sink is None:
+            return
+        try:
+            self._audit_sink("host_control", outcome, actor_id=getattr(update.effective_user, "id", None),
+                             details={"action": action, "target": target})
+        except Exception:
+            log.warning("host control audit failed", exc_info=True)
 
     async def _lang(self, owner: str) -> str:
         value = (await self.preferences.get(owner)).language
@@ -258,9 +350,7 @@ class ControlUI:
             return
         owner = str(update.effective_user.id)
         lang = await self._lang(owner)
-        sensitive = {"credentials", "keys", "hostkeys", "backups", "mirrors", "server", "services",
-                     "resources", "updates", "memory", "workers", "advanced"}
-        if screen in sensitive or screen.startswith("advanced."):
+        if is_admin_screen(screen):
             if (not self.admin_allowed(update)
                     or getattr(getattr(update, "effective_chat", None), "type", None) != "private"):
                 return
@@ -454,7 +544,57 @@ class ControlUI:
             nav(t["mirrors"], "mirrors")
             nav(t["resources"], "resources")
             nav(t["services"], "services")
+            nav(t["svcctl"], "svcctl")
+            nav(t["procs"], "procs")
+            nav(t["disk"], "disk")
+            nav(t["power"], "power")
             nav(t["backups"], "backups")
+        elif screen == "svcctl":
+            from bridge.services.service_monitor import service_overview
+
+            text = t["svcctl_text"]
+            for state in await service_overview():
+                marker = "✅" if state.status == "active" else "⚠️"
+                text += "\n" + marker + " " + safe(state.unit, 65) + ": " + safe(state.status, 22)
+            failed = await self._host().failed_units()
+            if failed:
+                text += "\n⚠️ " + t["failed_units"] + ": " + safe(", ".join(failed), 300)
+            for key in ("opencode", "bridge", "stack"):
+                rows.append([button(t["restart_" + key], "confirm", "svcrestart", key)])
+            rows.append([button(t["logs_opencode"], "go", "logs.opencode"),
+                         button(t["logs_bridge"], "go", "logs.bridge")])
+            nav(t["refresh"], "svcctl")
+        elif screen.startswith("logs."):
+            from bridge.services.host_control import HostControlError
+
+            key = screen.split(".", 1)[1]
+            try:
+                body = await self._host().service_logs(key)
+            except HostControlError:
+                body = t["logs_unavailable"]
+            text = t["logs_title"].format(name=safe(key, 16)) + "\n" + pre_block(body or t["logs_empty"])
+            nav(t["refresh"], screen)
+        elif screen == "procs":
+            listing = await self._host().top_processes()
+            lines = ["    PID    CPU      RSS  NAME"] + [
+                f"{row['pid']:>7} {row['cpu']:>5.1f}% {row['rss'] / 1048576:>6.0f}M  {row['name']}"
+                for row in listing]
+            text = t["procs_text"] + "\n" + pre_block("\n".join(lines))
+            nav(t["refresh"], "procs")
+        elif screen == "disk":
+            data = await self._host().disk_breakdown()
+            lines = [f"{size / 1048576:>9.1f} MiB  {label}{' +' if truncated else ''}"
+                     for label, size, truncated in data["items"]]
+            lines.append(f"free {data['free'] / 1073741824:.2f} / {data['total'] / 1073741824:.2f} GiB")
+            text = t["disk_text"] + "\n" + pre_block("\n".join(lines))
+            rows.append([button(t["cleanup_btn"], "confirm", "cleanup", 0)])
+            nav(t["refresh"], "disk")
+        elif screen == "power":
+            available = await self._host().power_available()
+            text = t["power_text"] if available else t["power_off_text"]
+            if available:
+                rows.append([button(t["reboot_btn"], "confirm", "reboot", 0)])
+            nav(t["refresh"], "power")
         elif screen == "updates":
             current_mode = (self.runtime_controls.autopilot_mode()
                             if self.runtime_controls else "off")
@@ -488,6 +628,8 @@ class ControlUI:
                                  ("emergency-stop", "mode_emergency")):
                 rows.append([button(("● " if current_mode == value else "○ ") + t[label],
                                     "autopilot", value)])
+            if self.runtime_controls is not None and self.runtime_controls.root_assets_stale():
+                text += "\n" + t["assets_stale"]
             os_enabled = self.runtime_controls.system_auto_update()
             text += "\nOS: " + (t["on"] if os_enabled else t["off"])
             rows.append([button(t["auto_system"], "toggleos")])
@@ -545,7 +687,10 @@ class ControlUI:
         else:
             raise ValueError("unknown screen")
         if screen != "home":
-            nav(t["back"], "credentials" if screen in {"keys", "hostkeys"} else "home")
+            back = ("credentials" if screen in {"keys", "hostkeys"}
+                    else "server" if screen in {"svcctl", "procs", "disk", "power"}
+                    else "svcctl" if screen.startswith("logs.") else "home")
+            nav(t["back"], back)
         return text, InlineKeyboardMarkup(rows)
 
     async def on_text(self, update: Any, context: Any) -> bool:
@@ -790,7 +935,7 @@ class ControlUI:
                         and parts[2] in {"credentials", "keys", "hostkeys", "backups", "mirrors"})
                     or (action == "input" and len(parts) > 2 and parts[2] == "key_add")
                     or (action in {"confirm", "execute"} and len(parts) > 2
-                        and parts[2] in {"key", "hostkey", "backup"})):
+                        and parts[2] in ({"key", "hostkey", "backup"} | HOST_CONFIRM_KINDS))):
                 if not self.admin_allowed(update) or getattr(
                     getattr(update, "effective_chat", None), "type", None) != "private":
                     await query.answer(t["admin_private"], show_alert=True)
@@ -804,9 +949,7 @@ class ControlUI:
                     return
             if action == "go":
                 screen = parts[2]
-                restricted = {"credentials", "keys", "hostkeys", "backups", "mirrors", "server", "services",
-                              "resources", "updates", "memory", "workers", "advanced"}
-                if screen in restricted or screen.startswith("advanced."):
+                if is_admin_screen(screen):
                     if (not self.admin_allowed(update)
                             or getattr(getattr(update, "effective_chat", None), "type", None) != "private"):
                         await query.answer(t["admin_private"], show_alert=True)
@@ -1040,7 +1183,7 @@ class ControlUI:
                 await self.models.select_variant(owner, int(parts[2]), int(parts[3]))
                 screen = "agent"
             elif action == "confirm":
-                if parts[2] not in {"cancel", "schedule", "file", "new", "key", "task", "hostkey", "backup", "updateagent", "updatesystem", "updatebridge"}:
+                if parts[2] not in {"cancel", "schedule", "file", "new", "key", "task", "hostkey", "backup", "updateagent", "updatesystem", "updatebridge"} | HOST_CONFIRM_KINDS:
                     raise ValueError("unsupported confirmation")
                 context.user_data["ui_confirm"] = (parts[2], parts[3])
                 text = t["confirm_text"]
@@ -1056,7 +1199,7 @@ class ControlUI:
                 kind, value = parts[2], parts[3]
                 if context.user_data.pop("ui_confirm", None) != (kind, value):
                     raise ValueError("confirmation required")
-                if kind in {"hostkey", "backup", "updateagent", "updatesystem", "updatebridge"}:
+                if kind in {"hostkey", "backup", "updateagent", "updatesystem", "updatebridge"} | HOST_CONFIRM_KINDS:
                     if not self.admin_allowed(update) or getattr(
                         getattr(update, "effective_chat", None), "type", None) != "private":
                         raise ValueError("Private administrator chat required")
@@ -1075,6 +1218,18 @@ class ControlUI:
                         raise ValueError("Stale backup index")
                     self.backups.delete(entries[idx]["name"])
                     screen = "backups"
+                elif kind in HOST_CONFIRM_KINDS:
+                    host = self._host()
+                    if kind == "svcrestart":
+                        result, screen = await host.restart_service(value), "svcctl"
+                    elif kind == "cleanup":
+                        result, screen = await host.cleanup_now(), "disk"
+                    else:
+                        result, screen = await host.reboot(), "power"
+                    self._audit(update, kind, value if kind == "svcrestart" else "-",
+                                "ok" if result.ok else result.code)
+                    await update.effective_message.reply_text(
+                        t.get("host_" + result.code, t["error"]).format(detail=result.detail[:200]))
                 elif kind in {"updateagent", "updatesystem", "updatebridge"}:
                     await query.answer()
                     notice = await update.effective_message.reply_text(t["pending_update"])

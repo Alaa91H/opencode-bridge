@@ -12,13 +12,26 @@ from bridge.services.runtime_controls import RuntimeControls
 
 
 def midnight_cleanup(project: Path, now: datetime | None = None) -> dict:
+    return _guarded_cleanup(project, now, windowed=True)
+
+
+def manual_cleanup(project: Path, now: datetime | None = None) -> dict:
+    """Owner-requested cleanup: same safety guards, no midnight window.
+
+    Only files that already passed their retention deadline are removed; the
+    "everything from the previous UTC day" rule stays exclusive to the midnight run.
+    """
+    return _guarded_cleanup(project, now, windowed=False)
+
+
+def _guarded_cleanup(project: Path, now: datetime | None, *, windowed: bool) -> dict:
     now = now or datetime.now(UTC)
     if now.tzinfo is None:
         raise ValueError("UTC cleanup requires timezone-aware current time")
     utc = now.astimezone(UTC)
     if RuntimeControls(project / "runtime").autopilot_mode() == "emergency-stop":
         return {"status": "skipped", "reason": "emergency stop is active"}
-    if utc.hour != 0 or utc.minute >= 15:
+    if windowed and (utc.hour != 0 or utc.minute >= 15):
         return {"status": "skipped", "reason": "outside UTC midnight cleanup window"}
 
     root = project / "runtime" / "downloads"
@@ -46,5 +59,5 @@ def midnight_cleanup(project: Path, now: datetime | None = None) -> dict:
         return {"status": "skipped", "reason": "unfinished agent tasks"}
 
     service = DownloadService(root, ttl_hours=24)
-    result = service.cleanup_expired(now=utc, previous_utc_day=True)
+    result = service.cleanup_expired(now=utc, previous_utc_day=windowed)
     return {"status": "completed", **result}

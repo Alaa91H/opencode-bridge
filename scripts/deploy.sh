@@ -135,7 +135,25 @@ chmod 0600 "${archive}.sha256"
 
 git checkout --detach --quiet "$TARGET_COMMIT"
 "$PYTHON_BIN" systemd.py
-sudo -n "${BRIDGE_DIR}/maintenance/install-root-assets.sh"
+
+# Root-owned assets (/usr/local/sbin, /etc/systemd/system, /etc/sudoers.d) are
+# installed by root from this trusted checkout. This unprivileged deployment
+# must NOT depend on a sudoers rule for the installer: that script lives in a
+# user-writable directory, so whitelisting it would hand the service user root.
+# If an administrator explicitly permitted it we run it; otherwise we only flag
+# stale assets. The daily root maintenance run refreshes them and clears the
+# flag, or an admin can run `sudo bash maintenance/install-root-assets.sh`.
+install_root_assets_if_permitted() {
+  local installer="${BRIDGE_DIR}/maintenance/install-root-assets.sh"
+  if sudo -n -l "$installer" >/dev/null 2>&1; then
+    sudo -n "$installer"
+    rm -f "${DEPLOY_STATE_DIR}/root-assets-stale"
+  elif ! git diff --quiet "$DEPLOYED_COMMIT" "$TARGET_COMMIT" -- maintenance deploy; then
+    date -u +%Y-%m-%dT%H:%M:%SZ > "${DEPLOY_STATE_DIR}/root-assets-stale"
+    echo "root assets changed; they will be refreshed by the daily root maintenance run" >&2
+  fi
+}
+install_root_assets_if_permitted
 
 systemctl --user restart opencode-serve.service
 systemctl --user restart "$SERVICE_NAME"

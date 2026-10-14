@@ -123,6 +123,7 @@ refresh_deployment_assets() {
       ;;
   esac
   bash "${BRIDGE_DIR}/maintenance/install-root-assets.sh"
+  rm -f "${RUNTIME_DIR}/root-assets-stale"
   run_as_bridge_user "$PYTHON_BIN" "${BRIDGE_DIR}/systemd.py"
 }
 
