@@ -1,3 +1,35 @@
+## [3.5.0] - 2026-10-14
+
+### Owner host controls
+
+- New owner-private Telegram service-control panel (`svcctl`): restart OpenCode, the Bridge, or the whole stack, each behind an explicit confirmation.
+- Live process and disk inspection (`procs`, `disk`): top memory consumers by name only, largest managed folders and files; command lines are never shown.
+- One-tap expired-file cleanup reuses the same retention guards as the midnight run; the previous-day rule stays exclusive to the scheduled job.
+- Optional server reboot (`power`) through a dedicated single-command sudoers rule, installed only with `OPENCODE_ENABLE_POWER_CONTROL=1`; when unset, the current state is left untouched.
+- All new panels join the existing `ADMIN_SCREENS` gate: private owner chat only, with one shared check for rendering and handling.
+
+### Detached, self-reporting updates
+
+- Bridge updates now run in a transient systemd unit outside the bot's cgroup, so the restart they perform cannot kill the updater mid-flight; the next bot process announces the outcome to the owner automatically.
+- Interrupted updates are reconciled on start-up (`healthy` vs `quarantined`) instead of retried blindly; one killed update can never block later releases.
+- The update source is configurable and strictly validated (`OPENCODE_UPDATE_REPOSITORY`), with a clamped deploy timeout (`OPENCODE_UPDATE_DEPLOY_TIMEOUT`, 60-1800s, default 420s).
+
+### Deployment hardening
+
+- `deploy.sh` and artifact activation no longer depend on a sudoers rule for the user-writable installer; root-owned assets refresh through the daily root run, with a `root-assets-stale` flag in between.
+- `deploy.sh` is invoked through `bash` explicitly, so checkouts that lost the executable bit (zip/Windows extraction) no longer quarantine a good release.
+- systemd units gain restart backoff (3-5s to 60s) plus memory and task ceilings sized from observed idle footprints.
+
+### Fixes
+
+- The new detached-update tests create their `runtime/` fixture `0o700`: the default mkdir mode inherits permissive umasks (002/022) on CI and servers, which tripped the v3.3.0 journal hardening with a false `error` instead of `updated`. The production check is untouched.
+
+### Upgrade notes
+
+- No dependency changes, no new deploy units, and the full-access permission profile is unchanged.
+- To enable Telegram-initiated reboot (off by default): `OPENCODE_ENABLE_POWER_CONTROL=1 sudo -E bash maintenance/install-root-assets.sh`.
+- This is a GitHub source release, **not** confirmation that the Telegram service was upgraded or smoke-tested on its production host.
+
 ## [3.4.0] - 2026-10-13
 
 ### Telegram conversation quality
