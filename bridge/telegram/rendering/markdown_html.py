@@ -39,6 +39,7 @@ _BOLD_RE = re.compile(r"\*\*(?P<a>[^*]+?)\*\*|__(?P<b>[^_]+?)__")
 _STRIKE_RE = re.compile(r"~~(?P<body>[^~]+?)~~")
 _ITALIC_RE = re.compile(r"(?<![\w*])\*(?P<body>[^*\n]{1,300})\*(?![\w*])")
 _ANCHOR_RE = re.compile(r'<a href="(?P<url>[^"]+)">(?P<label>[^<]*)</a>')
+_LABEL_RE = re.compile(r"^(?P<label>[^:：\n]{2,24})\s*[:：]\s+(?P<rest>.+)$")
 
 _PARAGRAPH = "paragraph"
 _LIST = "list"
@@ -54,6 +55,7 @@ class Page:
     html: str
     plain: str
     links: tuple[tuple[str, str], ...]
+    images: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -145,18 +147,35 @@ def _plain_inline(text: str) -> str:
     return working.strip()
 
 
+def _labelled(body: str) -> tuple[str, str] | None:
+    """Bold a short leading label (``ما حدث:``) the way digests are read."""
+    match = _LABEL_RE.match(body.strip())
+    if match is None:
+        return None
+    label = _escape(match.group("label").strip())
+    rest = _inline(match.group("rest"))
+    plain_label = match.group("label").strip()
+    return f"<b>{label}:</b> {rest}", f"{plain_label}: {_plain_inline(match.group('rest'))}"
+
+
 def _bullet_block(line: str) -> _Block | None:
     match = _BULLET_RE.match(line)
     if match is not None:
         nested = len(match.group("indent")) >= 2
         glyph = "◦" if nested else "•"
         body = match.group("body")
+        labelled = _labelled(body)
+        if labelled is not None:
+            return _Block(f"{glyph} {labelled[0]}", f"{glyph} {labelled[1]}", _LIST)
         return _Block(f"{glyph} {_inline(body)}", f"{glyph} {_plain_inline(body)}", _LIST)
     ordered = _ORDERED_RE.match(line)
     if ordered is not None:
         nested = len(ordered.group("indent")) >= 2
         prefix = "" if nested else f"{ordered.group('number')}. "
         body = ordered.group("body")
+        labelled = _labelled(body)
+        if labelled is not None:
+            return _Block(f"{prefix}{labelled[0]}", f"{prefix}{labelled[1]}", _LIST)
         return _Block(f"{prefix}{_inline(body)}", f"{prefix}{_plain_inline(body)}", _LIST)
     return None
 
@@ -342,10 +361,15 @@ def _page_links(
     return tuple(found)
 
 
-def _page(blocks: list[_Block]) -> Page:
+def _page(blocks: list[_Block], images: tuple[tuple[str, str], ...] = ()) -> Page:
     html = _join(blocks, html=True)
     plain = _join(blocks, html=False)
-    return Page(html=html, plain=plain, links=_page_links(html, plain))
+    return Page(
+        html=html,
+        plain=plain,
+        links=_page_links(html, plain),
+        images=images,
+    )
 
 
 def first_page(text: str, *, max_len: int = MAX_PAGE_CHARS) -> Page | None:

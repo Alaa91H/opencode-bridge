@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _IMAGE_RE = re.compile(r"!\[(?P<alt>[^\]]{0,200})\]\((?P<url>https?://[^\s)]+)\)")
 
-MAX_FOLLOWUPS = 8
+MAX_FOLLOWUPS = 24
 MAX_PHOTOS = 10
 MAX_BUTTONS = 8
 MAX_CHUNK = 4000
@@ -126,9 +126,10 @@ async def send_rendered_pages(
 ) -> list[int]:
     """Send pre-rendered pages as HTML messages, with a plain-text safety net.
 
-    Each page carries its own source buttons so a topic stays self-contained,
-    and a client that rejects HTML still receives a readable answer instead of
-    a silent failure.
+    Each page carries its own source buttons so a topic stays self-contained, and
+    a page's own photos are sent right before it as a channel-style lead image. A
+    client that rejects HTML still receives a readable answer instead of a silent
+    failure.
     """
     if not pages:
         return []
@@ -136,6 +137,11 @@ async def send_rendered_pages(
     total = min(len(pages), MAX_FOLLOWUPS + 1)
     for index in range(start_index, total):
         page = pages[index]
+        if page.images:
+            try:
+                await send_photos(bot, chat_id, list(page.images))
+            except Exception:
+                logger.debug("page %s photos were rejected", index, exc_info=True)
         suffix = f"\n\n<i>({index + 1}/{total})</i>" if total > 1 else ""
         links = list(page.links) if with_links else []
         keyboard = build_link_keyboard(links)

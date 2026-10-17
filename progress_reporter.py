@@ -267,9 +267,10 @@ class LiveProgressReporter:
         makes the message read like a document, and a client that rejects HTML
         still gets the same page as plain text.
         """
-        from bridge.telegram.rendering.markdown_html import MAX_PAGE_CHARS, first_page
+        from bridge.telegram.rendering.news_pages import delivery_pages
 
-        page = first_page(text, max_len=MAX_PAGE_CHARS)
+        pages = delivery_pages(text)
+        page = pages[0] if pages else None
         rendered = page.html if page is not None else text
         plain = page.plain if page is not None else text
         self.progress_store.finish(self.task.id, status, message, "success" if status == "completed" else "error")

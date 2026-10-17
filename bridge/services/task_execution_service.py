@@ -445,11 +445,11 @@ class TaskExecutionService:
             # Truth-in-delivery: the overflow note promises the remainder is in
             # a task file, so materialize it when follow-ups cannot cover it.
             try:
-                from bridge.telegram.rendering.markdown_html import build_pages
+                from bridge.telegram.rendering.news_pages import delivery_pages
                 from bridge.telegram.rich_delivery import MAX_FOLLOWUPS
 
                 overflow_text = reply_text.replace(COMPLETION_SENTINEL, "").strip()
-                if reply_text.strip() and len(build_pages(overflow_text or reply_text)) > MAX_FOLLOWUPS + 1:
+                if reply_text.strip() and len(delivery_pages(overflow_text or reply_text)) > MAX_FOLLOWUPS + 1:
                     full_path = output_directory / "answer-full.md"
                     full_path.write_text(overflow_text or reply_text, encoding="utf-8")
                     try:

@@ -146,12 +146,13 @@ class TelegramExecutionDelivery:
         The status message renders this page and the follow-ups start after it,
         so both halves must agree on where the first page ends.
         """
-        from bridge.telegram.rendering.markdown_html import MAX_PAGE_CHARS, first_page
+        from bridge.telegram.rendering.news_pages import delivery_pages
 
         body = text.strip() or empty_response_message()
-        page = first_page(body, max_len=MAX_PAGE_CHARS)
-        if page is not None and len(page.html) <= self.max_message_length:
-            return page.plain or body
+        pages = delivery_pages(body)
+        first = pages[0] if pages else None
+        if first is not None and len(first.html) <= self.max_message_length:
+            return first.plain or body
         if len(body) <= self.max_message_length:
             return body
         suffix = "\n\n… تتمة الرد في الرسائل التالية."
@@ -159,8 +160,9 @@ class TelegramExecutionDelivery:
 
     async def send_followups(self, task: Any, full_text: str, first_chunk: str) -> None:
         """Send remaining pages + photos + open-page buttons after the status edit."""
-        from bridge.telegram.rendering.markdown_html import build_pages
+        from bridge.telegram.rendering.news_pages import delivery_pages
         from bridge.telegram.rich_delivery import (
+            MAX_FOLLOWUPS,
             build_link_keyboard,
             extract_images,
             extract_links,
@@ -168,7 +170,7 @@ class TelegramExecutionDelivery:
             send_rendered_pages,
         )
 
-        pages = build_pages(full_text)
+        pages = delivery_pages(full_text)
         images = extract_images(full_text)
         links = extract_links(full_text)
         if len(pages) <= 1:
@@ -191,14 +193,17 @@ class TelegramExecutionDelivery:
                 except Exception:
                     pass
             return
-        # Page one already replaced the status message; send the rest.
+        # Page one already replaced the status message; send the rest. An item's
+        # photo travelled with its own page, so only the rest trail the answer.
+        attached = {url for page in pages[1 : MAX_FOLLOWUPS + 1] for _, url in page.images}
+        trailing = [item for item in images if item[1] not in attached]
         try:
             await send_rendered_pages(self.bot, task.chat_id, pages, start_index=1)
         except Exception as exc:
             self.log.warning("تعذر إرسال تتمة الرد: %s", type(exc).__name__)
         try:
-            if images:
-                await send_photos(self.bot, task.chat_id, images)
+            if trailing:
+                await send_photos(self.bot, task.chat_id, trailing)
         except Exception:
             pass
 

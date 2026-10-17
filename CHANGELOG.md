@@ -1,3 +1,19 @@
+## [3.46.0] - 2026-10-17
+
+### Each news item is delivered as its own page, like a global channel
+
+- Audit finding: a 40-item digest arrived as 30 wall-of-text sections. A global news channel shows one item per message — headline, the labelled fields, the photo, and the source button — and that is what the owner asked for.
+- New `bridge/telegram/rendering/news_pages.py` recognises a digest item by shape (a bold headline followed by bullets), so the section it sits under becomes that page's label, each item keeps only its own source link, and document order is preserved across items, ranked lists and prose.
+- Labelled bullets now render as bold labels: `• ما حدث: …`, `• التفاصيل: …`, `• تحليل: …` — the shape every digest already used, finally readable.
+- An item's own photo is sent as the lead image of that item's page instead of trailing the whole answer; photos that belong to no item still follow it.
+- The follow-up budget rose from 8 to 24 messages, so a 40-item digest really does arrive item by item instead of stopping after nine and pointing at a file. Truth-in-delivery is unchanged: past the budget the remainder still materializes as `answer-full.md`.
+- An answer that is not a digest is untouched: no item detection, no extra splitting, the same section pages as 3.45.
+- Tests: `tests/test_news_item_pages.py` (one page per item, section label, bold field names, per-item source link, per-item photo, bold prose is not a headline, document order, plain answer unaffected).
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
 ## [3.45.1] - 2026-10-17
 
 ### A document title no longer gets a page of its own
