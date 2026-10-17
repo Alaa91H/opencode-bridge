@@ -65,6 +65,15 @@ class InlineRenderingTests(unittest.TestCase):
 
 
 class PagingTests(unittest.TestCase):
+    def test_document_title_stays_with_its_first_section(self) -> None:
+        # A lonely "# title" page wastes a message and looks broken.
+        text = "# نشرة يومية\n\n## عاجل\n\n" + ("نص الخبر " * 30) + "\n\n## Economy\n\n"
+        pages = build_pages(text, max_len=3800)
+        self.assertEqual(len(pages), 2)
+        self.assertTrue(pages[0].html.startswith("<b>نشرة يومية</b>"))
+        self.assertIn("▌ عاجل", pages[0].html)
+        self.assertTrue(pages[1].html.startswith("<b>▌ Economy</b>"))
+
     def test_topics_are_never_cut_in_half(self) -> None:
         text = "\n\n".join(
             f"## عنوان {index}\n\n" + "\n".join(f"سطر {index}.{line}" for line in range(20))

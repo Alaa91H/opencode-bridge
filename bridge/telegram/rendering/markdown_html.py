@@ -299,7 +299,13 @@ def build_pages(text: str, *, max_len: int = MAX_PAGE_CHARS) -> list[Page]:
     size = 0
     for block in blocks:
         addition = len(block.html) + (2 if current else 0)
-        starts_topic = block.kind == _HEADING and bool(current)
+        # A heading starts a new page, except directly under a document title:
+        # "# نشرة" followed by "## عاجل" is one page, not a lonely title page.
+        starts_topic = (
+            block.kind == _HEADING
+            and bool(current)
+            and any(item.kind != _HEADING for item in current)
+        )
         if current and (starts_topic or size + addition > max_len):
             pages.append(_page(current))
             current = []

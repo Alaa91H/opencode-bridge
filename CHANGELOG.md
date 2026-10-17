@@ -1,3 +1,15 @@
+## [3.45.1] - 2026-10-17
+
+### A document title no longer gets a page of its own
+
+- A report that opens with `# title` then `## section` produced a first message holding nothing but the title, which reads as a delivery fault. A heading now starts a new page only when the current page already carries real content, so the title and its first section arrive together.
+- The owner's own 95 KB daily digest renders as 30 topic pages instead of 31, with no empty page.
+- Tests: `tests/test_markdown_html_rendering.py` (title stays with its first section).
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
 ## [3.45.0] - 2026-10-17
 
 ### Answers arrive as formatted Telegram pages
