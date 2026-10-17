@@ -38,9 +38,9 @@ class TmpAttachmentStore(FakeAttachmentStore):
 class OverflowFileTests(unittest.IsolatedAsyncioTestCase):
     async def test_overlong_answer_is_saved_and_sent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            # Longer than the follow-up budget can carry (25 pages), so the
+            # Longer than the follow-up budget can carry (40 pages), so the
             # remainder must materialize as a file instead of being dropped.
-            long_text = "كلمة " * 24000  # ~120k chars > 25 pages
+            long_text = "كلمة " * 40000  # ~200k chars > 40 pages
             task = SimpleNamespace(
                 id=7, owner_id="42", chat_id=99, prompt="do the work",
                 execution_mode=None, attachments=(), is_recurring=False,

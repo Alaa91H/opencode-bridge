@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _IMAGE_RE = re.compile(r"!\[(?P<alt>[^\]]{0,200})\]\((?P<url>https?://[^\s)]+)\)")
 
-MAX_FOLLOWUPS = 24
+MAX_FOLLOWUPS = 39
 MAX_PHOTOS = 10
 MAX_BUTTONS = 8
 MAX_CHUNK = 4000

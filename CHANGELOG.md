@@ -1,3 +1,15 @@
+## [3.46.1] - 2026-10-17
+
+### A section label stops arriving as its own message
+
+- A digest's `## عاجل` heading used to be emitted as a page holding only `▌ عاجل` before its first item, which reads as a delivery fault. A section heading is now held until real content follows it, and disappears into the item it introduces.
+- The follow-up budget rose from 25 to 40 messages, so a 40-item digest arrives item by item instead of pointing at a file after 25. Overflow truth-in-delivery is unchanged.
+- Tests: `tests/test_news_item_pages.py` (no page is only a section label), `tests/test_overflow_delivery.py` (budget raised to 40 pages).
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
 ## [3.46.0] - 2026-10-17
 
 ### Each news item is delivered as its own page, like a global channel

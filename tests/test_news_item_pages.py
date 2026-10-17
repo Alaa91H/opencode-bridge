@@ -85,6 +85,12 @@ class NewsItemPageTests(unittest.TestCase):
         ]
         self.assertEqual(positions, sorted(positions))
 
+    def test_a_section_label_never_gets_a_page_of_its_own(self) -> None:
+        # `## عاجل` then its first item is one page, not a lonely label page.
+        pages = delivery_pages(DIGEST)
+        label_only = [page for page in pages if len(page.html.strip()) < 40]
+        self.assertEqual(label_only, [])
+
     def test_a_plain_answer_is_not_split_into_items(self) -> None:
         answer = "الجواب: تم التنفيذ بنجاح.\n\n- الخطوة الأولى\n- الخطوة الثانية"
         pages = delivery_pages(answer)

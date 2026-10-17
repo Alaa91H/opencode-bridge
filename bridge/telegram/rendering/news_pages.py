@@ -115,11 +115,19 @@ def _chunks(text: str) -> list[_Chunk]:
             chunks.append(_Chunk(section, "item", tuple(body)))
             pending_heading = None
             continue
+        if not stripped:
+            # A blank line neither ends an item nor materializes a pending
+            # heading: `## عاجل` followed by its first item must not become a
+            # page of its own.
+            index += 1
+            continue
         if pending_heading is not None:
             buffer.append(pending_heading)
             pending_heading = None
         buffer.append(line)
         index += 1
+    if pending_heading is not None:
+        buffer.append(pending_heading)
     flush()
     return chunks
 
