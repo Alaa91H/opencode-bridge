@@ -50,6 +50,7 @@ def core_commands() -> list[BotCommand]:
         BotCommand("maintenance", "عرض آخر تقرير صيانة"),
         BotCommand("config", "عرض الإعدادات الفعلية غير السرية"),
         BotCommand("limits", "عرض الحدود الفعلية الحالية"),
+        BotCommand("metrics", "قياسات حيّة للطابور والنتائج والموارد"),
         BotCommand("search", "بحث موثّق سريع"),
         BotCommand("deepresearch", "بحث عميق متعدد المصادر"),
         BotCommand("extreme", "بحث شديد العمق"),
@@ -65,6 +66,12 @@ def core_commands() -> list[BotCommand]:
         BotCommand("menu", "لوحة التحكم"),
         BotCommand("download", "تنزيل رابط وإرساله كملف"),
         BotCommand("deletefile", "حذف ملف منزّل"),
+        BotCommand("mirror", "نسخ رابط أو ملف إلى مرآة مجانية"),
+        BotCommand("prompt", "تنفيذ برومبت طويل أو ملف .md حرفيًا"),
+        BotCommand("topics", "نشرة مواضيع بصور وأزرار فتح الصفحة"),
+        BotCommand("taskshow", "عرض تفاصيل مهمة بالرقم"),
+        BotCommand("dailies", "عرض وإنهاء المهام اليومية"),
+        BotCommand("exec", "أمر تيرمنال مباشر (المالك فقط)"),
     ]
 
 
@@ -110,6 +117,15 @@ def register_core_handlers(
     app.add_handler(CommandHandler("menu", handlers.cmd_menu))
     app.add_handler(CommandHandler("download", handlers.cmd_download))
     app.add_handler(CommandHandler("deletefile", handlers.cmd_deletefile))
+    app.add_handler(CommandHandler("mirror", handlers.cmd_mirror))
+    app.add_handler(CommandHandler("prompt", handlers.cmd_prompt))
+    app.add_handler(CommandHandler("topics", handlers.cmd_topics))
+    app.add_handler(CommandHandler("taskshow", handlers.cmd_taskshow))
+    app.add_handler(CommandHandler("dailies", handlers.cmd_dailies))
+    app.add_handler(CommandHandler("exec", handlers.cmd_exec))
+    app.add_handler(CommandHandler("sh", handlers.cmd_exec))
+    app.add_handler(CommandHandler("shell", handlers.cmd_exec))
+    app.add_handler(CommandHandler("term", handlers.cmd_exec))
     app.add_handler(CommandHandler("share", handlers.cmd_share))
     app.add_handler(CommandHandler("unshare", handlers.cmd_unshare))
     app.add_handler(CommandHandler("model", handlers.cmd_model))
@@ -119,6 +135,7 @@ def register_core_handlers(
     app.add_handler(CommandHandler("maintenance", handlers.cmd_maintenance))
     app.add_handler(CommandHandler("config", handlers.cmd_config))
     app.add_handler(CommandHandler("limits", handlers.cmd_limits))
+    app.add_handler(CommandHandler("metrics", handlers.cmd_metrics))
     app.add_handler(CommandHandler(research_command_names, handlers.cmd_research_mode))
     app.add_handler(CommandHandler("help", handlers.cmd_help))
     app.add_handler(

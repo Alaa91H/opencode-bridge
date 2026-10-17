@@ -4,12 +4,23 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Any
 
 from telegram.constants import ChatAction
 
 from messages import empty_response_message
 from progress_reporter import LiveProgressReporter
+
+
+class _DownloadLike:
+    """Minimal DownloadRecord shape for reusing deliver_download with outputs."""
+
+    def __init__(self, *, path: str, size_bytes: int, filename: str, direct_send_limit: int) -> None:
+        self.path = path
+        self.size_bytes = size_bytes
+        self.filename = filename
+        self.direct_send_limit = direct_send_limit
 
 
 class TelegramExecutionDelivery:
@@ -71,24 +82,116 @@ class TelegramExecutionDelivery:
         return reporter
 
     async def send_outputs(self, task: Any, paths: list[Any]) -> int:
+        from bridge.services.mirrors import MirrorService
+        from bridge.telegram.download_delivery import deliver_download
+
         sent = 0
+        pending_mirrors: list[str] = []
         for path in paths:
-            with path.open("rb") as handle:
-                await self.bot.send_document(
-                    chat_id=task.chat_id,
-                    document=handle,
-                    filename=path.name,
-                    caption="ملف ناتج عن الطلب" if sent == 0 else None,
+            item = Path(str(path))
+            try:
+                size = item.stat().st_size if item.is_file() else 0
+            except OSError:
+                continue
+            # Small files: direct Telegram document (unchanged behaviour).
+            if size <= 48 * 1024 * 1024:
+                try:
+                    with item.open("rb") as handle:
+                        await self.bot.send_document(
+                            chat_id=task.chat_id,
+                            document=handle,
+                            filename=item.name,
+                            caption="ملف ناتج عن الطلب" if sent == 0 else None,
+                        )
+                    sent += 1
+                    continue
+                except Exception as exc:
+                    self.log.warning("تعذر إرسال الملف مباشرة %s: %s", item.name, type(exc).__name__)
+            # Large files: split into 49MB Telegram parts (works up to ~6GB).
+            try:
+                record = _DownloadLike(
+                    path=str(item), size_bytes=size, filename=item.name,
+                    direct_send_limit=49 * 1024 * 1024,
                 )
-            sent += 1
+                await deliver_download(self.bot, task.chat_id, record)  # type: ignore[arg-type]
+                sent += 1
+                continue
+            except Exception as exc:
+                self.log.warning("تعذر تقسيم الملف الكبير %s: %s", item.name, type(exc).__name__)
+            # Last resort: mirror + send link (supports 4GB+ via chunked mirrors).
+            try:
+                mirrors = MirrorService(
+                    item.parent,
+                    extra_roots=(item.parent,),
+                )
+                provider, url = await mirrors.mirror_auto(item)
+                pending_mirrors.append(f"{item.name} ({provider}): {url}")
+                sent += 1
+            except Exception as exc:
+                self.log.warning("تعذر رفع الملف %s إلى مرآة: %s", item.name, type(exc).__name__)
+        if pending_mirrors:
+            try:
+                await self.bot.send_message(
+                    chat_id=task.chat_id,
+                    text="☁️ ملفات كبيرة رُفعت إلى مرايا:\n" + "\n".join(pending_mirrors)[:3500],
+                    disable_web_page_preview=False,
+                )
+            except Exception:
+                pass
         return sent
 
     def final_text(self, text: str) -> str:
         body = text.strip() or empty_response_message()
         if len(body) > self.max_message_length:
-            suffix = "\n\n… تم اختصار الرد بسبب حد طول رسالة Telegram."
+            suffix = "\n\n… تتمة الرد في الرسائل التالية."
             body = body[: max(1, self.max_message_length - len(suffix))].rstrip() + suffix
         return body
+
+    async def send_followups(self, task: Any, full_text: str, first_chunk: str) -> None:
+        """Send remaining chunks + photos + open-page buttons after the status edit."""
+        from bridge.telegram.rich_delivery import (
+            build_link_keyboard,
+            chunk_rich_text,
+            extract_images,
+            extract_links,
+            send_long_text,
+            send_photos,
+        )
+
+        chunks = chunk_rich_text(full_text)
+        images = extract_images(full_text)
+        links = extract_links(full_text)
+        if len(chunks) <= 1:
+            # Status message already holds the full text: only add visuals.
+            try:
+                if images:
+                    await send_photos(self.bot, task.chat_id, images)
+            except Exception:
+                pass
+            if links:
+                try:
+                    keyboard = build_link_keyboard(links)
+                    if keyboard is not None:
+                        await self.bot.send_message(
+                            chat_id=task.chat_id,
+                            text="🔗 روابط المصادر — افتح صفحة أي موضوع:",
+                            reply_markup=keyboard,
+                            disable_web_page_preview=True,
+                        )
+                except Exception:
+                    pass
+            return
+        # First chunk already replaced the status message; send the rest.
+        remaining = "\n\n".join(chunks[1:])
+        try:
+            await send_long_text(self.bot, task.chat_id, remaining, with_links=True)
+        except Exception as exc:
+            self.log.warning("تعذر إرسال تتمة الرد: %s", type(exc).__name__)
+        try:
+            if images:
+                await send_photos(self.bot, task.chat_id, images)
+        except Exception:
+            pass
 
     def error_text(self, exc: Exception, operation: str) -> str:
         return self.error_message(exc, operation)

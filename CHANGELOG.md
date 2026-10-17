@@ -1,3 +1,527 @@
+## [3.43.0] - 2026-10-17
+
+### Daily continuation only trusts an explicit completion mark
+
+- Audit finding: a run ending with a courtesy sign-off could satisfy the completion check while work remained, so the daily continuation closed the day early.
+- The completion mark must now be the whole last line, within a 24-character sign-off budget; hedge markers block a match, and the sentinel tail is checked for hedging before punctuation is stripped.
+- Tests: `tests/test_daily_completion.py` extended (whole-line match, over-budget sign-offs, hedged and partial endings, delay floor).
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
+## [3.42.0] - 2026-10-17
+
+### Due-schedule promotion is coalesced across the pool
+
+- Audit finding: every worker sweep could re-run due promotion for the same interval, so one due job produced repeated promotion queries under load.
+- Promotion is now coalesced pool-wide per interval; a failed promotion is logged, resets the stamp, and the next sweep retries instead of waiting another full interval.
+- Tests: `tests/test_promotion_coalescing.py`.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
+## [3.41.0] - 2026-10-17
+
+### Reboots and restarts join the host guard
+
+- Completes 3.40.0: `HostController.reboot`, `restart_service` and `cleanup_now` consult the same `HOST_OPERATIONS` guard, so a restart or reboot cannot land in the middle of an upgrade.
+- `reboot()` refuses before the sudoers probe, so a refused request runs no host command at all.
+- Panel wording `host_busy` (ar/en) names the running operation instead of the generic retry error that would invite a second tap.
+- Tests: `tests/test_host_control_guard.py`; no test runs a host command.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
+## [3.40.0] - 2026-10-17
+
+### One destructive host operation at a time
+
+- Audit finding: panel update buttons had no mutual exclusion, so a second press started a second host operation: two `apt-get upgrade` runs contend on the dpkg lock, and two `self_update.py --apply` units deploy the same release at once.
+- New `HostOperationGuard` (`bridge/services/host_operations.py`) with a process-wide `HOST_OPERATIONS`. `update_now()` validates the kind then hands the whole operation to the guard; a concurrent request is refused immediately with an Arabic message naming the running operation instead of being queued.
+- Releases in `finally`, so a failed or timed-out update cannot block the next attempt. Tests in `tests/test_host_operation_guard.py`; no test runs a host command.
+- Follow-up completed in 3.41.0: `HostController.reboot`, `restart_service` and `cleanup_now` now consult the same guard, and a refused request runs no host command.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
+## [3.39.0] - 2026-10-17
+
+### Progress persistence no longer writes once per event
+
+- Every summarized event called `queue.update_activity`: an UPDATE plus a WAL commit on the shared SQLite connection, under the queue lock. A tool-heavy task emits one event per tool transition, so a deep-research run spent dozens of commits and delayed the next claim behind the same lock.
+- `LiveProgressReporter` coalesces those writes behind a 5s window (`PERSIST_INTERVAL_SECONDS`); the in-memory store stays authoritative and keeps every entry.
+- Nothing owner-visible changes: `/progress` and `/trace` render from memory whenever a live task exists; the persisted trail is the post-restart and history view only.
+- Boundaries stay correct: `start`, `finish`, `finalize_text` and the end of the event stream force a flush, including on cancellation, and a flush carries every coalesced entry.
+- Tests: `tests/test_progress_persistence.py` (20 events to one write, window expiry, dedupe preserved, forced flushes, stream-end flush, cancelled stream).
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Worst case after a crash mid-task: the last seconds of live activity are missing from the persisted trail.
+- Source release only.
+
+## [3.38.0] - 2026-10-17
+
+### PDF text reaches the model
+
+v3.37.0 left the media processors out of the task path because they shell out synchronously: one PDF could freeze the whole event loop, every Telegram update and queued task, for up to two minutes. This cycle fixes the blocking instead of avoiding the feature.
+
+- New `MediaAnalysisService` runs the blocking pipeline in a worker thread (`asyncio.to_thread`), caps the wait with `asyncio.wait_for` (45s), and gives the tool its own shorter subprocess timeout (30s) so a thread that timed out on our side still terminates instead of leaking. PDF text chunks become one bounded, document-ordered excerpt reusing the in-process caps and the shared `format_block()` rules.
+- Every failure yields **no** representation rather than a guess: tool missing, non-zero exit, wedged tool, scanned PDF with no text layer. A PDF is never a direct-model part, so extraction can only add context and displace nothing.
+- `PdfProcessor` gained an injectable `timeout` (default 120, unchanged for existing callers).
+- `TaskExecutionService` awaits the media step after the in-process one, merges both representation sets for the part-exclusion decision, and audits the combined strategies in one event.
+- Tests: `tests/test_media_analysis_service.py` (detection, document order, selection and caps, scanned PDF, non-PDF never reaching the tool, tool failure, `TimeoutError`, and a wedged-tool deadline test) plus two wiring tests for the merged prompt/audit path and media-failure degradation. No test executes a host tool.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Uses `pdftotext` only when already installed; the bridge still never installs anything, and without that tool behaviour is exactly as before this cycle.
+- Source release only.
+
+## [3.37.0] - 2026-10-17
+
+### Attachment intelligence, actually wired (the deferred v2 backlog item)
+
+`AttachmentIntelligenceRouter`, the media pipeline, and the PDF/video/audio/ZIP processors existed since the v2 baseline with unit tests — and nothing in the running bot ever called them. Every PDF, ZIP or hidden text attachment reached the agent as a bare local path, so the quality of the answer depended on the agent happening to run the right host tool.
+
+- New `AttachmentContextService` derives a bounded, in-process representation with **no new dependency and no subprocess**: query-relevant text excerpts (2 000-char chunks, query selection, per-file cap 8 000 chars, per-task cap 24 000 chars, at most 5 files and 256 KiB read per file) and validated ZIP manifests (entry count, uncompressed total, capped at 200 entries) built on the existing archive safety limits.
+- New `AttachmentIntelligenceRouter.select_ordered_chunks()`: same relevance selection as `select_text_chunks`, but returned in **document order**. A score-ranked excerpt prints "part 7, part 3, part 9", which lets the model draw the wrong conclusion about what precedes what. `select_text_chunks` keeps its existing contract and test.
+- `TaskExecutionService` injects the service (default constructed, no I/O) and appends the derived block to the prompt, labelled as untrusted data. A represented attachment is no longer uploaded as a raw part — the excerpt replaces it while its local path stays in the attachment note, so the agent can still open the original. Any failure degrades silently to the previous path-only behaviour.
+- Audit event `attachment_context_derived` records strategies, count and truncation (no content).
+- Deliberately not used: the media pipeline's `PdfProcessor`/`VideoProcessor`/`AudioProcessor`, which call `subprocess.run(..., timeout=120)` **synchronously**. Running those in the event loop would freeze the whole bot for up to two minutes per attachment. They stay out of the task path until they are made async with a deadline.
+- Tests: `tests/test_attachment_context_service.py` (classification, bounded reads, chunk budget including the marker, document order, archive caps, unsafe/corrupt archives skipped rather than guessed, per-task cap) and `tests/test_attachment_context_wiring.py` (inlining, part exclusion for represented files, visible files untouched, failure degradation, real-service ZIP end to end).
+
+### Upgrade notes
+
+- No dependency changes, no migrations, no new host tools. Extracted content is bounded (≤ 24 000 chars per task) and arrives marked as untrusted data.
+- PDFs, images, audio and video are unchanged: they still reach the agent as validated local paths, because this cycle adds no external parser.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.36.0] - 2026-10-17
+
+### `/metrics` — live operational metrics (owner-only)
+
+The v2 baseline shipped `MetricsRegistry`/`PrometheusEndpoint` and unit tests but nothing ever populated them: dead observability. This wires real numbers into the authenticated Telegram surface instead of opening a new network port.
+
+- `TaskQueueStore.queue_counts()`: one index-covered `GROUP BY status`, mapped through the real status vocabulary (`queued`, `scheduled`, `leased`, `running`, `retrying`, `completed`, `failed`, `dead_letter`, `cancelled`).
+- `BridgeMetricsService`: snapshots on demand — **no background sampler**, so an idle bridge spends nothing. Counters derive from SQLite and the audit log (`task_finished` durations, `task_deferred` categories), so they survive restarts instead of resetting like in-memory gauges. Host memory/CPU/free-disk reuse the existing portable `sample_resources`. A failing store or audit read degrades to zeros instead of failing the command.
+- `audit_log.read_recent()`: bounded tail reader (last 256 KiB) that skips partial/broken lines — one seek plus one small read instead of parsing a 10MB log. The tail bound is documented in the service docstring: outcome figures cover at most what the tail still holds, while queue gauges stay exact.
+- `window_argument()` reads `context.args`, never `update.message.text`: the control panel dispatches the same handlers with the callback's own message, where parsing text would read an unrelated word from a caption.
+- `/metrics [hours]` (clamped 1–720, default 24) registered in the command menu, `/help`, the advanced/server section of the control panel, and the legacy dispatch allowlist.
+- Tests: `tests/test_metrics_command.py` (tail reader, window math, status mapping, store-failure degradation, argument clamping, panel dispatch, rendering with and without history/resources); the control-UI command-coverage contract now includes `metrics`.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. New read-only command; no new listening port, so the host attack surface is unchanged.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.35.0] - 2026-10-17
+
+### Flag reads hardened (availability + fewer disk reads)
+
+- `runtime_flags.enabled()` stays strict on purpose: startup gates like `OPENCODE_FULL_ACCESS` must fail closed loudly rather than silently widen privileges. Task paths now use the new `enabled_lenient()`, which degrades a malformed value to the documented default and logs one warning per flag name. Previously a single typo (e.g. `AGENT_LIVE_OUTPUT=ture`) raised `ValueError` inside `LiveProgressReporter.__init__`, outside the task's error handling, and failed every task with a configuration-shaped traceback.
+- `LiveProgressReporter` now reads its flags once per task (`_live_enabled`, `_stream_drafts`) instead of re-reading on every preview tick. With the flag absent from the environment, `enabled()` falls back to parsing `.env` from disk, so the per-tick read was a full file read every ~1.5s for the lifetime of each active task.
+- README documents `TELEGRAM_STREAM_DRAFTS` alongside `AGENT_LIVE_OUTPUT` and the fail-soft rule.
+- New `tests/test_runtime_flags.py`: strict raise, lenient degradation with a single warning, env-over-dotenv precedence, defaults, and reporter caching (no re-read during `_publish_live`).
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Default behaviour unchanged: both flags default off.
+- Note: `.env.example` could not be edited from the build workspace (harness blocks writes to `.env*` paths). Add the commented `TELEGRAM_STREAM_DRAFTS=0` block next to `AGENT_LIVE_OUTPUT=0` when deploying.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.34.0] - 2026-10-17
+
+### CI lint pin refreshed
+
+- Quality gate now installs `ruff==0.17.1` (released 2026-10-15; patch release, no new rules — the only noted default change is the implicit target-version bump, which `ruff.toml` overrides explicitly with `py312`). Sole version pin in CI; historical notes untouched.
+
+### Upgrade notes
+
+- CI-only change. No runtime, dependency, or migration impact.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.33.0] - 2026-10-17
+
+### Quota hot-loop fix
+
+- A 429 whose `Retry-After` lands exactly on the noon UTC reset is the Zen free bucket even when the model id is missing or renamed. Previously only `-free`-suffixed models took the wait-until-noon path; unknown models hot-retried every 60s against an exhausted daily bucket. The reset match alone now classifies `zen_free_quota` (markers still require the free suffix; non-matching 429s keep the generic `quota` path).
+- Covered by noon-match tests (None/empty/renamed model → noon wait; non-matching → generic quota with pinned clock).
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Fewer wasted retries under exhaustion.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.32.0] - 2026-10-17
+
+### Live-preview redaction hardened
+
+- `redact_output` covered only field-style secrets and Bearer tokens. An assistant echoing tool output could still leak Telegram bot tokens, GitHub tokens, or `sk/pk/rk` vendor keys into previews (and now drafts). Added the three token-shape patterns mirrored from the host-control guard, keeping the uniform `[REDACTED]` marker.
+- Covered by `TokenShapeRedactionTests` (masked shapes + ordinary-text negative including `risk-free`/`disk space`/`12:00` near-misses).
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Preview/draft text only.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.31.0] - 2026-10-17
+
+### Experimental animated streaming drafts
+
+- Verified against official PTB v22.8 docs that `Bot.send_message_draft` exists (added 22.6, all bots since 22.7): new `send_stream_draft()` helper posts the live preview as an animated draft and reports acceptance, declining safely on missing methods, zero ids, over-length text (capped 4096), and any API failure including non-private chats.
+- `_publish_live` uses it only behind opt-in `TELEGRAM_STREAM_DRAFTS=1` (same flag mechanism as `AGENT_LIVE_OUTPUT`); every failure path falls back to the existing status-message edit, so default behavior is byte-identical.
+- Covered by helper tests (accept/decline/cap) and reporter branch tests (draft-skips-edit, failure-falls-back, flag-off-keeps-edit). Documented as experimental in the direct/daily guide.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Opt-in flag, default off.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.30.0] - 2026-10-17
+
+### Documentation completeness
+
+- `/help` now lists the `/reset` alias alongside `/start`/`/new` (it was a working but undocumented alias). Pipe-argument grammar reviewed against the domain `split_pipe_args` — the optional-limit form in `parse_history_args` is intentionally more lenient and stays separate.
+
+### Upgrade notes
+
+- Docs only. No dependency changes, no migrations.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.29.0] - 2026-10-17
+
+### Documentation correctness
+
+- `OPENCODE_DIRECT_DAILY_AR.md` prescribed `pytest`; the repo is unittest-only (no pytest in requirements or CI). Now points at the real commands (`unittest discover …` / `scripts/verify.sh`).
+
+### Scoped, not started
+
+- Attachment-intelligence representations (chunk indexing, PDF decomposition, transcripts) assessed: the router classifies only — builders and agent-protocol changes are a multi-cycle feature, deliberately left unwired rather than half-integrated.
+
+### Upgrade notes
+
+- Docs only. No dependency changes, no migrations.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.28.0] - 2026-10-17
+
+### Large-file guidance gap closed
+
+- Button downloads that exceed direct sending (oversize fetch or more parts than the ~6GB split ceiling allows) no longer end in a generic error: the bot now points at `/mirror big <n>` to split-upload via mirrors. Import is function-local like the file's existing pattern.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. One error message improved.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.27.0] - 2026-10-17
+
+### Quota transparency (legitimate observability)
+
+- `/limits` now ends with the daily free-quota reset countdown (12:00 UTC) and, while a recorded exhaustion pause is in force, the automatic resume time. Read-only lines from the existing pause record and reset clock — enforcement untouched, no rotation added, no policy changed.
+- Covered by `test_quota_status` (countdown, active pause, expired pause hidden).
+
+### Upgrade notes
+
+- No dependency changes, no migrations. `/limits` gains up to two lines.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.26.0] - 2026-10-17
+
+### Telegram transport tuned with verified parameter names
+
+- Resolved the cycle-5 deferral against the official PTB v22.8 `HTTPXRequest` docs: `connection_pool_size` confirmed (applies to `max_connections` since 22.4). Both request objects now cap at 32 pooled connections instead of 256 each — ample for a private bot, lighter on a 1GB host.
+- Same edit fixes a real large-file hazard on the same objects: the default 20s `media_write_timeout` could abort 49MB part uploads on slow uplinks, breaking the 4GB+ delivery path. Raised to 300s.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Transport-only change.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.25.0] - 2026-10-17
+
+### Hygiene sweep across all cycle files
+
+- Systematic unused-import review of every file touched since 3.6.0 (`manage.py`, `execution.py`, `mirrors.py`, `shell_exec.py`, `opencode_client.py`, `model_manager.py`, `host_credentials.py`): exactly one redundancy found — a shadowed `COMPLETION_SENTINEL` in the lazy import now that it lives at module top of `task_execution_service.py`. Removed.
+- Re-verified boundary invariants hold: services import no `telegram`/`bot` roots (rich-delivery use is `bridge.*`-namespaced lazy), command adapters contain no SQL, handlers stay single-await delegates.
+
+### Upgrade notes
+
+- No dependency changes, no migrations, no behavior change.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.24.0] - 2026-10-17
+
+### Dead compatibility shim removed
+
+- Deleted `V3TaskService` from `v3_plugin.py` plus its `core.TaskService` rebound on install: no production path ever read it back, and `run_v3` documents that the stabilized `bot.TaskService` must stay. Also removed the four imports/constants used only by the shim. `run_v3` comment updated to match. Verified against architecture-boundary tests (handler thinness, import roots, no-SQL adapters) — all hold.
+
+### Upgrade notes
+
+- No dependency changes, no migrations, no behavior change (dead code only).
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.23.0] - 2026-10-17
+
+### Coverage contract
+
+- Verified all ~50 `BotCommand`s resolve to a handler (including `reset`/`stop` aliases and the shared research-mode handler) and the full legacy-dispatch allowlist maps to `cmd_*` handlers.
+- New `test_command_coverage` locks all three registries (commands, dispatch, control UI) so future additions cannot silently drop a surface.
+
+### Upgrade notes
+
+- Tests only. No dependency changes, no migrations, no behavior change.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.22.0] - 2026-10-17
+
+### Documentation drift fixed
+
+- `OPENCODE_DIRECT_DAILY_AR.md` now documents `/taskshow`, `/dailies` management, automatic multi-message delivery with source buttons, the `answer-full.md` overflow file, and the done-phrase completion fallback — all shipped behavior that the doc predated.
+
+### Upgrade notes
+
+- Docs only. No dependency changes, no migrations.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.21.0] - 2026-10-17
+
+### Agent prompt catches up with delivery
+
+- `prompts/telegram-operator-ar.md` gains a "تسليم تيليغرام الغني" section: don't split manually, embed real `https` image URLs (delivered as photos), and link every key item's original source (open-page buttons + pinned large preview). Bans invented image/source links, consistent with the existing no-fabrication rule. Behavior-only prompt change; no code touched.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Digests get more visual without any code deploy risk.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.20.0] - 2026-10-17
+
+### Visibility gap closed
+
+- `/limits` never showed the download caps or the pending-updates flag, so operators could not verify the 8GB/40GB/50MB/TTL settings from Telegram. `limits_dict()` now includes all five values with Arabic labels in `render_limits`. Covered by `test_limits_visibility`.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. `/limits` output gains five lines.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.19.0] - 2026-10-17
+
+### Truth-in-delivery fix
+
+- The overflow note claimed the remainder was "saved in the task file" while no such file existed for answers beyond 9 follow-up chunks. `TaskExecutionService` now materializes `answer-full.md` (0600) into the task output directory before delivery whenever follow-ups cannot cover the text, so the note — now naming the file — is true. Covered by `test_overflow_delivery` (saved + sent / short-answer negative).
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Only over-long answers gain an extra attached file.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.18.0] - 2026-10-17
+
+### Rich topics: pinned large link previews
+
+- Verified against the official PTB v22.8 docs that `LinkPreviewOptions` (available since 20.8) is supported by the pinned dependency — resolving the cycle-3 deferral with evidence instead of guessing.
+- `rich_delivery.send_long_text` now pins the first source URL of a digest with `prefer_large_media` on the first chunk; follow-ups keep previews enabled; the restricted-chat retry and the overflow note explicitly disable previews. The legacy `disable_web_page_preview` flag is gone from this path (legacy status/progress edits untouched).
+- Covered by `PreviewOptionsTests` + `SendLongTextTests` (pin attributes, no legacy flag, disabled retry).
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Previews are now richer on topic digests; all other messages byte-identical.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.17.0] - 2026-10-17
+
+### Correctness fix: portable `.env` credential writes
+
+- `HostCredentialManager._set_env` wrote secret values raw. Values with spaces broke shell `source` (used by `start.sh`) even though the bridge parser tolerated them. New `quote_env_value()` quotes outside a portable-safe set with backslash escapes — readable by the bridge parser, shell sourcing, and systemd `EnvironmentFile` alike. Plain tokens stay byte-identical (existing `GITHUB_TOKEN=validSecret123` assertion unaffected).
+- Covered by `test_env_quoting` (bare/quoted/escaped cases + spaced-secret activation roundtrip).
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Existing `.env` files untouched; quoting applies to future writes only.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.16.0] - 2026-10-17
+
+### Consistency fix: explicit guard policy for the owner shell
+
+- `/exec` bypassed the build/hardline request guards silently while `/direct` enforces them. The bypass is intentional (owner shell = SSH equivalent, as originally requested) but is now explicit: `policy_advisory()` in `shell_exec.py` attaches a ⚠️/ℹ️ banner for destructive matches without ever refusing, and the audit entry records whether a banner was shown. `SECURITY.md` documents the bypass-by-design.
+- Covered by `PolicyAdvisoryTests` (safe/build/hardline cases).
+
+### Upgrade notes
+
+- No dependency changes, no migrations, defaults preserve prior behavior.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.15.0] - 2026-10-17
+
+### Customization
+
+- `AuditLogger` rotation cap is now a constructor option (`max_bytes`, default 10MB, floor 1KB): all four production call sites keep the default; covered by `test_audit_rotation` (default cap, rotation to `.1`, no-rotation path).
+
+### Upgrade notes
+
+- No dependency changes, no migrations, defaults preserve prior behavior.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.14.0] - 2026-10-17
+
+### Efficiency
+
+- `/model` status view (`AgentService.model_overview`) reuses the timestamped catalog cache via new public `cached_providers()` / `cache_providers()` instead of fetching on every open; UI-triggered fetches refresh the same task cache. Covered by a fetch-free roundtrip test.
+
+### Upgrade notes
+
+- No dependency changes, no migrations, defaults preserve prior behavior.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.13.0] - 2026-10-17
+
+### Efficiency
+
+- `ModelManager` now reuses a timestamped provider catalog for up to one sync interval: per-task model selection (and the per-image media check) no longer performs 1–2 extra loopback catalog fetches per task. Stale entries refetch automatically; background reconcile/scout stamping flows through the same helper. Covered by `CatalogCacheTests`.
+
+### Upgrade notes
+
+- No dependency changes, no migrations, defaults preserve prior behavior.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.12.0] - 2026-10-17
+
+### Security documentation
+
+- `SECURITY.md` gains a control-surface threat model covering the direct shell (owner-only, private chat, audited, bounded, service-user privileges), fixed-argv host controls, untrusted-attachment handling, SSRF-guarded downloads/mirrors, and redacted rotating audit logs. No code changes; documents guarantees the code already enforces.
+
+### Supply-chain note
+
+- npm `@opencode-ai/plugin` pin re-checked (lockfile integrity intact; Dependabot covers weekly). No conclusive newer stable found; no churn.
+
+### Upgrade notes
+
+- No dependency changes, no migrations, defaults preserve prior behavior.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.11.0] - 2026-10-17
+
+### Testability
+
+- `/schedhistory` pipe/limit grammar extracted to pure `parse_history_args()` in `commands/schedules.py` (identical behavior, adapter now 3 lines); covered with `test_schedule_history_args` alongside `ManageCommands.describe_prompt_files`.
+- Hygiene sweep of recent code: no bare `except`, no other dead helpers; progress entries, audit logs, and history limits all bounded and covered.
+
+### Upgrade notes
+
+- No dependency changes, no migrations, defaults preserve prior behavior.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.10.0] - 2026-10-17
+
+### Efficiency
+
+- yt-dlp supervisor poll relaxed from 0.5s to 2s (`download_service.py`): the per-tick `rglob` + `stat` walk over fragment files was pure wakeup overhead — quota overshoot is still enforced on completion, so slower polling trades wakeups, never safety.
+- `opencode_client.py`: hoisted a function-level `import re` to module top.
+
+### Supply-chain re-verification
+
+- Transitive lock re-checked against PyPI (Oct 2026): `anyio==4.15.1`, `httpcore==1.0.9`, `idna==3.20`, `certifi==2026.7.22` all latest; `OpenCodeClient` already reuses one bounded `AsyncClient` (20/10 pool); Dependabot covers pip/npm/actions weekly. No changes required.
+
+### Deliberately not changed
+
+- PTB `HTTPXRequest` pool sizing left at library defaults: the exact parameter name differs across PTB minor versions and cannot be verified from this workspace — a wrong guess raises at startup and kills the bot.
+
+### Upgrade notes
+
+- No dependency changes, no migrations, defaults preserve prior behavior.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.9.0] - 2026-10-17
+
+### Stability: regression locks for recent features
+
+- New suites: `test_prompt_files`, `test_rich_delivery`, `test_shell_exec`, `test_daily_completion` — the prompt-file, rich-topics, direct-shell, and daily-completion paths from recent cycles are now CI-guarded.
+- Removed dead helpers `looks_like_execution_request` / `looks_like_prompt_name` (+ their regexes) from `prompt_files.py`: defined but never called anywhere.
+- Fixed a latent lint failure: `bridge/services/shell_exec.py` imported unused `run_fixed` (ruff F401 breaks the quality gate).
+
+### Correctness fix from test cross-check
+
+- Daily completion rule tightened without losing robustness: a same-line tail after the sentinel only completes when empty, ≤8 chars, or itself a done-phrase. The pre-existing guard (`'Example: [[…]] is the marker.'` → not complete) passes again alongside the new Arabic/English fallbacks.
+
+### Docs
+
+- `/help` documents `/schedhistory الاسم [| العدد]`; `DEPLOYMENT_AR.md` documents opt-in `TELEGRAM_DROP_PENDING_UPDATES`.
+
+### Upgrade notes
+
+- No dependency changes, no migrations, defaults preserve prior behavior.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.8.0] - 2026-10-17
+
+### Memory bounds
+
+- Live SSE preview backlog per task reduced from 50k/45k chars to a 20k cap keeping the last 15k. The user-visible preview window (2.9k chars) is unchanged; only the throttled-backlog worst case shrinks.
+
+### Control and customization
+
+- `/schedhistory` accepts an optional row limit: `/schedhistory الاسم | 5` (default 20, clamped to 100 like the repository layer). Names containing `|` without a numeric tail keep resolving verbatim.
+
+### Deliberately not changed
+
+- `LinkPreviewOptions` migration deferred: `disable_web_page_preview` is used consistently across ~15 send sites and the installed PTB behavior cannot be verified from this workspace; a blind migration risks breaking every delivery path at once.
+- Schedule-history rendering already truncates to the message cap; the new limit only reduces rows fetched.
+
+### Upgrade notes
+
+- No dependency changes, no migrations, defaults preserve prior behavior.
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.7.0] - 2026-10-17
+
+### Python 3.14 compatibility (real findings, not churn)
+
+- `session_store.py` no longer calls the deprecated `datetime.utcnow()` (removed in 3.16, warning-as-error on the newest CI job); session timestamps are now timezone-aware UTC. Stored ISO strings parse identically via `fromisoformat`, so existing databases need no rewrite.
+- Full-tree audit for other 3.14 removals (`asyncio.iscoroutinefunction`, `utcfromtimestamp`, `get_event_loop`, …): the remaining `fromtimestamp` calls already pass explicit `tz` and are compliant.
+
+### Database efficiency
+
+- New migration 9 adds a covering index `idx_agent_tasks_owner_status_updated (owner_id, status, updated_at DESC, id DESC)` for the clamped `list_active`/`list_recent`/`list_failed` queries. Applies automatically with checksum tracking; `IF NOT EXISTS` makes it idempotent.
+- Confirmed the watchdog and maintenance audit logs already rotate through the shared `AuditLogger` cap from 3.6.0 — no second implementation needed.
+
+### Deliberately not changed
+
+- Polling intervals (`task_poll_seconds`, `opencode_client` 5s session poll, watchdog cadence) stay as-is: they are `asyncio.sleep` waits (~zero CPU) woken on demand by `wake_tasks()`, so lengthening them would only add user-visible latency for no measurable saving.
+- No dependency changes: pins re-verified latest stable.
+
+### Upgrade notes
+
+- Migration 9 runs automatically on next start; downgrade needs no action (extra index is harmless).
+- Source release only — host upgrade follows the safe-update path.
+
+## [3.6.0] - 2026-10-17
+
+### Resource efficiency (1GB host)
+
+- SQLite read path now sets bounded `cache_size`, in-memory `temp_store`, a conservative 64MB `mmap_size`, and a capped WAL file (`journal_size_limit`) alongside the existing WAL/`NORMAL`/`busy_timeout` guards.
+- Task list queries (`list_active`, `list_recent`) clamp caller limits to a maximum of 100 rows; `list_failed` and schedule history already did.
+- The JSONL audit log rotates at 10MB to a single `.1` generation instead of growing without bound on unattended hosts.
+
+### Control and customization
+
+- New opt-in `TELEGRAM_DROP_PENDING_UPDATES` (default `0`): when enabled, the bot skips the backlog accumulated while offline instead of replaying it after downtime.
+- Python compatibility matrix now covers 3.12, 3.13 and 3.14 (the development build already ran 3.14).
+
+### Dependency audit (October 2026)
+
+- Verified latest stable pins with no change required: `python-telegram-bot==22.8`, `httpx==0.28.1`, `aiosqlite==0.22.1`, `ruff==0.17.0` (CI gate).
+
+### Upgrade notes
+
+- No dependency changes and no new deploy units; all new behavior is backwards compatible with existing defaults.
+- This is a GitHub source release, **not** confirmation that the Telegram service was upgraded or smoke-tested on its production host.
+
 ## [3.5.0] - 2026-10-14
 
 ### Owner host controls

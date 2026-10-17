@@ -65,5 +65,21 @@ class SafeLivePreviewTests(unittest.TestCase):
                          "Authorization: Bearer [REDACTED]")
 
 
+class TokenShapeRedactionTests(unittest.TestCase):
+    def test_bot_github_and_vendor_tokens_are_masked(self) -> None:
+        bot_token = "123456:" + "A" * 35
+        github_token = "ghp_" + "B" * 25
+        vendor_key = "sk-" + "c" * 20
+        for secret in (bot_token, github_token, vendor_key):
+            with self.subTest(secret=secret[:12]):
+                out = redact_output(f"use {secret} here")
+                self.assertNotIn(secret, out)
+                self.assertIn("[REDACTED]", out)
+
+    def test_ordinary_text_is_untouched(self) -> None:
+        text = "disk space is low, task completed, risk-free deploy at 12:00"
+        self.assertEqual(redact_output(text), text)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -14,11 +14,19 @@ _SECRET = re.compile(
     r'\s*[:=]\s*)(["\']?[^\s\r\n,"\']{8,})'
 )
 _BEARER = re.compile(r'(?i)\bBearer\s+[A-Za-z0-9._~+/-]{10,}')
+# Token shapes the assistant might echo from tool output or pasted secrets.
+# Mirrors the host-control patterns; replacements stay a uniform [REDACTED].
+_BOT_TOKEN = re.compile(r"\b\d{6,12}:[A-Za-z0-9_-]{30,}\b")
+_GITHUB_TOKEN = re.compile(r"\b(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,})\b")
+_VENDOR_KEY = re.compile(r"\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}\b")
 
 
 def redact_output(text: str) -> str:
     """Best-effort filtering; do not confuse this with a complete DLP system."""
-    return _BEARER.sub('Bearer [REDACTED]', _SECRET.sub(r'\1[REDACTED]', text))
+    redacted = _BEARER.sub('Bearer [REDACTED]', _SECRET.sub(r'\1[REDACTED]', text))
+    redacted = _BOT_TOKEN.sub('[REDACTED]', redacted)
+    redacted = _GITHUB_TOKEN.sub('[REDACTED]', redacted)
+    return _VENDOR_KEY.sub('[REDACTED]', redacted)
 
 
 class AgentLiveAssembler:

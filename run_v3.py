@@ -26,11 +26,9 @@ _original_post_shutdown = core.post_shutdown
 
 
 async def post_init(app) -> None:
-    # Keep bot.TaskService as the production compatibility service. It already
+    # bot.TaskService is the production compatibility service. It already
     # subclasses TaskServiceV3 and adds the stabilized host-resource controller
-    # (fast pressure reductions plus gradual recovery). Replacing it here with
-    # v3_plugin.V3TaskService would bypass that stabilization in the actual V3
-    # entrypoint and make worker admission oscillate around pressure thresholds.
+    # (fast pressure reductions plus gradual recovery).
     core.DEFAULT_AGENT = core.SETTINGS.agent.v3_agent
     await workspace_runtime.install(core, v3_plugin.workspace_store, v3_plugin.workspace_manager)
     await _original_post_init(app)

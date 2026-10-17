@@ -33,6 +33,7 @@ class TaskRepository(Protocol):
     async def list_recent(self, owner_id: str, limit: int = 10) -> list[Any]: ...
     async def list_failed(self, owner_id: str, limit: int = 20) -> list[Any]: ...
     async def retry_failed(self, task_id: int, owner_id: str) -> Any | None: ...
+    async def save_checkpoint(self, task_id: int, checkpoint: dict[str, Any]) -> None: ...
 
 
 class AttachmentCleanupPort(Protocol):
@@ -111,11 +112,23 @@ class TaskApplicationService:
             task, position = await self.repository.enqueue(owner_id, chat_id, stored, **enqueue_kwargs)
         if direct_dispatch or daily_continuation:
             # Queue checkpoint is committed before wake_tasks() starts a worker.
-            persisted = getattr(task, "checkpoint", None) or {}
-            checkpoint = dict(persisted)
-            checkpoint.update(direct_dispatch=bool(direct_dispatch), daily_continuation=bool(daily_continuation))
-            await self.repository.save_checkpoint(task.id, checkpoint)
+            await self.save_checkpoint(
+                task,
+                {
+                    "direct_dispatch": bool(direct_dispatch),
+                    "daily_continuation": bool(daily_continuation),
+                },
+            )
         return QueuedRequest(task=task, queue_position=position, enhanced=enhanced)
+
+    async def save_checkpoint(self, task: Any, updates: dict[str, Any]) -> None:
+        """Merge ``updates`` into a queued task checkpoint through the repository port.
+
+        Adapters must not reach into ``repository`` directly, so dispatch
+        semantics travel through this method instead.
+        """
+        persisted = getattr(task, "checkpoint", None) or {}
+        await self.repository.save_checkpoint(task.id, {**dict(persisted), **updates})
 
     async def active(self, owner_id: str) -> list[Any]:
         return await self.repository.list_active(owner_id)

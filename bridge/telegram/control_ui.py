@@ -193,6 +193,7 @@ WORDS = {
     },
 }
 WORDS["ar"].update({
+    "host_busy": "⏳ توجد عملية مضيف جارية ({detail}). انتظرها قبل التنفيذ.",
     "svcctl": "🛠 التحكم بالخدمات", "procs": "🔬 أكثر العمليات استهلاكًا", "disk": "💽 استخدام القرص",
     "power": "⏻ إعادة تشغيل السيرفر",
     "svcctl_text": "🛠 التحكم بالخدمات\nإعادة التشغيل تتم بعد تأكيدك فقط.",
@@ -217,6 +218,7 @@ WORDS["ar"].update({
     "assets_stale": "⚠️ أصول root قديمة بعد آخر تحديث؛ تُجدَّد تلقائيًا في الصيانة اليومية أو بتنفيذ install-root-assets.sh بصلاحية root.",
 })
 WORDS["en"].update({
+    "host_busy": "⏳ A host operation is already running ({detail}). Wait for it.",
     "svcctl": "🛠 Service control", "procs": "🔬 Top processes", "disk": "💽 Disk usage",
     "power": "⏻ Reboot server",
     "svcctl_text": "🛠 Service control\nRestarts run only after you confirm.",
@@ -497,13 +499,13 @@ class ControlUI:
                                  button(t["delete"], "confirm", "hostkey", i)])
             rows.append([button(t["hostadd"], "hostadd")])
         elif screen == "mirrors":
-            text = t["mirrors"] + "\nCatbox • TempFile.org • TmpFiles"
+            text = t["mirrors"] + "\nCatbox(200M) • 0x0.st(512M) • TmpFiles/TempFile(100M) • transfer.sh(2G) • gofile/pixeldrain(10G)"
             for provider in ("catbox", "tempfile"):
                 rows.append([button(t["mirror_url"] + " · " + provider, "mirrorurl", provider)])
             for i, item in enumerate(self.downloads.list(owner)[:8]):
                 text += "\n• " + safe(item.filename)
                 rows.append([button("☁ Catbox", "mirrorfile", "catbox", i),
-                             button("☁ TmpFiles", "mirrorfile", "tmpfiles", i)])
+                             button("☁ gofile", "mirrorfile", "gofile", i)])
         elif screen == "backups":
             text = t["backups"] + "\n" + t["backup_warning"]
             entries = self.backups.list() if self.backups else []
@@ -669,11 +671,11 @@ class ControlUI:
                 rows.append([button(("✅ " if limit == n else "") + t[key], "workers", n)])
         elif screen == "advanced":
             text = t["advanced_text"]
-            for area in ("session", "tasks", "schedules", "research", "other"):
+            for area in ("session", "tasks", "schedules", "files", "server", "research", "other"):
                 nav("🗂 " + area, "advanced." + area)
         elif screen.startswith("advanced."):
             area = screen.split(".", 1)[1]
-            sections = {"session":["new","abort","share","unshare","status","health","agents","model"],"tasks":["tasks","failed","progress","trace","cancel","retry","discard"],"schedules":["schedules","schedule","repeat","schedshow","schedhistory","schedrename","schededit","schedappend","schedtime","schedinterval","schedtimezone","schedrun","schedpause","schedresume","scheddelete"],"other":["draft","config","limits","maintenance","download","deletefile"],"research": list(self.research_modes)}
+            sections = {"session":["new","abort","share","unshare","status","health","agents","model"],"tasks":["tasks","taskshow","dailies","failed","progress","trace","cancel","retry","discard"],"schedules":["schedules","schedule","repeat","schedshow","schedhistory","schedrename","schededit","schedappend","schedtime","schedinterval","schedtimezone","schedrun","schedpause","schedresume","scheddelete"],"files":["download","deletefile","mirror","prompt","topics"],"server":["exec","config","limits","metrics","maintenance","draft"],"other":["draft","config","limits","metrics","maintenance","download","deletefile","mirror","prompt","topics","taskshow","dailies","exec"],"research": list(self.research_modes)}
             if area not in sections:
                 raise ValueError("Invalid advanced category")
             text = t["advanced_text"] + "\n" + area
@@ -848,8 +850,19 @@ class ControlUI:
                 record = await self.downloads.fetch(owner, text, media=waiting == "media")
                 await status.edit_text(t["success"])
                 await deliver_download(context.bot, update.effective_chat.id, record)
-            except Exception:
+            except Exception as exc:
                 log.exception("button download failed")
+                try:
+                    from bridge.services.download_service import DownloadTooLarge
+
+                    if isinstance(exc, DownloadTooLarge) or "too many" in str(exc).lower():
+                        await status.edit_text(
+                            "الملف كبير جدًا للإرسال المباشر. استخدم /mirror big <رقم-الملف> "
+                            "لتقسيمه ورفع أجزائه إلى مرايا."
+                        )
+                        return True
+                except Exception:
+                    pass
                 await status.edit_text(t["error"])
             return True
         if isinstance(waiting, str) and waiting.startswith("legacy:"):
@@ -898,13 +911,60 @@ class ControlUI:
                 opts = {"execution_mode": ResearchMode.DEEP_RESEARCH}
             else:
                 opts = {}
-            queued = await self.tasks.enqueue_prompt(
-                owner, update.effective_chat.id, text,
-                status_message_id=status.message_id,
-                direct_dispatch=True, daily_continuation=waiting == "daily",
-                idempotency_scope="telegram_update",
-                idempotency_key=str(update.update_id), **opts)
-            await status.edit_text(t["queued"] + str(queued.task.id))
+            # Merge staged prompt files (.md): button flow must not orphan them.
+            pending: list[dict] = []
+            try:
+                pop = getattr(self.schedule_store, "pop_pending_attachments", None)
+                if callable(pop):
+                    records, _expired = await pop(owner, update.effective_chat.id)
+                    pending = [dict(r) for r in (records or [])]
+            except Exception:
+                pending = []
+            if pending:
+                try:
+                    from pathlib import Path as _Path
+
+                    from bridge.services.prompt_files import (
+                        build_instruction_body,
+                        is_prompt_filename,
+                        load_prompt_text,
+                    )
+
+                    bodies = []
+                    for record in pending:
+                        filename = str(record.get("filename", ""))
+                        if is_prompt_filename(filename, str(record.get("mime", ""))):
+                            try:
+                                body, truncated = load_prompt_text(_Path(str(record.get("path", ""))))
+                                bodies.append((filename, body, truncated))
+                            except Exception:
+                                log.debug(
+                                    "skipping unreadable prompt file %s", filename, exc_info=True
+                                )
+                                continue
+                    if bodies:
+                        text = build_instruction_body(text, bodies)
+                except ImportError:
+                    pass
+                queued_media = await self.tasks.repository.enqueue(
+                    owner, update.effective_chat.id, text,
+                    attachments=pending,
+                    status_message_id=status.message_id,
+                    **opts,
+                )
+                task = queued_media[0] if isinstance(queued_media, tuple) else queued_media
+                checkpoint = dict(getattr(task, "checkpoint", None) or {})
+                checkpoint.update(direct_dispatch=True, daily_continuation=waiting == "daily")
+                await self.tasks.repository.save_checkpoint(task.id, checkpoint)
+                await status.edit_text(t["queued"] + str(task.id))
+            else:
+                queued = await self.tasks.enqueue_prompt(
+                    owner, update.effective_chat.id, text,
+                    status_message_id=status.message_id,
+                    direct_dispatch=True, daily_continuation=waiting == "daily",
+                    idempotency_scope="telegram_update",
+                    idempotency_key=str(update.update_id), **opts)
+                await status.edit_text(t["queued"] + str(queued.task.id))
             self.wake()
         except Exception:
             log.exception("button task submission failed")
@@ -1115,11 +1175,19 @@ class ControlUI:
                 screen = "memory"
             elif action == "legacy":
                 name = parts[2]
-                if name not in ["new","abort","share","unshare","status","health","agents","model","tasks","failed","progress","trace","cancel","retry","discard","schedules","schedule","repeat","schedshow","schedhistory","schedrename","schededit","schedappend","schedtime","schedinterval","schedtimezone","schedrun","schedpause","schedresume","scheddelete","draft","config","limits","maintenance","download","deletefile"] or self.legacy_dispatch is None:
+                if name not in ["new","abort","share","unshare","status","health","agents","model","tasks","taskshow","dailies","failed","progress","trace","cancel","retry","discard","schedules","schedule","repeat","schedshow","schedhistory","schedrename","schededit","schedappend","schedtime","schedinterval","schedtimezone","schedrun","schedpause","schedresume","scheddelete","draft","config","limits","metrics","maintenance","download","deletefile","mirror","prompt","topics","exec"] or self.legacy_dispatch is None:
                     raise ValueError("Unknown legacy command")
-                if name in ["new","abort","share","unshare","status","health","agents","model","tasks","failed","progress","trace","cancel","discard","schedules","config","limits","maintenance"]:
+                if name in ["new","abort","share","unshare","status","health","agents","model","tasks","failed","progress","trace","cancel","discard","schedules","config","limits","metrics","maintenance"]:
                     await self.legacy_dispatch(name, update, context, "")
                     screen = "advanced"
+                elif name in ["exec"]:
+                    if not self.admin_allowed(update):
+                        await query.answer("Admin only", show_alert=True)
+                        return
+                    context.user_data["ui_wait"] = "legacy:" + name
+                    await update.effective_message.reply_text("أرسل أمر التيرمنال دون /. مثال: df -h")
+                    await query.answer()
+                    return
                 else:
                     context.user_data["ui_wait"] = "legacy:" + name
                     await update.effective_message.reply_text(t["advanced_args"])

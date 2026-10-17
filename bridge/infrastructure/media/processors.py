@@ -49,9 +49,18 @@ class ImageProcessor:
 
 
 class PdfProcessor:
-    def __init__(self, tools: MediaToolCapabilities, *, chunk_chars: int = 32_000) -> None:
+    def __init__(
+        self,
+        tools: MediaToolCapabilities,
+        *,
+        chunk_chars: int = 32_000,
+        timeout: int = 120,
+    ) -> None:
         self.tools = tools
         self.chunk_chars = chunk_chars
+        # Bounded so a wedged pdftotext dies on its own even when the caller
+        # has already stopped waiting for it.
+        self.timeout = max(1, int(timeout))
 
     def supports(self, media: MediaInput, detected_mime: str) -> bool:
         return detected_mime == "application/pdf"
@@ -59,7 +68,10 @@ class PdfProcessor:
     def process(self, media: MediaInput, detected_mime: str) -> MediaAnalysis:
         artifacts: list[MediaArtifact] = []
         if self.tools.pdftotext:
-            result = _run([self.tools.pdftotext, "-layout", str(media.path), "-"])
+            result = _run(
+                [self.tools.pdftotext, "-layout", str(media.path), "-"],
+                timeout=self.timeout,
+            )
             text = result.stdout
             for start in range(0, len(text), self.chunk_chars):
                 artifacts.append(MediaArtifact(kind="pdf_text_chunk", text=text[start:start + self.chunk_chars],

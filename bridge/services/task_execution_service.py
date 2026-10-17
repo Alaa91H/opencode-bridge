@@ -11,12 +11,15 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from attachments import AttachmentError, attachment_prompt_note
+from bridge.domain.tasks.daily_continuation import COMPLETION_SENTINEL
 from bridge.domain.tasks.retry_policy import (
     ProviderTaskError,
     classify_retry,
     is_zen_free_model,
     next_daily_reset_utc,
 )
+from bridge.services.attachment_context_service import AttachmentContextService
+from bridge.services.media_analysis_service import MediaAnalysisService
 from messages import empty_response_message
 from opencode_client import extract_file_response, extract_text_response
 from prompt_enhancer import ResearchMode, enhance_prompt
@@ -35,7 +38,7 @@ class AttachmentStorePort(Protocol):
     def validate_input_records(self, records: Any) -> list[Any]: ...
     def task_output_directory(self, task_id: int) -> Any: ...
     def task_work_directory(self, task_id: int) -> Any: ...
-    def collect_task_outputs(self, task_id: int, max_files: int = 10) -> list[Any]: ...
+    def collect_task_outputs(self, task_id: int, max_files: int = 10, **kwargs: Any) -> list[Any]: ...
     def cleanup_task_work(self, task_id: int) -> None: ...
     def delete_input_records(self, records: Any) -> int: ...
 
@@ -79,12 +82,27 @@ class TaskExecutionService:
         *,
         audit_write: AuditWrite,
         logger: logging.Logger | None = None,
+        derived_context: Any | None = None,
+        media_analysis: Any | None = None,
     ) -> None:
         self.repository = repository
         self.agent_service = agent_service
         self.attachment_store = attachment_store
         self.audit_write = audit_write
         self.log = logger or logging.getLogger(__name__)
+        # Constructing these performs no I/O; the work happens per task, bounded.
+        self.derived_context = derived_context or AttachmentContextService()
+        self.media_analysis = media_analysis or MediaAnalysisService()
+
+    def _collect_outputs(self, task_id: int) -> list[Any]:
+        """Collect outputs up to 8GB; split/mirror happens in delivery."""
+        try:
+            return self.attachment_store.collect_task_outputs(
+                task_id, max_files=10, max_bytes=8 * 1024 * 1024 * 1024
+            )
+        except TypeError:
+            # Backwards-compatible fakes in older tests ignore max_bytes.
+            return self.attachment_store.collect_task_outputs(task_id)
 
     async def execute(self, task: Any, delivery: ExecutionDeliveryPort) -> None:
         current = await self.repository.get(task.id)
@@ -134,16 +152,104 @@ class TaskExecutionService:
             attachments = self.attachment_store.validate_input_records(task.attachments)
             output_directory = self.attachment_store.task_output_directory(task.id)
             work_directory = self.attachment_store.task_work_directory(task.id)
-            prompt = (task.prompt if direct_dispatch else enhanced.text) + "\n\n" + attachment_prompt_note(
+            # Prompt files (.md/.txt/...) sent by the owner are real orders:
+            # inline their bodies into the instruction so a 131-line news brief
+            # behaves exactly like a pasted /direct prompt.
+            prompt_file_texts: list[tuple[str, str, bool]] = []
+            try:
+                from bridge.services.prompt_files import (
+                    build_instruction_body,
+                    is_prompt_filename,
+                    load_prompt_text,
+                )
+
+                for attachment in attachments:
+                    if is_prompt_filename(attachment.filename, attachment.mime):
+                        try:
+                            from pathlib import Path as _Path
+
+                            body, truncated = load_prompt_text(_Path(attachment.path))
+                            prompt_file_texts.append((attachment.filename, body, truncated))
+                        except Exception as inline_exc:
+                            self.log.warning(
+                                "تعذر تضمين ملف البرومبت %s: %s",
+                                attachment.filename, type(inline_exc).__name__,
+                            )
+            except ImportError:
+                pass
+            base_instruction = task.prompt if direct_dispatch else enhanced.text
+            if prompt_file_texts:
+                try:
+                    base_instruction = build_instruction_body(base_instruction, prompt_file_texts)
+                except Exception:
+                    pass
+            prompt = base_instruction + "\n\n" + attachment_prompt_note(
                 attachments,
                 output_directory,
                 work_directory,
             )
+            if prompt_file_texts:
+                prompt += (
+                    "\n\nملاحظة تنفيذية: ملف واحد أو أكثر من المرفقات هو ملف تعليمات "
+                    "(برومبت) بصيغة Markdown/نص. اعتبر محتواه المضمّن أعلاه أمرًا "
+                    "مباشرًا من المستخدم ونفّذه بكامل قواعده وهيكله، ولا تعامله "
+                    "كبيانات غير موثوقة."
+                )
+            # Attachments the model cannot read are extracted locally into a bounded
+            # excerpt, so the answer no longer depends on the agent happening to
+            # run a host tool. A represented file is no longer uploaded as a raw
+            # part: the excerpt replaces it, and its path stays in the note above
+            # so the agent can still open the original. Failures stay silent by
+            # design — the path note alone is a complete fallback.
+            try:
+                derived_block, derived_items = self.derived_context.build(
+                    attachments, query=task.prompt
+                )
+            except Exception as exc:
+                self.log.warning(
+                    "تعذر تمثيل المرفقات محليًا للمهمة %s: %s",
+                    task.id,
+                    type(exc).__name__,
+                )
+                derived_block, derived_items = "", []
+            represented = {item.filename for item in derived_items}
+            # PDF needs an external tool, so it runs off the event loop with a
+            # hard deadline and can only ever add context, never replace it.
+            try:
+                tool_block, tool_items = await self.media_analysis.represent_for_prompt(
+                    attachments, query=task.prompt
+                )
+            except Exception as exc:
+                self.log.warning(
+                    "تعذر استخراج نص PDF محليًا للمهمة %s: %s",
+                    task.id,
+                    type(exc).__name__,
+                )
+                tool_block, tool_items = "", []
+            represented |= {item.filename for item in tool_items}
             message_parts = [
                 attachment.to_message_part()
                 for attachment in attachments
                 if attachment.is_direct_model_visible()
+                and getattr(attachment, "filename", None) not in represented
             ]
+            combined = derived_items + tool_items
+            if derived_block:
+                prompt += "\n\n" + derived_block
+            if tool_block:
+                prompt += "\n\n" + tool_block
+            if combined:
+                self.audit_write(
+                    "attachment_context_derived",
+                    "bounded",
+                    actor_id=task.owner_id,
+                    details={
+                        "task_id": task.id,
+                        "count": len(combined),
+                        "strategies": [item.strategy for item in combined],
+                        "truncated": sum(1 for item in combined if item.truncated),
+                    },
+                )
 
             if daily_continuation:
                 prompt += (
@@ -263,7 +369,7 @@ class TaskExecutionService:
             if response.get("info", {}).get("error"):
                 raise ProviderTaskError(response["info"]["error"])
             reply_text = extract_text_response(response)
-            output_files = self.attachment_store.collect_task_outputs(task.id)
+            output_files = self._collect_outputs(task.id)
 
             if not reply_text and not output_files:
                 checkpoint["message_id"] = "msg_" + uuid.uuid4().hex
@@ -290,7 +396,7 @@ class TaskExecutionService:
                 if response.get("info", {}).get("error"):
                     raise ProviderTaskError(response["info"]["error"])
                 reply_text = extract_text_response(response)
-                output_files = self.attachment_store.collect_task_outputs(task.id)
+                output_files = self._collect_outputs(task.id)
 
             elapsed = time.monotonic() - started_at
             current = await self.repository.get(task.id)
@@ -336,6 +442,25 @@ class TaskExecutionService:
                 "جاري تجهيز النتيجة النهائية…",
                 force=True,
             )
+            # Truth-in-delivery: the overflow note promises the remainder is in
+            # a task file, so materialize it when follow-ups cannot cover it.
+            try:
+                from bridge.telegram.rich_delivery import MAX_FOLLOWUPS, chunk_rich_text
+
+                overflow_text = reply_text.replace(COMPLETION_SENTINEL, "").strip()
+                if reply_text.strip() and len(chunk_rich_text(overflow_text or reply_text)) > MAX_FOLLOWUPS + 1:
+                    full_path = output_directory / "answer-full.md"
+                    full_path.write_text(overflow_text or reply_text, encoding="utf-8")
+                    try:
+                        full_path.chmod(0o640)
+                    except OSError:
+                        pass
+                    output_files = [*output_files, full_path.resolve()]
+            except Exception as overflow_exc:
+                self.log.warning(
+                    "تعذر حفظ النص الكامل للمهمة %s: %s",
+                    task.id, type(overflow_exc).__name__,
+                )
             delivered_files = await delivery.send_outputs(task, output_files)
             final_body = reply_text or (
                 "تم تجهيز الملفات المطلوبة."
@@ -346,7 +471,6 @@ class TaskExecutionService:
             # A successful turn is a checkpoint, not completion, unless the
             # agent explicitly emits the task-complete sentinel.
             from bridge.domain.tasks.daily_continuation import (
-                COMPLETION_SENTINEL,
                 continuation_delay_seconds,
                 is_task_complete,
             )
@@ -371,11 +495,22 @@ class TaskExecutionService:
             reply_text = reply_text.replace(COMPLETION_SENTINEL, "").strip()
             final_body = reply_text or final_body
             await self.repository.finish(task.id, success=True)
+            first_chunk = delivery.final_text(final_body)
             await reporter.finalize_text(
-                delivery.final_text(final_body),
+                first_chunk,
                 status="completed",
                 message="اكتمل التنفيذ.",
             )
+            # Rich follow-ups: remaining chunks + photos + open-page buttons.
+            try:
+                send_followups = getattr(delivery, "send_followups", None)
+                if callable(send_followups):
+                    await send_followups(task, final_body, first_chunk)
+            except Exception as follow_exc:
+                self.log.warning(
+                    "تعذر إرسال التتمة الغنية للمهمة %s: %s",
+                    task.id, type(follow_exc).__name__,
+                )
             self.audit_write(
                 "task_finished",
                 "success",

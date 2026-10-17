@@ -33,6 +33,12 @@ class BridgeDatabase:
                     await db.execute("PRAGMA synchronous=NORMAL")
                     await db.execute("PRAGMA foreign_keys=ON")
                     await db.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
+                    # Read-path pragmas for a ~1GB host: bounded page cache,
+                    # in-memory temp tables, conservative mmap, capped WAL file.
+                    await db.execute("PRAGMA cache_size=-64000")
+                    await db.execute("PRAGMA temp_store=MEMORY")
+                    await db.execute("PRAGMA mmap_size=67108864")
+                    await db.execute("PRAGMA journal_size_limit=6144000")
                     self._connection = db
         return self._connection
 

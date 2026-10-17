@@ -32,6 +32,27 @@ class ProviderRetryPolicyTests(unittest.TestCase):
         decision = classify_retry(error, model_id="opencode/muse-spark-1.3-contributor-free")
         self.assertNotEqual(decision.category, "zen_free_quota")
 
+    def test_noon_matching_retry_after_counts_without_model_suffix(self):
+        now = datetime(2026, 10, 8, 11, 0, 0, tzinfo=UTC)
+        error = ProviderTaskError(
+            {"data": {"statusCode": 429, "message": "slow down",
+                      "responseHeaders": {"Retry-After": "3600"}}}
+        )
+        for model_id in (None, "", "opencode/mystery-model"):
+            with self.subTest(model_id=model_id):
+                decision = classify_retry(error, model_id=model_id, now=now)
+                self.assertEqual(decision.category, "zen_free_quota")
+                self.assertEqual(decision.retry_at, datetime(2026, 10, 8, 12, 0, tzinfo=UTC))
+
+    def test_non_matching_retry_after_stays_generic_quota(self) -> None:
+        now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+        error = ProviderTaskError(
+            {"data": {"statusCode": 429, "message": "slow down",
+                      "responseHeaders": {"Retry-After": "30"}}}
+        )
+        decision = classify_retry(error, model_id=None, now=now)
+        self.assertEqual(decision.category, "quota")
+
     def test_zen_free_daily_retry_after_confirms_wrapped_limit_error(self):
         now = datetime(2026, 10, 8, 11, 59, 30, tzinfo=UTC)
         error = ProviderTaskError(

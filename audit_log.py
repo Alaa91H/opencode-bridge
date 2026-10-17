@@ -13,11 +13,45 @@ from typing import Any
 SENSITIVE_KEY_RE = re.compile(r"(?:token|secret|password|authorization|api[_-]?key)", re.IGNORECASE)
 
 
+def read_recent(path: Path, *, max_bytes: int = 262144, limit: int = 2000) -> list[dict[str, Any]]:
+    """Return the newest well-formed audit events from a JSONL file.
+
+    Only the last ``max_bytes`` are read, so summarizing an unattended log
+    costs a bounded seek plus one small read instead of parsing the whole
+    10MB file. A partially written trailing line (the logger appends without
+    holding a lock across processes) is skipped rather than raising: metrics
+    are observability, never a reason to fail a command.
+    """
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as handle:
+            if size > max_bytes:
+                handle.seek(size - max_bytes)
+                handle.readline()  # drop the partial first line
+            blob = handle.read()
+    except OSError:
+        return []
+    events: list[dict[str, Any]] = []
+    for raw in blob.splitlines():
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(parsed, dict):
+            events.append(parsed)
+    return events[-max(1, int(limit)):]
+
+
 class AuditLogger:
     """Append structured, redacted events without logging user message content."""
 
-    def __init__(self, path: Path) -> None:
+    # Rotation cap: beyond this size the active file is shifted to `<path>.1`
+    # (single generation) so an unattended host cannot fill its disk.
+    MAX_BYTES = 10 * 1024 * 1024
+
+    def __init__(self, path: Path, *, max_bytes: int = MAX_BYTES) -> None:
         self.path = path
+        self.max_bytes = max(1024, int(max_bytes))
 
     @staticmethod
     def _sanitize(value: Any) -> Any:
@@ -43,6 +77,24 @@ class AuditLogger:
         details: Mapping[str, Any] | None = None,
     ) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if self.path.is_file() and self.path.stat().st_size >= self.max_bytes:
+                rotated = self.path.with_name(self.path.name + ".1")
+                try:
+                    if rotated.is_file() or rotated.is_symlink():
+                        rotated.unlink()
+                except OSError:
+                    pass
+                try:
+                    os.replace(self.path, rotated)
+                    try:
+                        os.chmod(rotated, 0o640)
+                    except OSError:
+                        pass
+                except OSError:
+                    pass
+        except OSError:
+            pass
         payload = {
             "timestamp": datetime.now(UTC).isoformat(),
             "event": event,

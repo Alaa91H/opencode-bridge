@@ -55,8 +55,14 @@ class StoredAttachment:
             "application/x-javascript",
             "application/yaml",
             "application/x-yaml",
+            "application/toml",
+            "application/x-toml",
             "image/svg+xml",
         }:
+            return True
+        # Markdown often arrives as octet-stream when Telegram omits the MIME.
+        if self.filename.lower().endswith((".md", ".markdown", ".mdown", ".txt",
+                                            ".json", ".yaml", ".yml", ".toml", ".prompt")):
             return True
         return mime in {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
@@ -292,8 +298,15 @@ class AttachmentStore:
                 parent = parent.parent
         return deleted
 
-    def collect_task_outputs(self, task_id: int, max_files: int = DEFAULT_MAX_OUTGOING_FILES) -> list[Path]:
+    def collect_task_outputs(
+        self, task_id: int, max_files: int = DEFAULT_MAX_OUTGOING_FILES,
+        max_bytes: int | None = None,
+    ) -> list[Path]:
         output_directory = self.task_output_directory(task_id).resolve()
+        # Default keeps the historic input-size guard (tests rely on it).
+        # Production callers pass a multi-GB cap so 4GB+ results are delivered
+        # via split-upload / mirror instead of being dropped silently.
+        cap = self.max_bytes if max_bytes is None else max(1, int(max_bytes))
         files: list[Path] = []
         for candidate in sorted(output_directory.rglob("*")):
             if len(files) >= max_files:
@@ -301,7 +314,13 @@ class AttachmentStore:
             if not candidate.is_file() or candidate.is_symlink():
                 continue
             path = candidate.resolve()
-            if not path.is_relative_to(output_directory) or path.stat().st_size > self.max_bytes:
+            if not path.is_relative_to(output_directory):
+                continue
+            try:
+                size = path.stat().st_size
+            except OSError:
+                continue
+            if size <= 0 or size > cap:
                 continue
             files.append(path)
         return files

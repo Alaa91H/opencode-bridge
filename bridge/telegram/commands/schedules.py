@@ -22,6 +22,26 @@ WakeTasks = Callable[[], None]
 ErrorMessage = Callable[[Exception, str], str]
 AuditWrite = Callable[..., None]
 
+DEFAULT_HISTORY_LIMIT = 20
+MAX_HISTORY_LIMIT = 100
+
+
+def parse_history_args(raw: str) -> tuple[str, int]:
+    """Split `/schedhistory name [| count]` into (name, clamped count).
+
+    Pure helper so the pipe/limit grammar is unit-testable without Telegram
+    objects. A `|` only separates a limit when its tail is numeric; anything
+    else (including names containing `|`) resolves verbatim with the default.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return "", DEFAULT_HISTORY_LIMIT
+    chunks = [part.strip() for part in text.split("|")]
+    if len(chunks) > 1 and chunks[-1].isdigit():
+        count = max(1, min(int(chunks[-1]), MAX_HISTORY_LIMIT))
+        return "|".join(chunks[:-1]).strip() or text, count
+    return text, DEFAULT_HISTORY_LIMIT
+
 
 class ScheduleCommands:
     """Translate Telegram updates to ScheduleService calls and render results."""
@@ -137,12 +157,13 @@ class ScheduleCommands:
             await self.reply(update.message, self.error_message(exc, "إنشاء الجدولة المتكررة"))
 
     async def history(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        name = " ".join(context.args).strip()
+        raw = " ".join(context.args).strip()
+        name, count = parse_history_args(raw)
         if not name:
-            await self.reply(update.message, "الصيغة: /schedhistory الاسم")
+            await self.reply(update.message, "الصيغة: /schedhistory الاسم [| العدد]")
             return
         try:
-            runs = await self.service.history(self._owner(update), name)
+            runs = await self.service.history(self._owner(update), name, limit=count)
         except ScheduleNotFound:
             await self.reply(update.message, "لم أجد مهمة مجدولة بهذا الاسم.")
             return

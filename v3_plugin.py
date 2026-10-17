@@ -12,15 +12,11 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 import bot as core
 from bridge.services.workspace_service import WorkspaceService
 from bridge.telegram.commands.workspaces import WorkspaceCommands
-from resource_monitor import HostResourcePolicy
-from task_service_v3 import TaskServiceV3
 from workspace_manager import GitWorkspaceManager
 from workspace_store import WorkspaceStore
 
 WORKSPACE_ROOT = core.SETTINGS.workspace.root
 ALLOWED_REPOS = core.SETTINGS.workspace.allowed_repos
-TASK_WORKERS = core.SETTINGS.agent.task_workers
-ADAPTIVE_WORKERS = core.SETTINGS.features.adaptive_workers
 
 workspace_manager = GitWorkspaceManager(WORKSPACE_ROOT, ALLOWED_REPOS)
 workspace_store = WorkspaceStore(core.BRIDGE_DIR / "sessions.db")
@@ -32,25 +28,6 @@ workspace_service = WorkspaceService(
     core._request_guard,
 )
 _workspace_commands_instance: WorkspaceCommands | None = None
-
-
-class V3TaskService(TaskServiceV3):
-    def __init__(self, store, executor, poll_seconds: float = 5.0) -> None:
-        self.resource_policy = HostResourcePolicy() if ADAPTIVE_WORKERS else None
-        provider = None
-        if self.resource_policy is not None:
-            policy = self.resource_policy
-
-            def provider() -> int:
-                return policy.decide(TASK_WORKERS).allowed_workers
-
-        super().__init__(
-            store,
-            executor,
-            poll_seconds=poll_seconds,
-            max_workers=TASK_WORKERS,
-            worker_limit_provider=provider,
-        )
 
 
 def _wake_tasks() -> None:
@@ -114,7 +91,6 @@ async def install(app: Application) -> None:
     """Install V3 capabilities into an already initialized bridge application."""
     workspace_manager.ensure_root()
     await workspace_store.init()
-    core.TaskService = V3TaskService
     core.DEFAULT_AGENT = core.SETTINGS.agent.v3_agent
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_workspace_text), group=-1)

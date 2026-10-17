@@ -9,6 +9,8 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from bridge.services.host_operations import HOST_OPERATIONS
+
 # Non-secret update settings that a transient systemd unit would otherwise not inherit
 # from the Bridge service environment (.env). OPENCODE_AUTO_UPDATE=0 stays a real kill switch.
 _UPDATE_ENV_PASSTHROUGH = ("OPENCODE_AUTO_UPDATE", "OPENCODE_UPDATE_REPOSITORY",
@@ -87,9 +89,19 @@ async def _apply_bridge_detached(project: Path, progress=None) -> str:
 
 
 async def update_now(kind: str, progress=None) -> str:
-    """Stream bounded operational status; only known non-build commands."""
+    """Run one host update, refusing to overlap with another destructive action.
+
+    The guard is the point of this wrapper: a second tap on an update button used
+    to start a second operation (two apt runs, two bridge deployments), and a
+    reboot could land in the middle of an upgrade. Refusal is immediate and
+    explained rather than queued.
+    """
     if kind not in {"agent", "system", "bridge-check", "bridge"}:
         raise ValueError("Unsupported update target")
+    return await HOST_OPERATIONS.run(kind, lambda: _run_update(kind, progress))
+
+
+async def _run_update(kind: str, progress=None) -> str:
     if kind != "bridge-check":
         from bridge.services.runtime_controls import RuntimeControls
 
@@ -162,8 +174,7 @@ async def update_now(kind: str, progress=None) -> str:
                 return (f"OpenCode upgrade applied, but the service did not become active "
                         f"(exit={health_code}, state={health_status[-80:]}). "
                         "Recovery is required.")
-            return (f"OpenCode upgrade verified (service active).\nBefore: {old_version}\n"
-                    f"After: {new_version}\n" + log[-1200:])
+            return f"OpenCode upgrade verified (service active).\nBefore: {old_version}\nAfter: {new_version}\n" + log[-1200:]
         code, log = await run(["sudo", "-n", "/usr/bin/apt-get", "-y", "update"], 400)
         if code:
             return f"APT index update failed ({code})\n{log}"

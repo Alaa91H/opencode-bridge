@@ -44,8 +44,8 @@ UTC = UTC
 
 SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._\- ]+")
 ALLOWED_SCHEMES = {"http", "https"}
-DEFAULT_MAX_FILE_BYTES = 2000 * 1024 * 1024
-DEFAULT_MAX_TOTAL_BYTES = 20 * 1024 * 1024 * 1024
+DEFAULT_MAX_FILE_BYTES = 8 * 1024 * 1024 * 1024
+DEFAULT_MAX_TOTAL_BYTES = 40 * 1024 * 1024 * 1024
 DEFAULT_TTL_HOURS = 24
 CHUNK_BYTES = 1024 * 1024
 MAX_FILENAME = 120
@@ -468,7 +468,9 @@ class DownloadService:
             deadline = loop.time() + 900
             while True:
                 try:
-                    exit_code = await asyncio.wait_for(process.wait(), timeout=0.5)
+                    # 2s cadence: budget overshoot is re-checked on completion,
+                    # so a slower poll only trades wakeups, never safety.
+                    exit_code = await asyncio.wait_for(process.wait(), timeout=2.0)
                     break
                 except TimeoutError:
                     pass
