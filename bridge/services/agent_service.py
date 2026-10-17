@@ -187,13 +187,18 @@ class AgentService:
         return await self.client.unshare_session(session.opencode_session_id)
 
     async def model_overview(self, user_id: str) -> ModelOverview:
-        models = ranked_zen_general_model_ids(await self.client.list_providers())
+        manager = self.model_manager_provider()
+        providers = manager.cached_providers() if manager is not None else None
+        if providers is None:
+            providers = await self.client.list_providers()
+            if manager is not None:
+                manager.cache_providers(providers)
+        models = ranked_zen_general_model_ids(providers)
         if not models:
             raise LookupError("no_free_models")
         await self.ensure_session(user_id)
         session = await self.sessions.get_session(user_id)
         current_model = session.model if session and session.model else models[0]
-        manager = self.model_manager_provider()
         preferred = (
             manager.preferred_model
             if manager is not None and manager.preferred_model

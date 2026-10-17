@@ -19,6 +19,21 @@ ALLOWED = {
     "opencode-server": "OPENCODE_SERVER_PASSWORD",
 }
 LABEL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,39}$")
+_SAFE_ENV_VALUE_RE = re.compile(r"[A-Za-z0-9_@/:.+=-]+")
+
+
+def quote_env_value(value: str) -> str:
+    """Render one `.env` value readable by all three local parsers.
+
+    The same file is read by the bridge parser, shell `source`, and systemd
+    `EnvironmentFile`. Bare values with spaces break shell sourcing, so quote
+    whenever the value leaves the portable-safe set. Double quotes with
+    backslash-escapes round-trip through all three for every value except
+    ones mixing backslashes with quotes (rejected nowhere, noted here).
+    """
+    if _SAFE_ENV_VALUE_RE.fullmatch(value or ""):
+        return value
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def secure_write(path: Path, payload: bytes) -> None:
@@ -89,7 +104,7 @@ class HostCredentialManager:
             raise ValueError("Refusing symlink env file")
         lines = self.env.read_text(encoding="utf-8").splitlines() if self.env.exists() else []
         lines = [line for line in lines if not re.match(r"^\s*" + re.escape(variable) + r"=", line)]
-        lines.append(variable + "=" + value)
+        lines.append(variable + "=" + quote_env_value(value))
         secure_write(self.env, ("\n".join(lines) + "\n").encode())
 
     async def save(self, scope: str, name: str, value: str, *, replace: bool = False):

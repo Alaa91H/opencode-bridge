@@ -290,11 +290,67 @@ class TaskCommands:
         except RequestRejected as exc:
             await self.reply(update.message, f"رُفض الأمر بسبب سياسة الخادم: {exc}")
             return
+        # Merge staged prompt files (.md): a file sent just before /direct or
+        # /daily must travel with the order instead of staying pending.
+        pending_records: tuple = ()
+        try:
+            media_adapter = self.media_adapter_provider()
+            service = getattr(media_adapter, "media_service", None)
+            if service is not None:
+                pending_records = await service.take_pending(
+                    self._owner(update), self._chat_id(update)
+                )
+        except Exception:
+            pending_records = ()
+        attachments = [dict(record) for record in (pending_records or [])]
+        # Inline prompt-file bodies so a 100+ line .md behaves like pasted text
+        # even before the worker starts (visible in /taskshow).
+        try:
+            from pathlib import Path as _Path
+
+            from bridge.services.prompt_files import (
+                build_instruction_body,
+                is_prompt_filename,
+                load_prompt_text,
+            )
+
+            bodies: list[tuple[str, str, bool]] = []
+            for record in attachments:
+                filename = str(record.get("filename", ""))
+                if is_prompt_filename(filename, str(record.get("mime", ""))):
+                    try:
+                        body, truncated = load_prompt_text(_Path(str(record.get("path", ""))))
+                        bodies.append((filename, body, truncated))
+                    except Exception:
+                        self.log.debug(
+                            "skipping unreadable prompt file %s", filename, exc_info=True
+                        )
+                        continue
+            if bodies:
+                prompt = build_instruction_body(prompt, bodies)
+        except ImportError:
+            pass
         message_id = await self.create_status(
             context.bot, update.effective_chat.id,
             "تم تسجيل المهمة المستمرة…" if daily else "تم إرسال الأمر إلى طابور الوكيل…",
         )
         try:
+            if attachments:
+                media_adapter = self.media_adapter_provider()
+                queued_media = await media_adapter.media_service.queue_records(
+                    self._owner(update), self._chat_id(update), prompt, attachments,
+                    status_message_id=message_id,
+                )
+                # Mark direct/daily semantics on the queued task checkpoint.
+                await self.task_service.save_checkpoint(
+                    queued_media.task,
+                    {"direct_dispatch": True, "daily_continuation": bool(daily)},
+                )
+                self.wake_tasks()
+                self.audit_write("direct_agent_command", "accepted", actor_id=self._owner(update),
+                                 details={"task_id": queued_media.task.id, "daily": daily,
+                                          "attachments": len(attachments)})
+                return
             queued = await self.task_service.enqueue_prompt(
                 self._owner(update), self._chat_id(update), prompt,
                 status_message_id=message_id,

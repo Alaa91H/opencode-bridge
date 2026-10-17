@@ -41,6 +41,35 @@ class AttachmentIntelligenceRouter:
         return AttachmentRoute("binary", ("metadata",), "unsupported binary kept out of direct context")
 
     @staticmethod
+    def select_ordered_chunks(chunks: list[str], query: str, *, limit: int = 4) -> list[str]:
+        """Relevance-selected chunks returned in **document order**.
+
+        ``select_text_chunks`` ranks strictly by score, which is right for a
+        search-result list and wrong for a prompt excerpt: a model reading
+        "part 7, part 3, part 9" loses the document's own sequence and can draw
+        the wrong conclusion about what precedes what. This variant keeps the
+        same selection and restores the original order, falling back to the
+        leading chunks when nothing matches.
+        """
+        if limit < 1 or not chunks:
+            return []
+        terms = {term.casefold() for term in query.split() if len(term) > 2}
+        if not terms:
+            return chunks[:limit]
+        ranked: list[tuple[int, int, int]] = []
+        for index, chunk in enumerate(chunks):
+            folded = chunk.casefold()
+            score = sum(folded.count(term) for term in terms)
+            if score > 0:
+                ranked.append((score, -index, index))
+        if not ranked:
+            return chunks[:limit]
+        ranked.sort(reverse=True)
+        # Sort by document position only; re-sorting the tuples would order by
+        # score ascending and silently reverse equal-scoring neighbours.
+        return [chunks[index] for index in sorted(index for _, _, index in ranked[:limit])]
+
+    @staticmethod
     def select_text_chunks(chunks: list[str], query: str, *, limit: int = 6) -> list[str]:
         terms = {term.casefold() for term in query.split() if len(term) > 2}
         if not terms:

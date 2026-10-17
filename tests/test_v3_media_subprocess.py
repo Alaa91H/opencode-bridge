@@ -7,7 +7,11 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from bridge.services.download_service import DownloadError, DownloadService
+from bridge.services.download_service import (
+    DEFAULT_MAX_TOTAL_BYTES,
+    DownloadError,
+    DownloadService,
+)
 
 
 class MediaDownloadTests(unittest.IsolatedAsyncioTestCase):
@@ -38,5 +42,9 @@ class MediaDownloadTests(unittest.IsolatedAsyncioTestCase):
 
     def test_shared_storage_limit_is_strict(self):
         with tempfile.TemporaryDirectory() as folder:
-            service = DownloadService(Path(folder), max_total_bytes=40 * 1024**3)
-            self.assertEqual(service.max_total_bytes, 20 * 1024**3)
+            # The shared budget doubles as the hard ceiling: a larger request is
+            # clamped back to the budget instead of being honoured.
+            service = DownloadService(
+                Path(folder), max_total_bytes=2 * DEFAULT_MAX_TOTAL_BYTES
+            )
+            self.assertEqual(service.max_total_bytes, DEFAULT_MAX_TOTAL_BYTES)

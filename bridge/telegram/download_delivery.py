@@ -8,7 +8,7 @@ from typing import Any
 
 from bridge.services.download_service import DownloadError, DownloadRecord
 
-MAX_PARTS = 60
+MAX_PARTS = 130
 SAFE_BOT_LIMIT = 49 * 1024 * 1024
 
 

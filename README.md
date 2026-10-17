@@ -57,6 +57,7 @@ Telegram attachments are first-class queued tasks:
 - Every downloaded input receives a SHA-256 digest and is revalidated for path, size and content integrity immediately before execution.
 - Attachment content is treated as untrusted data. Embedded instructions, scripts, macros and binaries are never executed merely because they arrived in a file.
 - OpenCode-visible text and supported image formats are attached directly to the model. PDF, audio, video and other binary formats are processed from their validated local paths with already-installed server tools when the requested task requires it.
+- Attachments the model cannot read are also summarised locally: PDF text is extracted with an already-installed `pdftotext` off the event loop under a hard 45-second deadline, and everything else is summarised with no new dependency and no subprocess: text-like files that are hidden from the model or too large to inline get a bounded excerpt (query-relevant chunks, kept in document order, capped per file and per task), and ZIP archives get a validated manifest with entry count and uncompressed size. A represented file is not uploaded as a raw part — the excerpt replaces it while its local path stays listed, so the agent can still open the original. Extracted text is labelled untrusted data.
 - Intermediate conversions are restricted to a per-task scratch directory that is deleted at task completion. Only files written to the managed output directory are returned to Telegram.
 - Original incoming files are deleted after a non-recurring task reaches its terminal execution path; daily maintenance remains a fallback for interrupted-process cleanup.
 
@@ -64,10 +65,14 @@ The bridge never installs a parser or codec on demand. If an appropriate read-on
 
 The defaults are 20 MiB per incoming file, 10 attachments per task, 50 MiB aggregate size, and a 10-minute pending-instruction window. They are configurable with `TELEGRAM_ATTACHMENT_MAX_BYTES`, `TELEGRAM_ATTACHMENT_MAX_COUNT`, `TELEGRAM_ATTACHMENT_MAX_TOTAL_BYTES`, and `TELEGRAM_ATTACHMENT_PENDING_SECONDS`.
 
+- Host operations are serialized: update, reboot, service restart and cleanup run one at a time, and a second request while one runs returns an explanation instead of starting a duplicate operation.
+
 ## Telegram Conversation Experience
 
 - A normal request uses **one editable status message**, replaced by the final answer. OpenCode prompts, tool inputs, raw search results, error dumps and reasoning are not posted into the chat.
+- `/metrics` reports live operational numbers on demand: queue depth (ready vs deferred), running tasks against the current worker ceiling, outcomes inside a window (finished/succeeded/failed, average and longest execution time), provider deferral reasons, and host memory/CPU/free disk. `/metrics 72` widens the window from the default 24 hours. Nothing is sampled on a timer, so an idle bridge spends no CPU or I/O on metrics, and the queue figures come from SQLite plus the existing audit log, so they survive restarts instead of resetting.
 - `AGENT_LIVE_OUTPUT=0` is the recommended default. Setting it to `1` enables an optional *assistant-text-only* preview in that **same message**, not a stream of tool-log messages. Missing author metadata is rejected rather than guessed.
+- `TELEGRAM_STREAM_DRAFTS=0` is experimental and off by default. Setting it to `1` streams that same preview as an animated draft (Bot API 9.3+ / PTB 22.7+, private chats only); any failure falls back to editing the status message, so groups and older Bot API servers keep the default behaviour. Malformed values in either flag are logged once and fall back to the default instead of failing tasks.
 - Brief currency-rate questions use focused verification and concise answers, distinguishing official and parallel rates, buying and selling, old and new Syrian pounds, and source timestamps when available. Explicit deep-research requests retain the full protocol.
 - Detailed operational status remains accessible through the existing task-progress interfaces without exposing raw tool payloads.
 

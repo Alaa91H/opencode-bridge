@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import Awaitable, Callable
 
 from task_queue import QueuedTask, TaskQueueStore
@@ -39,6 +40,10 @@ class TaskServiceV3:
         self._wake = asyncio.Event()
         self._stop = asyncio.Event()
         self._workers: list[asyncio.Task[None]] = []
+        # Schedule promotion is pool-wide maintenance, not per-worker work: see
+        # _promote_if_due for why running it once per interval matters.
+        self._promote_lock = asyncio.Lock()
+        self._last_promote = 0.0
 
     def active_worker_limit(self) -> int:
         """Return the current claim-admission limit within the configured ceiling."""
@@ -89,13 +94,40 @@ class TaskServiceV3:
         except TimeoutError:
             pass
 
+    async def _promote_if_due(self) -> None:
+        """Materialize due schedules at most once per poll interval, pool-wide.
+
+        ``promote_due()`` opens ``BEGIN IMMEDIATE`` and commits: it is a write
+        transaction that takes SQLite's write lock. Running it from every worker
+        on every poll meant up to three identical no-op write transactions every
+        five seconds forever, all queued behind the same connection lock that
+        ``claim_next``, heartbeats and status updates need. Redundant maintenance
+        that scales with the pool size is worse than useless.
+
+        The interval is unchanged, so the worst-case delay for a due schedule is
+        exactly what it was: one poll interval.
+        """
+        if time.monotonic() - self._last_promote < self.poll_seconds:
+            return
+        async with self._promote_lock:
+            if time.monotonic() - self._last_promote < self.poll_seconds:
+                return  # Another worker promoted while this one waited.
+            self._last_promote = time.monotonic()
+            try:
+                await self.store.promote_due()
+            except Exception:
+                # Failed maintenance must be retried on the next tick rather than
+                # silently skipped for a whole interval.
+                self._last_promote = 0.0
+                raise
+
     async def _run(self, worker_id: int) -> None:
         while not self._stop.is_set():
             try:
                 if not self.worker_can_claim(worker_id):
                     await self._wait_for_work()
                     continue
-                await self.store.promote_due()
+                await self._promote_if_due()
                 task = await self.store.claim_next()
                 if task is not None:
                     log.debug("worker %s claimed task %s", worker_id, task.id)

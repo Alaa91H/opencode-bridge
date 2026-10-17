@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
@@ -82,7 +82,7 @@ class SessionStore:
         opencode_session_id: str,
         model: str | None = None,
     ) -> UserSession:
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         session = UserSession(
             telegram_user_id=telegram_user_id,
             opencode_session_id=opencode_session_id,
@@ -117,7 +117,7 @@ class SessionStore:
         model: str | None = None,
         title: str | None = None,
     ) -> UserSession | None:
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         db = await self._get_db()
         async with self._lock:
             if opencode_session_id is not None:

@@ -35,7 +35,7 @@ jobs:
 
       - name: Enforce code-quality gate
         run: |
-          python -m pip install ruff==0.17.0
+          python -m pip install ruff==0.17.1
           bash scripts/quality.sh
 
       - name: Validate syntax and configuration

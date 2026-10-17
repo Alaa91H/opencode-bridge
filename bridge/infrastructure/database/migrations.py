@@ -202,6 +202,10 @@ MIGRATIONS = (
             updated_at TEXT NOT NULL
         )""",
     )),
+    Migration(9, "task_list_covering_index", (
+        "CREATE INDEX IF NOT EXISTS idx_agent_tasks_owner_status_updated "
+        "ON agent_tasks(owner_id, status, updated_at DESC, id DESC)",
+    )),
 )
 
 

@@ -14,6 +14,8 @@ Safety model
   whole stack, or an update that restarts the Bridge) are launched as a
   *transient systemd user unit*. That unit lives in its own cgroup, so the
   restart it performs cannot kill the process that is carrying it out.
+* Destructive actions share one guard with the update path, so a restart or a
+  reboot cannot land in the middle of an upgrade.
 """
 
 from __future__ import annotations
@@ -25,6 +27,8 @@ import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+from bridge.services.host_operations import HOST_OPERATIONS
 
 __all__ = [
     "SERVICES",
@@ -242,6 +246,17 @@ def _tree_size(root: Path, budget: int) -> tuple[int, bool]:
     return total, False
 
 
+def _busy() -> ActionResult | None:
+    """Refuse a destructive action while another host operation owns the host.
+
+    A reboot or service restart in the middle of an upgrade is the failure that
+    leaves a host half-updated, so it is refused rather than deferred.
+    """
+    if not HOST_OPERATIONS.busy:
+        return None
+    return ActionResult(False, "busy", HOST_OPERATIONS.current or "")
+
+
 class HostControl:
     """Operational controls for the owner-only Telegram panel."""
 
@@ -256,6 +271,9 @@ class HostControl:
     async def restart_service(self, key: str) -> ActionResult:
         if key not in SERVICES:
             raise ValueError("unknown service key")
+        blocked = _busy()
+        if blocked is not None:
+            return blocked
         unit, stops_bot = SERVICES[key]
         argv = [_SYSTEMCTL, "--user", "restart", unit]
         if stops_bot:
@@ -355,6 +373,11 @@ class HostControl:
         """Expire downloads past retention and vacuum the user journal. Never touches tasks."""
         from bridge.services.cache_retention import manual_cleanup
 
+        # Not dangerous on its own, but running it under an in-flight upgrade or
+        # a scheduled reboot is: refuse while another operation owns the host.
+        blocked = _busy()
+        if blocked is not None:
+            return blocked
         try:
             outcome = await asyncio.to_thread(manual_cleanup, self.project)
         except (OSError, ValueError) as exc:
@@ -379,6 +402,11 @@ class HostControl:
         return result.code == 0
 
     async def reboot(self) -> ActionResult:
+        # Refused before the sudoers probe: checking power availability while an
+        # upgrade owns the host would run a sudo command for nothing.
+        blocked = _busy()
+        if blocked is not None:
+            return blocked
         if not await self.power_available():
             return ActionResult(False, "power_disabled")
         try:

@@ -90,6 +90,44 @@ class FakeAudit:
         self.events.append((event, outcome, details or {}))
 
 
+class CountingClient(FakeClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+
+    async def list_providers(self) -> dict:
+        self.calls += 1
+        return await super().list_providers()
+
+
+class CatalogCacheTests(unittest.IsolatedAsyncioTestCase):
+    async def test_second_task_reuses_fresh_catalog(self) -> None:
+        client = CountingClient()
+        manager = ModelManager(client, FakeStore(), FakeAudit(), fallback_model="opencode/legacy")
+        await manager.ensure_session_model("user-1", "session-1", "opencode/text-only")
+        await manager.ensure_session_model("user-1", "session-1", "opencode/text-only")
+        self.assertEqual(client.calls, 1)
+
+    async def test_stale_catalog_is_refetched(self) -> None:
+        client = CountingClient()
+        manager = ModelManager(client, FakeStore(), FakeAudit(), fallback_model="opencode/legacy")
+        await manager.ensure_session_model("user-1", "session-1", "opencode/text-only")
+        # White-box: an age far beyond any sync interval. 0.0 is not reliably
+        # stale because time.monotonic() can start near zero on a fresh VM.
+        manager._providers_at = -1.0e9
+        await manager.ensure_session_model("user-1", "session-1", "opencode/text-only")
+        self.assertEqual(client.calls, 2)
+
+    def test_public_cache_api_roundtrip_without_fetch(self) -> None:
+        client = CountingClient()
+        manager = ModelManager(client, FakeStore(), FakeAudit(), fallback_model="opencode/legacy")
+        self.assertIsNone(manager.cached_providers())
+        payload = {"all": []}
+        manager.cache_providers(payload)
+        self.assertEqual(manager.cached_providers(), payload)
+        self.assertEqual(client.calls, 0)
+
+
 class ModelManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_ensure_session_switches_to_best_general_model(self) -> None:
         client = FakeClient()

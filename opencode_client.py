@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 from urllib.parse import quote
@@ -67,7 +68,6 @@ class OpenCodeClient:
 
     async def set_provider_key(self, provider: str, secret: str) -> None:
         """Apply provider API authentication through the local OpenCode server."""
-        import re
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}", provider):
             raise ValueError("Invalid provider identifier")
         response = await self._client.put(

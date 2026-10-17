@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from bridge.config.runtime_flags import enabled as runtime_flag_enabled
+from bridge.config.runtime_flags import enabled_lenient as runtime_flag_enabled
 from bridge.domain.tasks.live_output import AgentLiveAssembler, redact_output
 from opencode_client import OpenCodeClient
 from progress import ProgressStore, render_progress, serialize_progress, summarize_agent_event
@@ -18,6 +18,9 @@ from task_queue import QueuedTask, TaskQueueStore
 
 log = logging.getLogger("opencode_bridge.progress")
 UPDATE_INTERVAL_SECONDS = 2.5
+# Coalescing window for the persisted activity trail. Progress is rendered from
+# memory, so bounding the database writes changes no owner-visible behaviour.
+PERSIST_INTERVAL_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -61,10 +64,15 @@ class LiveProgressReporter:
         self._last_rendered = 0.0
         self._last_message = ""
         self._live_enabled = runtime_flag_enabled("AGENT_LIVE_OUTPUT", default=False)
+        # Read once per task, not per tick: enabled() can fall back to parsing
+        # .env, and a preview update runs every 1.5s for the whole task.
+        self._stream_drafts = runtime_flag_enabled("TELEGRAM_STREAM_DRAFTS", default=False)
         self._live_parser = AgentLiveAssembler()
         self._live_buffer = ""
         self._live_message_text = ""
         self._live_last_sent = 0.0
+        self._last_persisted = 0.0
+        self._persist_pending = False
 
     async def _preferences(self) -> DisplayPreferences:
         """Read the owner's display choices, never failing a task over them.
@@ -103,7 +111,7 @@ class LiveProgressReporter:
         return (await self._preferences()).detail
 
     async def start(self) -> None:
-        await self._persist()
+        await self._persist(force=True)
         text = render_progress(self.progress, detail=await self._detail())
         try:
             if self.task.status_message_id is not None:
@@ -155,6 +163,24 @@ class LiveProgressReporter:
         if updated == self._last_message:
             self._live_buffer = ""
             return
+        if self._stream_drafts:
+            # Experimental animated drafts (private chats): same preview text
+            # through sendMessageDraft; any failure falls back to the edit
+            # below, so groups and old servers keep working unchanged.
+            try:
+                from bridge.telegram.rich_delivery import send_stream_draft
+
+                if await send_stream_draft(
+                    self.bot, self.task.chat_id, int(self.task.id), updated
+                ):
+                    self._live_buffer = ""
+                    self._live_message_text = pending
+                    self._live_last_sent = now
+                    self._last_message = updated
+                    self._last_rendered = now
+                    return
+            except Exception as exc:
+                log.debug("تعذر بث المسودة للمهمة %s: %s", self.task.id, type(exc).__name__)
         try:
             await self.bot.edit_message_text(
                 chat_id=self.task.chat_id,
@@ -179,11 +205,11 @@ class LiveProgressReporter:
                     chunk = self._live_parser.consume(event)
                     if chunk:
                         self._live_buffer += chunk
-                        if len(self._live_buffer) > 50000:
+                        if len(self._live_buffer) > 20000:
                             # Bounded backlog if Telegram is throttling or offline.
                             self._live_buffer = (
                                 "\n[تنبيه: تم تجاوز حد انتظار البث وفُقد بعض النص السابق]\n"
-                                + self._live_buffer[-45000:]
+                                + self._live_buffer[-15000:]
                             )
                         await self._publish_live()
                     if event.get("type") == "session.idle":
@@ -198,6 +224,9 @@ class LiveProgressReporter:
             log.info("توقف بث تقدم المهمة %s: %s", self.task.id, type(exc).__name__)
         finally:
             await self._publish_live(flush=True)
+            # The stream ended: this is the last chance to persist the trail
+            # before the task moves on to its terminal transition.
+            await self._persist(force=True)
 
     async def refresh(self, force: bool = False, detail: bool = False, final: bool = False) -> None:
         if self.progress.message_id is None:
@@ -227,13 +256,13 @@ class LiveProgressReporter:
 
     async def finish(self, status: str, message: str, kind: str = "success") -> None:
         self.progress_store.finish(self.task.id, status, message, kind)
-        await self._persist()
+        await self._persist(force=True)
         await self.refresh(force=True, detail=False, final=True)
 
     async def finalize_text(self, text: str, status: str = "completed", message: str = "اكتمل التنفيذ.") -> None:
         """Replace the live status message with the final user-facing answer."""
         self.progress_store.finish(self.task.id, status, message, "success" if status == "completed" else "error")
-        await self._persist()
+        await self._persist(force=True)
         message_id = self.progress.message_id or self.task.status_message_id
         if message_id is None:
             try:
@@ -277,5 +306,23 @@ class LiveProgressReporter:
             except Exception as send_exc:
                 log.warning("تعذر تسليم الرد النهائي للمهمة %s: %s", self.task.id, type(send_exc).__name__)
 
-    async def _persist(self) -> None:
+    async def _persist(self, *, force: bool = False) -> None:
+        """Write the activity trail, coalescing bursts.
+
+        Every progress event used to become its own UPDATE plus a WAL commit on
+        the one shared SQLite connection, taken under the queue lock. A
+        tool-heavy task emits dozens of events, so those commits both burned I/O
+        and delayed the worker's next claim behind the same lock.
+
+        The in-memory store stays authoritative and is what `/progress` renders,
+        so coalescing only affects the persisted copy. Terminal transitions and
+        the end of the event stream force a write, so a finished task always
+        keeps its full trail.
+        """
+        now = time.monotonic()
+        if not force and now - self._last_persisted < PERSIST_INTERVAL_SECONDS:
+            self._persist_pending = True
+            return
+        self._last_persisted = now
+        self._persist_pending = False
         await self.queue.update_activity(self.task.id, serialize_progress(self.progress))

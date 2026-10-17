@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import sys
+import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -81,8 +82,37 @@ class ModelManager:
         self._preferred_variant: str | None = None
         self._preferred_agent: str | None = None
         self._providers_cache: dict[str, Any] | list[dict[str, Any]] | None = None
+        self._providers_at: float | None = None
         self._owner_pin_reader: Callable[[str], Awaitable[str | None]] | None = None
         self._owner_variant_reader: Callable[[str, str], Awaitable[str | None]] | None = None
+
+    def _remember_providers(self, providers: dict[str, Any] | list[dict[str, Any]] | None) -> None:
+        """Cache one catalog fetch with its timestamp for per-task reuse."""
+        self._providers_cache = providers
+        try:
+            self._providers_at = time.monotonic()
+        except Exception:
+            self._providers_at = None
+
+    def _fresh_providers(self) -> dict[str, Any] | list[dict[str, Any]] | None:
+        """Return the cached catalog when younger than one sync interval."""
+        if self._providers_cache is None or self._providers_at is None:
+            return None
+        try:
+            age = time.monotonic() - self._providers_at
+        except Exception:
+            return None
+        if age < 0 or age > self.sync_seconds:
+            return None
+        return self._providers_cache
+
+    def cached_providers(self) -> dict[str, Any] | list[dict[str, Any]] | None:
+        """Public read of the timestamped catalog for non-task UI paths."""
+        return self._fresh_providers()
+
+    def cache_providers(self, providers: dict[str, Any] | list[dict[str, Any]] | None) -> None:
+        """Public write so UI-triggered fetches also refresh the task cache."""
+        self._remember_providers(providers)
 
     @property
     def preferred_model(self) -> str | None:
@@ -137,7 +167,7 @@ class ModelManager:
         providers: dict[str, Any] | list[dict[str, Any]] | None = None,
     ) -> None:
         if providers is not None:
-            self._providers_cache = providers
+            self._remember_providers(providers)
         self.set_preferred_model(model)
         self.fallback_model = model
         self._preferred_variant = self.variant_for_model(model)
@@ -164,8 +194,10 @@ class ModelManager:
         excluded_ids: set[str] | None = None,
         owner_id: str | None = None,
     ) -> str | None:
-        providers = await self.client.list_providers()
-        self._providers_cache = providers
+        providers = self._fresh_providers()
+        if providers is None:
+            providers = await self.client.list_providers()
+            self._remember_providers(providers)
         excluded = excluded_ids or set()
         pinned = await self.owner_pinned_model(owner_id)
         if pinned and pinned in ranked_zen_general_model_ids(providers) and pinned not in excluded:
@@ -201,8 +233,10 @@ class ModelManager:
         excluded_ids: set[str] | None = None,
     ) -> str | None:
         """Choose a task-local free Zen model for explicit media capabilities."""
-        providers = await self.client.list_providers()
-        self._providers_cache = providers
+        providers = self._fresh_providers()
+        if providers is None:
+            providers = await self.client.list_providers()
+            self._remember_providers(providers)
         excluded = excluded_ids or set()
         ranked = ranked_zen_model_ids_for_inputs(providers, required_inputs)
         if self.pin_default_model and self.configured_model in ranked and self.configured_model not in excluded:

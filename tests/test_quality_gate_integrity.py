@@ -17,7 +17,7 @@ this fails in the same command the developer already runs.
 The second block guards the same failure class in the Python tree: the newest CI
 matrix entry runs with ``PYTHONWARNINGS=error::DeprecationWarning``, so a single
 use of a spelling that is deprecated in 3.14 turns that one job red while the
-3.12 and 3.13 jobs stay green.
+3.12, 3.13 and 3.14 jobs stay green.
 """
 
 from __future__ import annotations

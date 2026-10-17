@@ -162,6 +162,7 @@ _ALLOWED_SECTION_KEYS: dict[str, set[str]] = {
         "attachment_max_total_bytes",
         "attachment_pending_seconds",
         "media_group_debounce_seconds",
+        "drop_pending_updates",
     },
     "downloads": {
         "max_file_bytes",
@@ -248,14 +249,15 @@ class TelegramSettings:
     attachment_max_total_bytes: int = 50 * 1024 * 1024
     attachment_pending_seconds: int = 600
     media_group_debounce_seconds: float = 1.25
+    drop_pending_updates: bool = False
 
 
 @dataclass(frozen=True)
 class DownloadSettings:
     """Managed link downloads kept on the host and sent back over Telegram."""
 
-    max_file_bytes: int = 2000 * 1024 * 1024
-    max_total_bytes: int = 20 * 1024 * 1024 * 1024
+    max_file_bytes: int = 8 * 1024 * 1024 * 1024
+    max_total_bytes: int = 40 * 1024 * 1024 * 1024
     ttl_hours: int = 24
     direct_send_limit: int = 50 * 1024 * 1024
     cleanup_interval_seconds: int = 900
@@ -442,6 +444,13 @@ class BridgeSettings:
                 key="TELEGRAM_MEDIA_GROUP_DEBOUNCE_SECONDS",
                 minimum=0.25,
                 maximum=5.0,
+            ),
+            drop_pending_updates=_parse_bool(
+                _source_value(
+                    merged_env, config, "TELEGRAM_DROP_PENDING_UPDATES",
+                    "telegram.drop_pending_updates", False
+                ),
+                key="TELEGRAM_DROP_PENDING_UPDATES",
             ),
         )
 
@@ -662,7 +671,7 @@ class BridgeSettings:
             max_file_bytes=_parse_int(
                 _source_value(
                     merged_env, config, "DOWNLOAD_MAX_FILE_BYTES",
-                    "downloads.max_file_bytes", 2000 * 1024 * 1024
+                    "downloads.max_file_bytes", 8 * 1024 * 1024 * 1024
                 ),
                 key="DOWNLOAD_MAX_FILE_BYTES",
                 minimum=1,
@@ -670,7 +679,7 @@ class BridgeSettings:
             max_total_bytes=_parse_int(
                 _source_value(
                     merged_env, config, "DOWNLOAD_MAX_TOTAL_BYTES",
-                    "downloads.max_total_bytes", 20 * 1024 * 1024 * 1024
+                    "downloads.max_total_bytes", 40 * 1024 * 1024 * 1024
                 ),
                 key="DOWNLOAD_MAX_TOTAL_BYTES",
                 minimum=1,
@@ -884,6 +893,11 @@ class BridgeSettings:
             "media_group_debounce_seconds": (
                 settings.telegram.media_group_debounce_seconds
             ),
+            "drop_pending_updates": settings.telegram.drop_pending_updates,
+            "download_max_file_bytes": settings.downloads.max_file_bytes,
+            "download_max_total_bytes": settings.downloads.max_total_bytes,
+            "download_direct_send_limit": settings.downloads.direct_send_limit,
+            "download_ttl_hours": settings.downloads.ttl_hours,
             "task_workers": settings.agent.task_workers,
             "task_poll_seconds": settings.agent.task_poll_seconds,
             "worker_recovery_seconds": settings.agent.worker_recovery_seconds,

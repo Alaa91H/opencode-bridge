@@ -136,13 +136,22 @@ def classify_retry(
         return None
 
     reset_at = next_daily_reset_utc(now)
-    zen_free_quota = is_zen_free_model(model_id) and (
-        any(marker in body for marker in (
-            "freeusagelimiterror",
-            "free-models-per-day",
-        ))
-        or (status == 429 and _retry_after_matches_reset(retry_after_value, reset_at, now))
-    )
+    reset_matched = status == 429 and _retry_after_matches_reset(retry_after_value, reset_at, now)
+    # Markers alone prove nothing without a free-model suffix, but a 429 whose
+    # Retry-After lands on the noon UTC reset (±2s) is the Zen free bucket
+    # itself — even when the model id is missing or renamed. Without this, an
+    # unknown-model 429 would hot-retry every 60s against an exhausted daily
+    # bucket instead of sleeping until the reset.
+    zen_free_quota = (
+        is_zen_free_model(model_id)
+        and (
+            any(marker in body for marker in (
+                "freeusagelimiterror",
+                "free-models-per-day",
+            ))
+            or reset_matched
+        )
+    ) or reset_matched
     if zen_free_quota:
         reference = now or datetime.now(UTC)
         if reference.tzinfo is None:

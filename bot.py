@@ -44,6 +44,7 @@ from bridge.services.host_control import HostControl
 from bridge.services.host_credentials import HostCredentialManager
 from bridge.services.maintenance_service import MaintenanceReportService
 from bridge.services.media_service import MediaTaskService
+from bridge.services.metrics_service import BridgeMetricsService
 from bridge.services.mirrors import MirrorService
 from bridge.services.model_selection_service import ModelSelectionService
 from bridge.services.provider_keys import ProviderKeyManager
@@ -62,7 +63,10 @@ from bridge.telegram.commands.agent import AgentCommands
 from bridge.telegram.commands.config import ConfigCommands
 from bridge.telegram.commands.downloads import DownloadCommands
 from bridge.telegram.commands.drafts import DraftCommands
+from bridge.telegram.commands.manage import ManageCommands
+from bridge.telegram.commands.metrics import MetricsCommands
 from bridge.telegram.commands.schedules import ScheduleCommands
+from bridge.telegram.commands.shell import ShellCommands
 from bridge.telegram.commands.system import SystemCommands
 from bridge.telegram.commands.tasks import TaskCommands
 from bridge.telegram.control_ui import ControlUI
@@ -129,6 +133,7 @@ ATTACHMENT_MAX_COUNT = SETTINGS.telegram.attachment_max_count
 ATTACHMENT_MAX_TOTAL_BYTES = SETTINGS.telegram.attachment_max_total_bytes
 ATTACHMENT_PENDING_SECONDS = SETTINGS.telegram.attachment_pending_seconds
 MEDIA_GROUP_DEBOUNCE_SECONDS = SETTINGS.telegram.media_group_debounce_seconds
+DROP_PENDING_UPDATES = SETTINGS.telegram.drop_pending_updates
 
 store = SessionStore(BRIDGE_DIR / "sessions.db")
 credential_pool = CredentialPool(parse_credential_pool(OPENCODE_CREDENTIALS))
@@ -164,6 +169,7 @@ _schedule_commands_instance: ScheduleCommands | None = None
 _agent_commands_instance: AgentCommands | None = None
 _system_commands_instance: SystemCommands | None = None
 _config_commands_instance: ConfigCommands | None = None
+_metrics_commands_instance: MetricsCommands | None = None
 _draft_commands_instance: DraftCommands | None = None
 _draft_intake_instance: DraftIntakeAdapter | None = None
 _reboot_callback_instance: RebootCallbackAdapter | None = None
@@ -174,6 +180,9 @@ _panel_router_instance: PanelRouter | None = None
 _control_ui_instance: ControlUI | None = None
 _download_service: DownloadService | None = None
 _download_commands_instance: DownloadCommands | None = None
+_manage_commands_instance: ManageCommands | None = None
+_shell_commands_instance: ShellCommands | None = None
+_mirror_service_instance: MirrorService | None = None
 download_cleanup_task: asyncio.Task[None] | None = None
 _access_controller_instance: TelegramAccessController | None = None
 _request_guard = RequestGuard(()) if runtime_flag_enabled("OPENCODE_FULL_ACCESS") else RequestGuard((check_build, check_hardline))
@@ -384,6 +393,50 @@ def _download_command_adapter() -> DownloadCommands:
     return _download_commands_instance
 
 
+def _mirrors() -> MirrorService:
+    global _mirror_service_instance
+    if _mirror_service_instance is None:
+        _mirror_service_instance = MirrorService(
+            BRIDGE_DIR / "runtime" / "downloads",
+            extra_roots=(ATTACHMENT_ROOT / "outgoing",),
+        )
+    return _mirror_service_instance
+
+
+def _manage_command_adapter() -> ManageCommands:
+    global _manage_commands_instance
+    if _manage_commands_instance is None:
+        _manage_commands_instance = ManageCommands(
+            _task_application_service,
+            _schedule_service,
+            _downloads(),
+            _mirrors(),
+            attachment_store,
+            reply=_safe_reply,
+            create_status=_create_task_status_message,
+            edit_status=_edit_task_status_message,
+            wake_tasks=_wake_task_workers,
+            error_message=user_error,
+            audit_write=audit.write,
+            logger=log,
+        )
+    return _manage_commands_instance
+
+
+def _shell_command_adapter() -> ShellCommands:
+    global _shell_commands_instance
+    if _shell_commands_instance is None:
+        _shell_commands_instance = ShellCommands(
+            reply=_safe_reply,
+            error_message=user_error,
+            audit_write=audit.write,
+            is_owner=_is_control_owner,
+            project_root=BRIDGE_DIR,
+            logger=log,
+        )
+    return _shell_commands_instance
+
+
 def _download_cleanup_loop() -> None:
     """Purge prior UTC-day cache only if all queued work can tolerate it."""
     try:
@@ -590,7 +643,7 @@ def _panel_router() -> PanelRouter:
 async def _dispatch_advanced_button(name: str, update: Update, context: ContextTypes.DEFAULT_TYPE,
                                     payload: str) -> None:
     """Dispatch an allowlisted button command through the existing authorized adapter."""
-    if name not in frozenset(["new","abort","share","unshare","status","health","agents","model","tasks","failed","progress","trace","cancel","retry","discard","schedules","schedule","repeat","schedshow","schedhistory","schedrename","schededit","schedappend","schedtime","schedinterval","schedtimezone","schedrun","schedpause","schedresume","scheddelete","draft","config","limits","maintenance","download","deletefile"]):
+    if name not in frozenset(["new","abort","share","unshare","status","health","agents","model","tasks","failed","progress","trace","cancel","retry","discard","schedules","schedule","repeat","schedshow","schedhistory","schedrename","schededit","schedappend","schedtime","schedinterval","schedtimezone","schedrun","schedpause","schedresume","scheddelete","draft","config","limits","metrics","maintenance","download","deletefile","mirror","prompt","topics","taskshow","dailies","exec"]):
         raise ValueError("Unsupported advanced action")
     handler = globals().get("cmd_" + name)
     if handler is None:
@@ -628,7 +681,7 @@ def _control_ui() -> ControlUI:
             runtime_controls=RuntimeControls(BRIDGE_DIR / "runtime"),
             host_credentials=HostCredentialManager(BRIDGE_DIR),
             backups=AdminBackups(BRIDGE_DIR),
-            mirrors=MirrorService(BRIDGE_DIR / "runtime" / "downloads"),
+            mirrors=_mirrors(),
             project=BRIDGE_DIR,
             admin_allowed=_is_control_owner,
             legacy_dispatch=_dispatch_advanced_button,
@@ -765,11 +818,44 @@ def _system_command_adapter() -> SystemCommands:
 def _config_command_adapter() -> ConfigCommands:
     global _config_commands_instance
     if _config_commands_instance is None:
+        async def _zen_pause() -> Any:
+            try:
+                return await task_store.get_provider_quota_pause("opencode_zen_free")
+            except Exception:
+                return None
+
         _config_commands_instance = ConfigCommands(
             _configuration_service,
             reply=_safe_reply,
+            quota_pause_reader=_zen_pause,
         )
     return _config_commands_instance
+
+
+def _metrics_command_adapter() -> MetricsCommands:
+    global _metrics_commands_instance
+    if _metrics_commands_instance is None:
+        def _worker_limit() -> int:
+            """Current admission ceiling; 0 before the workers exist."""
+            service = task_service
+            if service is None:
+                return 0
+            try:
+                return int(service.active_worker_limit())
+            except Exception:
+                return 0
+
+        _metrics_commands_instance = MetricsCommands(
+            BridgeMetricsService(
+                task_store,
+                audit_path=BRIDGE_DIR / "runtime" / "audit.jsonl",
+                worker_limit=_worker_limit,
+                disk_path=BRIDGE_DIR,
+            ),
+            reply=_safe_reply,
+            error_message=user_error,
+        )
+    return _metrics_commands_instance
 
 
 async def _pending_attachment_cleanup_loop() -> None:
@@ -1043,6 +1129,30 @@ async def cmd_deletefile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await _download_command_adapter().delete(update, context)
 
 @authorized
+async def cmd_mirror(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _manage_command_adapter().mirror(update, context)
+
+@authorized
+async def cmd_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _manage_command_adapter().prompt(update, context)
+
+@authorized
+async def cmd_topics(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _manage_command_adapter().topics(update, context)
+
+@authorized
+async def cmd_taskshow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _manage_command_adapter().taskshow(update, context)
+
+@authorized
+async def cmd_dailies(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _manage_command_adapter().dailies(update, context)
+
+@authorized
+async def cmd_exec(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _shell_command_adapter().exec(update, context)
+
+@authorized
 async def cmd_agents(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _agent_command_adapter().agents(update, context)
 
@@ -1062,6 +1172,11 @@ async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 @authorized
 async def cmd_limits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _config_command_adapter().limits(update, context)
+
+
+@authorized
+async def cmd_metrics(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _metrics_command_adapter().metrics(update, context)
 
 
 @authorized
@@ -1151,11 +1266,16 @@ async def post_shutdown(app: Application) -> None:
 
 
 async def main() -> None:
+    # Bounded pools for a ~1GB host: a private bot never needs PTB's 256
+    # pooled connections per request object. Generous media write timeout so
+    # 49MB part uploads on slow uplinks are not cut off after 20s.
     request = HTTPXRequest(
         connect_timeout=20.0,
         read_timeout=120.0,
         write_timeout=60.0,
         pool_timeout=60.0,
+        connection_pool_size=32,
+        media_write_timeout=300.0,
         http_version="1.1",
         proxy=TELEGRAM_PROXY_URL,
     )
@@ -1164,6 +1284,8 @@ async def main() -> None:
         read_timeout=120.0,
         write_timeout=60.0,
         pool_timeout=60.0,
+        connection_pool_size=32,
+        media_write_timeout=300.0,
         http_version="1.1",
         proxy=TELEGRAM_PROXY_URL,
     )
@@ -1203,7 +1325,7 @@ async def main() -> None:
             await asyncio.sleep(wait_seconds)
 
     await app.start()
-    await app.updater.start_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=False)
+    await app.updater.start_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=DROP_PENDING_UPDATES)
     log.info("البوت يعمل. النموذج: %s، الاستدلال: %s، الوكيل: %s", DEFAULT_MODEL, DEFAULT_MODEL_VARIANT or "default", DEFAULT_AGENT)
     await stop_event.wait()
     await app.updater.stop()

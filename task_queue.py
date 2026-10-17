@@ -933,6 +933,21 @@ class TaskQueueStore:
                 row = await cursor.fetchone()
         return int(row["task_count"] if row else 0)
 
+    async def queue_counts(self) -> dict[str, int]:
+        """Per-status task counts for owner-facing metrics.
+
+        One index-covered GROUP BY on ``status`` (idx_agent_tasks_status_due and
+        friends lead with it), so this stays cheap enough to call on demand
+        without adding any background sampling to the worker loop.
+        """
+        db = await self._get_db()
+        async with self._lock:
+            async with db.execute(
+                "SELECT status, COUNT(*) AS task_count FROM agent_tasks GROUP BY status"
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return {str(row["status"]): int(row["task_count"]) for row in rows}
+
     async def list_active(self, owner_id: str, limit: int = 20) -> list[QueuedTask]:
         db = await self._get_db()
         async with self._lock:
@@ -945,7 +960,7 @@ class TaskQueueStore:
                          sequence, id
                 LIMIT ?
                 """,
-                (owner_id, limit),
+                (owner_id, max(1, min(int(limit), 100))),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [self._from_row(row) for row in rows]
@@ -1001,7 +1016,7 @@ class TaskQueueStore:
         async with self._lock:
             async with db.execute(
                 "SELECT * FROM agent_tasks WHERE owner_id=? AND status IN ('cancelled','completed','failed') "
-                "ORDER BY updated_at DESC,id DESC LIMIT ?", (owner_id, limit)
+                "ORDER BY updated_at DESC,id DESC LIMIT ?", (owner_id, max(1, min(int(limit), 100)))
             ) as cursor:
                 rows = await cursor.fetchall()
         return [self._from_row(row) for row in rows]
