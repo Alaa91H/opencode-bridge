@@ -157,6 +157,9 @@ attachment_store = AttachmentStore(
     max_bytes=ATTACHMENT_MAX_BYTES,
     max_count=ATTACHMENT_MAX_COUNT,
     max_total_bytes=ATTACHMENT_MAX_TOTAL_BYTES,
+    # A local Bot API server keeps uploads private to its own service user; this
+    # endpoint is how the bridge reaches those files without filesystem access.
+    local_file_base_url=SETTINGS.telegram.local_file_base_url,
 )
 progress_store = ProgressStore()
 live_reporters: dict[int, LiveProgressReporter] = {}

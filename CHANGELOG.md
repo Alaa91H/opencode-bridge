@@ -1,3 +1,17 @@
+## [3.44.0] - 2026-10-17
+
+### Local Bot API attachments download from the server's own file endpoint
+
+- Audit finding: with `TELEGRAM_API_MODE=local` the Bot API server keeps every upload at `0600` inside a `0750` directory owned by its own service user, so the bridge user cannot read the path `getFile` returns. python-telegram-bot then assumes a cloud path, requests a URL the local server does not serve, and the resulting `404` reached the owner as `InvalidToken: Not Found` behind the generic "unexpected problem while receiving the attachment" message. Every attachment failed on that host.
+- `AttachmentStore` now streams the file from the local Bot API file endpoint (`<local_file_base_url><token>/<file_path>`) whenever the direct copy is impossible. That URL embeds the bot token, so it is never logged, and redirects are not followed so the token can never travel to another host.
+- The per-attachment byte budget is enforced while streaming instead of after the whole body is buffered, and any partial file is removed on failure.
+- A missing or expired local file is reported as an actionable "resend the attachment" message rather than a generic failure, so the owner knows what to do next.
+- Tests: `tests/test_v2_telegram_transport.py` (endpoint fallback with the exact URL shape, expired-file cleanup with no leftover bytes, PTB download still untouched).
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
 ## [3.43.0] - 2026-10-17
 
 ### Daily continuation only trusts an explicit completion mark

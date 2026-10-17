@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import mimetypes
 import re
 import shutil
 import uuid
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from bridge.infrastructure.storage.streaming import copy_stream
+
+log = logging.getLogger("opencode_bridge.attachments")
 
 SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -123,6 +128,29 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+async def _stream_http_to_file(url: str, destination: Path, max_bytes: int) -> None:
+    """Stream one HTTP body straight to disk and refuse anything over budget."""
+    timeout = httpx.Timeout(connect=15.0, read=300.0, write=30.0, pool=15.0)
+    # Redirects are not followed: this URL embeds the bot token, and a redirect
+    # must never carry it to another host.
+    async with httpx.AsyncClient(follow_redirects=False, timeout=timeout) as client:
+        async with client.stream("GET", url) as response:
+            if response.status_code in {404, 410}:
+                raise AttachmentError(
+                    "انتهت صلاحية ملف تيليغرام على الخادم المحلي؛ أعد إرسال المرفق"
+                )
+            response.raise_for_status()
+            written = 0
+            with destination.open("wb") as target:
+                async for chunk in response.aiter_bytes():
+                    written += len(chunk)
+                    if written > max_bytes:
+                        raise AttachmentError(
+                            f"حجم المرفق أكبر من الحد المسموح ({max_bytes // (1024 * 1024)} MiB)"
+                        )
+                    target.write(chunk)
+
+
 def select_telegram_attachment(message: Any) -> tuple[Any, str, str, str]:
     """Return Telegram media object, kind, proposed filename, and MIME type."""
     if getattr(message, "document", None):
@@ -172,6 +200,9 @@ class AttachmentStore:
         max_bytes: int = DEFAULT_MAX_ATTACHMENT_BYTES,
         max_count: int = DEFAULT_MAX_ATTACHMENTS_PER_TASK,
         max_total_bytes: int = DEFAULT_MAX_TOTAL_ATTACHMENT_BYTES,
+        *,
+        local_file_base_url: str = "",
+        local_file_fetcher: Callable[[str, Path, int], Awaitable[None]] | None = None,
     ) -> None:
         self.root = root.resolve()
         self.incoming_root = self.root / "incoming"
@@ -180,6 +211,10 @@ class AttachmentStore:
         self.max_bytes = max(1, int(max_bytes))
         self.max_count = max(1, int(max_count))
         self.max_total_bytes = max(self.max_bytes, int(max_total_bytes))
+        # Only consulted for a local Bot API server; its files are private to the
+        # server's own service user, so the endpoint is the reliable way in.
+        self.local_file_base_url = str(local_file_base_url or "").strip().rstrip("/")
+        self.local_file_fetcher = local_file_fetcher
 
     def ensure_directories(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o750)
@@ -216,6 +251,49 @@ class AttachmentStore:
         if directory.exists():
             shutil.rmtree(directory)
 
+    async def _fetch_local_bot_file(
+        self, remote_file: Any, destination: Path, bot: Any
+    ) -> None:
+        """Stream a file the local Bot API server already holds on disk.
+
+        A local server writes 0600 files into a 0750 directory owned by its own
+        service user, so the bridge process usually cannot read the path at all.
+        python-telegram-bot then assumes a cloud path, asks for a URL the local
+        server does not serve, and reports the 404 as the misleading
+        InvalidToken("Not Found"). The server does serve that same file over its
+        own file endpoint, so fetch it from there instead of guessing again.
+
+        The URL embeds the bot token, so it is never logged.
+        """
+        base = self.local_file_base_url
+        token = str(getattr(bot, "token", "") or "").strip()
+        file_path = str(getattr(remote_file, "file_path", "") or "").strip()
+        if not base or not token or not file_path:
+            log.warning(
+                "تعذر تحديد نقطة ملفات Bot API المحلية (base=%s token=%s path=%s)",
+                bool(base),
+                bool(token),
+                bool(file_path),
+            )
+            raise AttachmentError("تعذّر استلام المرفق من الخادم المحلي؛ أعد إرسال المرفق")
+        url = f"{base}{token}/{file_path.lstrip('/')}"
+        try:
+            if self.local_file_fetcher is not None:
+                await self.local_file_fetcher(url, destination, self.max_bytes)
+            else:
+                await _stream_http_to_file(url, destination, self.max_bytes)
+        except AttachmentError:
+            destination.unlink(missing_ok=True)
+            raise
+        except Exception as exc:
+            destination.unlink(missing_ok=True)
+            log.warning(
+                "تعذر جلب المرفق من نقطة Bot API المحلية: %s", type(exc).__name__
+            )
+            raise AttachmentError(
+                "تعذّر استلام المرفق من الخادم المحلي؛ أعد إرسال المرفق"
+            ) from exc
+
     async def download_from_message(self, message: Any, bot: Any, owner_id: str) -> StoredAttachment:
         media, kind, proposed_name, mime = select_telegram_attachment(message)
         declared_size = int(getattr(media, "file_size", 0) or 0)
@@ -226,12 +304,15 @@ class AttachmentStore:
             raise AttachmentError("لم يقدّم تيليغرام معرّفًا صالحًا للمرفق")
         destination = self.incoming_directory(str(owner_id)) / _safe_filename(proposed_name, "attachment.bin")
         remote_file = await bot.get_file(file_id)
+        local_mode = bool(getattr(bot, "local_mode", False))
         local_source = Path(str(getattr(remote_file, "file_path", "")))
-        if bool(getattr(bot, "local_mode", False)) and local_source.is_file():
+        if local_mode and local_source.is_file():
             # Local Bot API exposes a server-local path: stream-copy it rather than
             # asking Telegram to materialize the whole payload through HTTP.
             with local_source.open("rb") as source, destination.open("wb") as target:
                 copy_stream(source, target, chunk_size=1024 * 1024)
+        elif local_mode:
+            await self._fetch_local_bot_file(remote_file, destination, bot)
         else:
             # PTB download_to_drive streams to disk; it does not require a bytes buffer.
             await remote_file.download_to_drive(custom_path=destination)

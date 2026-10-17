@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from attachments import AttachmentStore
+from attachments import AttachmentError, AttachmentStore
 from bridge.config.settings import BridgeSettings, SettingsError
 from bridge.infrastructure.telegram.capabilities import capabilities
 from bridge.telegram.execution import TelegramExecutionDelivery
@@ -61,6 +61,72 @@ class TelegramTransportTests(unittest.IsolatedAsyncioTestCase):
             saved = await store.download_from_message(message, bot, "42")
             self.assertEqual(Path(saved.path).read_bytes(), b"cloud")
             remote.download_to_drive.assert_awaited_once()
+
+    async def test_local_file_falls_back_to_the_local_file_endpoint(self):
+        calls: list[tuple[str, int]] = []
+
+        async def fetcher(url: str, destination: Path, limit: int) -> None:
+            calls.append((url, limit))
+            Path(destination).write_bytes(b"local-endpoint")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            remote = SimpleNamespace(
+                file_path="/var/lib/telegram-bot-api/7/documents/a.bin",
+                download_to_drive=AsyncMock(),
+            )
+            bot = SimpleNamespace(
+                local_mode=True, token="123:ABC", get_file=AsyncMock(return_value=remote)
+            )
+            media = SimpleNamespace(file_size=14, file_id="f", file_name="a.bin", mime_type="application/octet-stream")
+            message = SimpleNamespace(document=media, photo=None, video=None, audio=None, voice=None, animation=None, video_note=None, sticker=None)
+            store = AttachmentStore(
+                root / "managed",
+                local_file_base_url="http://127.0.0.1:8081/file/bot",
+                local_file_fetcher=fetcher,
+            )
+            saved = await store.download_from_message(message, bot, "42")
+            self.assertEqual(Path(saved.path).read_bytes(), b"local-endpoint")
+        remote.download_to_drive.assert_not_awaited()
+        self.assertEqual(
+            calls,
+            [(
+                "http://127.0.0.1:8081/file/bot123:ABC/var/lib/telegram-bot-api/7/documents/a.bin",
+                store.max_bytes,
+            )],
+        )
+
+    async def test_expired_local_file_reports_resend_and_leaves_nothing(self):
+        async def fetcher(url: str, destination: Path, limit: int) -> None:
+            Path(destination).write_bytes(b"partial")
+            raise AttachmentError(
+                "انتهت صلاحية ملف تيليغرام على الخادم المحلي؛ أعد إرسال المرفق"
+            )
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            remote = SimpleNamespace(
+                file_path="/var/lib/telegram-bot-api/7/documents/gone.bin",
+                download_to_drive=AsyncMock(),
+            )
+            bot = SimpleNamespace(
+                local_mode=True, token="123:ABC", get_file=AsyncMock(return_value=remote)
+            )
+            media = SimpleNamespace(file_size=7, file_id="f", file_name="gone.bin", mime_type="application/octet-stream")
+            message = SimpleNamespace(document=media, photo=None, video=None, audio=None, voice=None, animation=None, video_note=None, sticker=None)
+            store = AttachmentStore(
+                root / "managed",
+                local_file_base_url="http://127.0.0.1:8081/file/bot",
+                local_file_fetcher=fetcher,
+            )
+            with self.assertRaises(AttachmentError) as caught:
+                await store.download_from_message(message, bot, "42")
+            leftovers = [
+                item for item in (root / "managed" / "incoming").rglob("*") if item.is_file()
+            ]
+        self.assertIn("أعد إرسال المرفق", str(caught.exception))
+        self.assertEqual(leftovers, [])
+        remote.download_to_drive.assert_not_awaited()
 
     async def test_output_upload_passes_file_handle_not_bytes(self):
         with tempfile.TemporaryDirectory() as temp:
