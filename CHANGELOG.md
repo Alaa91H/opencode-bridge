@@ -1,3 +1,19 @@
+## [3.45.0] - 2026-10-17
+
+### Answers arrive as formatted Telegram pages
+
+- Audit finding: agent answers are Markdown, and Telegram renders none of it. `##`, `**bold**` and `-` bullets reached the owner verbatim, paragraphs ran together, and a long digest was cut on an arbitrary character boundary. The content was right; the presentation was not.
+- New `bridge/telegram/rendering/markdown_html.py` renders an answer into what the client actually shows: titled sections with dividers, bold/italic/strike/inline code, `•` bullets, blockquotes, clickable sources, and real blank lines between blocks. HTML metacharacters are escaped, so comparisons and code survive.
+- Paging is topic-aware: a heading starts a section, a section is never cut in half unless it alone exceeds a page, and a fenced code block is never split. Each page carries its own source buttons and a page counter, so a topic page is self-contained.
+- Every page keeps a plain-text twin. A client that rejects HTML now receives the same readable page instead of a failed message, and the live status message is rendered the same way with the same fallback.
+- The status message and the follow-ups agree on where the first page ends, so no topic is cut between them.
+- Truth-in-delivery is unchanged: an answer too long for the page budget still materializes as `answer-full.md`, and the local Bot API attachment fallback added in 3.44.0 is untouched.
+- Tests: `tests/test_markdown_html_rendering.py` (headings, inline styles, escaping, code blocks, topic-aware paging, per-page links, plain twin, HTML rejection fallback for both pages and the status message).
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
 ## [3.44.0] - 2026-10-17
 
 ### Local Bot API attachments download from the server's own file endpoint

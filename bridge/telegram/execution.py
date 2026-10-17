@@ -141,27 +141,37 @@ class TelegramExecutionDelivery:
         return sent
 
     def final_text(self, text: str) -> str:
+        """Source Markdown of the first page.
+
+        The status message renders this page and the follow-ups start after it,
+        so both halves must agree on where the first page ends.
+        """
+        from bridge.telegram.rendering.markdown_html import MAX_PAGE_CHARS, first_page
+
         body = text.strip() or empty_response_message()
-        if len(body) > self.max_message_length:
-            suffix = "\n\n… تتمة الرد في الرسائل التالية."
-            body = body[: max(1, self.max_message_length - len(suffix))].rstrip() + suffix
-        return body
+        page = first_page(body, max_len=MAX_PAGE_CHARS)
+        if page is not None and len(page.html) <= self.max_message_length:
+            return page.plain or body
+        if len(body) <= self.max_message_length:
+            return body
+        suffix = "\n\n… تتمة الرد في الرسائل التالية."
+        return body[: max(1, self.max_message_length - len(suffix))].rstrip() + suffix
 
     async def send_followups(self, task: Any, full_text: str, first_chunk: str) -> None:
-        """Send remaining chunks + photos + open-page buttons after the status edit."""
+        """Send remaining pages + photos + open-page buttons after the status edit."""
+        from bridge.telegram.rendering.markdown_html import build_pages
         from bridge.telegram.rich_delivery import (
             build_link_keyboard,
-            chunk_rich_text,
             extract_images,
             extract_links,
-            send_long_text,
             send_photos,
+            send_rendered_pages,
         )
 
-        chunks = chunk_rich_text(full_text)
+        pages = build_pages(full_text)
         images = extract_images(full_text)
         links = extract_links(full_text)
-        if len(chunks) <= 1:
+        if len(pages) <= 1:
             # Status message already holds the full text: only add visuals.
             try:
                 if images:
@@ -181,10 +191,9 @@ class TelegramExecutionDelivery:
                 except Exception:
                     pass
             return
-        # First chunk already replaced the status message; send the rest.
-        remaining = "\n\n".join(chunks[1:])
+        # Page one already replaced the status message; send the rest.
         try:
-            await send_long_text(self.bot, task.chat_id, remaining, with_links=True)
+            await send_rendered_pages(self.bot, task.chat_id, pages, start_index=1)
         except Exception as exc:
             self.log.warning("تعذر إرسال تتمة الرد: %s", type(exc).__name__)
         try:

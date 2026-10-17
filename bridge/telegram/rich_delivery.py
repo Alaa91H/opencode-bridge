@@ -21,13 +21,13 @@ from typing import Any
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, LinkPreviewOptions
 
+from bridge.telegram.rendering.markdown_html import Page, build_pages
+from bridge.telegram.rendering.markdown_html import extract_links as _page_links
 from formatter import chunk_message
 
 logger = logging.getLogger(__name__)
 
 _IMAGE_RE = re.compile(r"!\[(?P<alt>[^\]]{0,200})\]\((?P<url>https?://[^\s)]+)\)")
-_LINK_RE = re.compile(r"(?<!!)\[(?P<label>[^\]]{1,80})\]\((?P<url>https?://[^\s)]+)\)")
-_BARE_URL_RE = re.compile(r"https?://[^\s)>\]]+")
 
 MAX_FOLLOWUPS = 8
 MAX_PHOTOS = 10
@@ -50,26 +50,8 @@ def extract_images(text: str) -> list[tuple[str, str]]:
 
 
 def extract_links(text: str) -> list[tuple[str, str]]:
-    seen: set[str] = set()
-    found: list[tuple[str, str]] = []
-    for match in _LINK_RE.finditer(text or ""):
-        url = match.group("url").strip()
-        if url in seen:
-            continue
-        seen.add(url)
-        found.append((match.group("label").strip() or "افتح الصفحة", url))
-        if len(found) >= MAX_BUTTONS:
-            break
-    if not found:
-        for match in _BARE_URL_RE.finditer(text or ""):
-            url = match.group(0).rstrip(".,;!")
-            if url in seen:
-                continue
-            seen.add(url)
-            found.append(("افتح الصفحة", url))
-            if len(found) >= MAX_BUTTONS:
-                break
-    return found
+    """Source links for the open-page keyboard, capped for one reply markup."""
+    return _page_links(text, limit=MAX_BUTTONS)
 
 
 def strip_image_markup(text: str) -> str:
@@ -133,53 +115,64 @@ async def send_photos(
     return sent
 
 
-async def send_long_text(
+async def send_rendered_pages(
     bot: Any,
     chat_id: int,
-    text: str,
+    pages: list[Page],
     *,
-    reply_to_message_id: int | None = None,
+    start_index: int = 0,
     with_links: bool = True,
+    reply_to_message_id: int | None = None,
 ) -> list[int]:
-    """Send a long answer as several messages. Returns sent message ids."""
-    chunks = chunk_rich_text(text)
-    if not chunks:
+    """Send pre-rendered pages as HTML messages, with a plain-text safety net.
+
+    Each page carries its own source buttons so a topic stays self-contained,
+    and a client that rejects HTML still receives a readable answer instead of
+    a silent failure.
+    """
+    if not pages:
         return []
-    links = extract_links(text) if with_links else []
-    keyboard = build_link_keyboard(links)
     sent_ids: list[int] = []
-    total = min(len(chunks), MAX_FOLLOWUPS + 1)
-    for index in range(total):
-        suffix = f"\n\n({index + 1}/{len(chunks)})" if len(chunks) > 1 else ""
-        body = chunks[index] + suffix
+    total = min(len(pages), MAX_FOLLOWUPS + 1)
+    for index in range(start_index, total):
+        page = pages[index]
+        suffix = f"\n\n<i>({index + 1}/{total})</i>" if total > 1 else ""
+        links = list(page.links) if with_links else []
+        keyboard = build_link_keyboard(links)
         kwargs: dict[str, Any] = {
             "chat_id": chat_id,
-            "text": body,
+            "text": page.html + suffix,
+            "parse_mode": "HTML",
         }
-        # First chunk pins the first source with a large preview; the rest
-        # keep default (enabled) previews so every topic stays visual.
+        # First page pins the first source with a large preview; the rest keep
+        # default previews so every topic stays visual.
         kwargs.update(preview_options(links[0][1] if index == 0 and links else None))
-        if reply_to_message_id is not None and index == 0:
+        if reply_to_message_id is not None and index == start_index:
             kwargs["reply_to_message_id"] = reply_to_message_id
-        # Only the last chunk carries the open-page buttons so topics stay
-        # together and the buttons are never lost between pages.
+        # Only the last page carries open-page buttons so a topic page is never
+        # stripped of its own links by a failure on an earlier one.
         if index == total - 1 and keyboard is not None:
             kwargs["reply_markup"] = keyboard
         try:
             message = await bot.send_message(**kwargs)
             sent_ids.append(int(getattr(message, "message_id", 0) or 0))
         except Exception:
-            # Retry once without preview/buttons (restricted chats).
+            fallback: dict[str, Any] = {
+                "chat_id": chat_id,
+                "text": page.plain + (f"\n\n({index + 1}/{total})" if total > 1 else ""),
+            }
+            fallback.update(preview_options(disabled=True))
+            if index == start_index and reply_to_message_id is not None:
+                fallback["reply_to_message_id"] = reply_to_message_id
+            if index == total - 1 and keyboard is not None:
+                fallback["reply_markup"] = keyboard
             try:
-                fallback = dict(kwargs)
-                fallback.pop("reply_markup", None)
-                fallback.update(preview_options(disabled=True))
                 message = await bot.send_message(**fallback)
                 sent_ids.append(int(getattr(message, "message_id", 0) or 0))
             except Exception:
-                logger.debug("message chunk %s was rejected twice", index, exc_info=True)
+                logger.debug("message page %s was rejected twice", index, exc_info=True)
                 continue
-    if len(chunks) > total:
+    if len(pages) > total:
         try:
             message = await bot.send_message(
                 chat_id=chat_id,
@@ -190,6 +183,24 @@ async def send_long_text(
         except Exception:
             pass
     return sent_ids
+
+
+async def send_long_text(
+    bot: Any,
+    chat_id: int,
+    text: str,
+    *,
+    reply_to_message_id: int | None = None,
+    with_links: bool = True,
+) -> list[int]:
+    """Send a long Markdown answer as several professional HTML pages."""
+    return await send_rendered_pages(
+        bot,
+        chat_id,
+        build_pages(text),
+        with_links=with_links,
+        reply_to_message_id=reply_to_message_id,
+    )
 
 
 async def send_stream_draft(bot: Any, chat_id: int, draft_id: int, text: str) -> bool:

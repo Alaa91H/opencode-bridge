@@ -260,51 +260,85 @@ class LiveProgressReporter:
         await self.refresh(force=True, detail=False, final=True)
 
     async def finalize_text(self, text: str, status: str = "completed", message: str = "اكتمل التنفيذ.") -> None:
-        """Replace the live status message with the final user-facing answer."""
+        """Replace the live status message with the final user-facing answer.
+
+        The answer arrives as Markdown, and Telegram renders none of it: `##`,
+        `**bold**` and `-` bullets would show verbatim. Rendering here is what
+        makes the message read like a document, and a client that rejects HTML
+        still gets the same page as plain text.
+        """
+        from bridge.telegram.rendering.markdown_html import MAX_PAGE_CHARS, first_page
+
+        page = first_page(text, max_len=MAX_PAGE_CHARS)
+        rendered = page.html if page is not None else text
+        plain = page.plain if page is not None else text
         self.progress_store.finish(self.task.id, status, message, "success" if status == "completed" else "error")
         await self._persist(force=True)
         message_id = self.progress.message_id or self.task.status_message_id
+
+        async def publish(use_html: bool) -> Any:
+            kwargs: dict[str, Any] = {
+                "chat_id": self.task.chat_id,
+                "text": rendered if use_html else plain,
+                "disable_web_page_preview": True,
+            }
+            if use_html:
+                kwargs["parse_mode"] = "HTML"
+            return await self.bot.send_message(**kwargs)
+
+        async def publish_edit(target: int, use_html: bool) -> Any:
+            kwargs: dict[str, Any] = {
+                "chat_id": self.task.chat_id,
+                "message_id": int(target),
+                "text": rendered if use_html else plain,
+                "reply_markup": None,
+                "disable_web_page_preview": True,
+            }
+            if use_html:
+                kwargs["parse_mode"] = "HTML"
+            return await self.bot.edit_message_text(**kwargs)
+
         if message_id is None:
             try:
-                sent = await self.bot.send_message(
-                    chat_id=self.task.chat_id,
-                    text=text,
-                    disable_web_page_preview=True,
-                )
-                message_id = int(sent.message_id)
-                self.progress_store.set_message_id(self.task.id, message_id)
-                await self.queue.set_status_message_id(self.task.id, message_id)
-            except Exception as exc:
-                log.warning("تعذر إرسال النتيجة النهائية للمهمة %s: %s", self.task.id, exc)
+                sent = await publish(True)
+            except Exception:
+                try:
+                    sent = await publish(False)
+                except Exception as exc:
+                    log.warning("تعذر إرسال النتيجة النهائية للمهمة %s: %s", self.task.id, exc)
+                    return
+            self.progress_store.set_message_id(self.task.id, int(sent.message_id))
+            await self.queue.set_status_message_id(self.task.id, int(sent.message_id))
             return
         try:
-            await self.bot.edit_message_text(
-                chat_id=self.task.chat_id,
-                message_id=int(message_id),
-                text=text,
-                reply_markup=None,
-                disable_web_page_preview=True,
-            )
-            self._last_message = text
+            await publish_edit(int(message_id), True)
+            self._last_message = rendered
             self._last_rendered = time.monotonic()
         except Exception as exc:
             if "not modified" in str(exc).lower():
                 return
             log.warning("تعذر تعديل رسالة النتيجة النهائية للمهمة %s: %s", self.task.id, type(exc).__name__)
+            try:
+                await publish_edit(int(message_id), False)
+                self._last_message = plain
+                self._last_rendered = time.monotonic()
+                return
+            except Exception:
+                log.debug("تعذر تعديل الرسالة كنص عادي", exc_info=True)
             # A failed edit must not leave the user with a permanent progress
             # message. Send a new final answer only as a last-resort fallback.
             try:
-                sent = await self.bot.send_message(
-                    chat_id=self.task.chat_id,
-                    text=text,
-                    disable_web_page_preview=True,
-                )
-                self.progress_store.set_message_id(self.task.id, int(sent.message_id))
-                await self.queue.set_status_message_id(self.task.id, int(sent.message_id))
-                self._last_message = text
-                self._last_rendered = time.monotonic()
-            except Exception as send_exc:
-                log.warning("تعذر تسليم الرد النهائي للمهمة %s: %s", self.task.id, type(send_exc).__name__)
+                sent = await publish(True)
+            except Exception:
+                try:
+                    sent = await publish(False)
+                except Exception as send_exc:
+                    log.warning("تعذر تسليم الرد النهائي للمهمة %s: %s", self.task.id, type(send_exc).__name__)
+                    return
+            self.progress_store.set_message_id(self.task.id, int(sent.message_id))
+            await self.queue.set_status_message_id(self.task.id, int(sent.message_id))
+            self._last_message = rendered
+            self._last_rendered = time.monotonic()
 
     async def _persist(self, *, force: bool = False) -> None:
         """Write the activity trail, coalescing bursts.
