@@ -1,3 +1,26 @@
+## [3.51.0] - 2026-10-18
+
+### The agent can now create a repository and build a project
+
+Reported as "it cannot do the job when I ask it to create a repository and build something". Reproduced with the owner's own wording, and the cause turned out to be three layers deep — none of them visible from the repository alone.
+
+- **The profile named "full access" was the strict one.** The live agent configuration is `config/opencode.full-access.v1.json`, copied to `runtime/opencode-config/opencode.json` and pointed at by a systemd drop-in. The repository's own `opencode.json` is **not** what the agent reads. Editing the root file therefore changed nothing at runtime, which is why earlier attempts appeared to do nothing.
+- **One stale ruleset was being merged after the current one.** The profile carries its bash map three times — once globally, once per agent — and the copies had drifted. The engine merges them into 245 rules and applies the last match, so the trailing `bash *: deny` shadowed every allow. The agent diagnosed this itself: "the permissive entries are always shadowed … the strict one is what actually gets enforced". A fresh session did not help, because the source was the config, not the session.
+- **`"ask"` is a denial in a headless deployment.** With no client attached, an approval request has nobody to answer it and resolves to a refusal. A rule set to ask is therefore a rule set to deny, which is why the permission cards from 3.49.0 never appeared for this.
+
+The fix, verified end to end on the owner's server:
+
+- `bash` now defaults to **allow**, with git, `gh` (including `gh repo create`), every runtime and build tool, and `systemctl`/`journalctl` allowed outright. What stays refused is the irreversible and credential-bearing set: force push, `reset --hard`, `clean`, `checkout --`, `sudo`, `su`, `gh auth login/token/refresh`, `gh repo delete`, reboot/shutdown, `mkfs`, `dd`, `userdel`, `passwd`, and piping a download into a shell.
+- Secret files stay unreadable and unwritable: `*.env`, `*.env.*`, `*.pem`, `*.key` remain denied for both `read` and `edit`.
+- All three rulesets are now generated from one list, and a new test fails the build if they ever drift again — that drift is what made the agent refuse `python`, `git init` and `gh repo create` with no trace in the repository.
+- The agent prompts no longer forbid builds, installs or repository creation. `prompts/full-access-operator-ar.md` and `prompts/development-agent-ar.md` now say the server is the workspace, that a requested new repository is created rather than declined for lack of a workspace block, and that a policy refusal is reported in one line rather than worked around.
+
+Proven on the live server, not asserted: the agent ran `python3`, `git` and `mkdir` successfully, then created `Alaa91H/bridge-build-probe`, wrote a real package with three unit tests, **ran the suite and watched it pass**, committed, pushed, and verified the remote branch by SHA — reporting the URL, the commit and the verbatim test output. The probe repository was deleted afterwards.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. The permission posture changes by design: the agent may now build, install dependencies, create repositories, and manage systemd user services. The deny list above is what still stands between it and an irreversible act.
+
 ## [3.50.0] - 2026-10-18
 
 ### The agent's skills now arrive from their repository, on their own

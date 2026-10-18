@@ -66,8 +66,39 @@ class V2BaselineContractTests(unittest.TestCase):
         self.assertEqual(primary["permission"]["read"]["*.env"], "deny")
         self.assertEqual(primary["permission"]["edit"]["*.key"], "deny")
         self.assertEqual(primary["permission"]["bash"]["git push --force*"], "deny")
-        self.assertEqual(primary["permission"]["bash"]["pip install*"], "deny")
         self.assertEqual(primary["permission"]["bash"]["reboot*"], "deny")
+        # The agent builds and installs what a task needs; the refusals are the
+        # irreversible and credential-bearing operations, not the build tools.
+        self.assertEqual(primary["permission"]["bash"]["*"], "allow")
+        self.assertEqual(primary["permission"]["bash"]["python*"], "allow")
+        self.assertEqual(primary["permission"]["bash"]["npm*"], "allow")
+        self.assertEqual(primary["permission"]["bash"]["pip*"], "allow")
+        self.assertEqual(primary["permission"]["bash"]["git init*"], "allow")
+        self.assertEqual(primary["permission"]["bash"]["gh repo create*"], "allow")
+        self.assertEqual(primary["permission"]["bash"]["sudo*"], "deny")
+        self.assertEqual(primary["permission"]["bash"]["gh auth login*"], "deny")
+
+    def test_every_agent_permission_block_matches_the_canonical_one(self) -> None:
+        """One posture, or the agent silently refuses what the config allows.
+
+        The full-access profile carries its rule map once globally and once per
+        agent. When those copies drift, the effective rule is whichever the
+        engine applies last, and a task that looks allowed in the config fails at
+        runtime with no trace in the repository. This is the defect that made the
+        agent unable to run python, git init, or gh repo create.
+        """
+        primary = json.loads((ROOT / "opencode.json").read_text(encoding="utf-8"))
+        canonical = primary["permission"]["bash"]
+        profile = json.loads(
+            (ROOT / "config" / "opencode.full-access.v1.json").read_text(encoding="utf-8"),
+        )
+        blocks = [profile["permission"]["bash"]]
+        agents = profile.get("agent", {})
+        self.assertTrue(agents, "the full-access profile must define its agents")
+        for spec in agents.values():
+            blocks.append(spec["permission"]["bash"])
+        for index, block in enumerate(blocks):
+            self.assertEqual(block, canonical, f"bash rule block #{index} drifted")
 
     def test_v3_workspace_tasks_use_the_single_message_lifecycle(self) -> None:
         plugin = (ROOT / "v3_plugin.py").read_text(encoding="utf-8")
