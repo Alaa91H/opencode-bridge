@@ -4,13 +4,15 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from bridge.services.download_service import (
     DEFAULT_MAX_TOTAL_BYTES,
     DownloadError,
+    DownloadRecord,
     DownloadService,
+    DownloadTooLarge,
 )
 
 
@@ -48,3 +50,32 @@ class MediaDownloadTests(unittest.IsolatedAsyncioTestCase):
                 Path(folder), max_total_bytes=2 * DEFAULT_MAX_TOTAL_BYTES
             )
             self.assertEqual(service.max_total_bytes, DEFAULT_MAX_TOTAL_BYTES)
+
+    def test_a_full_quota_and_a_full_disk_say_different_things(self):
+        """One message for two different faults sends an operator hunting the wrong one."""
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            service = DownloadService(root / "downloads", max_total_bytes=1024)
+            self.assertGreater(service._transfer_budget(), 0)
+            stored = service.root / "owner" / "blob.bin"
+            stored.parent.mkdir(parents=True, exist_ok=True)
+            stored.write_bytes(b"x" * 2048)
+            record = DownloadRecord(
+                id="a" * 32, owner_id="owner", filename="blob.bin", path=str(stored),
+                size_bytes=2048, mime="application/octet-stream",
+                source_url="https://example.org/blob",
+                created_at=datetime.now(UTC).isoformat(),
+                expires_at=(datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+                direct_send_limit=1024,
+            )
+            service._write_index({record.id: record.to_dict()})
+            with self.assertRaises(DownloadTooLarge) as quota:
+                service._transfer_budget()
+            self.assertIn("GiB used", str(quota.exception))
+
+    def test_the_headroom_reserve_scales_down_on_a_small_volume(self):
+        with tempfile.TemporaryDirectory() as folder:
+            service = DownloadService(Path(folder))
+            budget = service._transfer_budget()
+            self.assertGreater(budget, 0, "a small filesystem must still accept a transfer")
+            self.assertLessEqual(budget, service.max_file_bytes)

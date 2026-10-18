@@ -1,3 +1,22 @@
+## [3.52.0] - 2026-10-18
+
+### A full disk and a full quota no longer report the same fault
+
+Found by running the whole acceptance sweep against the live deployment: the managed-download test failed on the host with "Managed download storage is full" while the download index held zero entries and the disk had 37 GiB free. Two different faults were collapsed into one sentence, so an operator is told to go and free a quota bucket that was never the problem — and the real cause, a small volume with a fixed 256 MiB reserve, stays invisible.
+
+- `_transfer_budget` now separates the two limits: an exhausted quota says how much is stored ("Managed download storage is full (0.0 GiB used)"), and an exhausted filesystem says how much room is left in MiB.
+- The disk headroom reserve scales down to a twentieth of the free space on small volumes instead of a flat 256 MiB, so a 500 MiB filesystem is no longer declared unable to start any download.
+- The budget helper creates its own directory before measuring, so no caller can reach `disk_usage` on a path that does not exist yet.
+- Tests: a full quota and a small volume each produce their own message, and a small volume still accepts a transfer.
+
+### Acceptance sweep on the live deployment
+
+20 checks against the deployed tree, not the preview: version, deployment identity, git head matching the deployed commit, clean working tree, both services active, agent health, watchdog, queue state, all three live rule blocks identical, capability posture, the systemd drop-in still pointing at the runtime config, the agent's skill list, digest rendering, the collapse guard, an untouched plain answer, installed skills, the skills repository, the client speaking the agent's protocol, host control, and the agent reload path. All twenty pass.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
 ## [3.51.0] - 2026-10-18
 
 ### The agent can now create a repository and build a project

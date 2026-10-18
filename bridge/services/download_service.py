@@ -393,6 +393,30 @@ class DownloadService:
     def used_bytes(self) -> int:
         return sum(int(entry.get("size_bytes", 0)) for entry in self._read_index().values())
 
+    def _transfer_budget(self) -> int:
+        """How many bytes a new transfer may write, and why not more.
+
+        Two different limits used to collapse into one message: the owner's quota
+        and the host's free disk. An operator whose quota was empty was told
+        "storage is full" and sent hunting a full bucket that did not exist. Each
+        cause now says its own name, and the headroom reserve scales down on a
+        small volume so a 500 MiB filesystem is not declared unusable.
+        """
+        self.ensure_directories()
+        quota = self.max_total_bytes - self.used_bytes()
+        if quota <= 0:
+            raise DownloadTooLarge(
+                f"Managed download storage is full ({self.used_bytes() / (1 << 30):.1f} GiB used)",
+            )
+        free = shutil.disk_usage(self.root).free
+        headroom = min(256 * 1024 * 1024, free // 20)
+        disk = free - headroom
+        if disk <= 0:
+            raise DownloadError(
+                f"Not enough free disk space to start a download ({free // (1 << 20)} MiB left)",
+            )
+        return min(self.max_file_bytes, quota, disk)
+
     def list(self, owner_id: str, *, include_expired: bool = False) -> list[DownloadRecord]:
         now = datetime.now(UTC)
         records: list[DownloadRecord] = []
@@ -440,11 +464,7 @@ class DownloadService:
         await _assert_resolved_public(normalized, allow_private=self.allow_private_hosts)
         self.ensure_directories()
         owner_dir = self._owner_directory(owner_id)
-        budget = min(self.max_file_bytes, self.max_total_bytes - self.used_bytes())
-        free = shutil.disk_usage(self.root).free
-        budget = min(budget, max(0, free - 256 * 1024 * 1024))
-        if budget <= 0:
-            raise DownloadTooLarge("Managed download storage is full")
+        budget = self._transfer_budget()
         download_id = uuid.uuid4().hex
         work = self._resolve_inside(owner_dir / (download_id + ".working"))
         work.mkdir(mode=0o700)
@@ -564,9 +584,7 @@ class DownloadService:
                 declared = response.headers.get("Content-Length")
                 if declared and declared.isdigit() and int(declared) > self.max_file_bytes:
                     raise DownloadTooLarge("حجم الملف يتجاوز الحد المسموح")
-                budget = self.max_total_bytes - self.used_bytes()
-                if budget <= 0:
-                    raise DownloadTooLarge("مساحة التنزيلات ممتلئة")
+                budget = self._transfer_budget()
                 written = await self._stream_to_file(response, target, min(self.max_file_bytes, budget))
             finally:
                 await response.aclose()
