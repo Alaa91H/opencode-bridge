@@ -43,6 +43,28 @@ class DisplayPreferences:
 
 DEFAULT_DISPLAY = DisplayPreferences()
 
+# The card adapter is created once per process by bot.py and attached here, so a
+# task running under any reporter can put a question or a permission request in
+# front of the operator without importing the composition root.
+_interaction_sink: Any = None
+
+
+def register_interaction_sink(sink: Any) -> None:
+    """Attach the adapter that delivers agent requests to the operator's chat."""
+    global _interaction_sink
+    _interaction_sink = sink
+
+
+def _interaction_adapter(client: OpenCodeClient) -> Any:
+    if _interaction_sink is None:
+        return None
+    sink = _interaction_sink
+    bot = getattr(sink, "bot", None)
+    if bot is None:
+        return None
+    sink.client = client
+    return sink
+
 
 class LiveProgressReporter:
     """Show sanitized operational milestones without exposing raw model reasoning."""
@@ -201,6 +223,7 @@ class LiveProgressReporter:
     async def consume_events(self, client: OpenCodeClient, session_id: str) -> None:
         try:
             async for event in client.stream_events(session_id):
+                await self._deliver_interaction(client, event)
                 if self._live_enabled:
                     chunk = self._live_parser.consume(event)
                     if chunk:
@@ -227,6 +250,40 @@ class LiveProgressReporter:
             # The stream ended: this is the last chance to persist the trail
             # before the task moves on to its terminal transition.
             await self._persist(force=True)
+
+    async def _deliver_interaction(
+        self, client: OpenCodeClient, event: dict[str, Any],
+    ) -> None:
+        """Put a permission request or a question in front of the operator.
+
+        These are the only moments the agent stops and waits for a person. If the
+        card is not delivered the task simply burns its budget until the server's
+        own timeout, so a failure here is worth a visible line rather than
+        silence — but it is never allowed to fail the task.
+        """
+        from bridge.telegram.rendering import interactions as cards
+
+        adapter = _interaction_adapter(client)
+        if adapter is None:
+            return
+        permission = cards.parse_permission_event(event)
+        if permission is not None:
+            await adapter.send_permission(permission, self.task.chat_id)
+            await self.record(
+                "approval",
+                "الوكيل يطلب إذنًا؛ اختر الرد من الرسالة أدناه.",
+                "warning",
+            )
+            return
+        question = cards.parse_question_event(event)
+        if question is not None:
+            request_id, questions = question
+            await adapter.send_question(request_id, questions, self.task.chat_id)
+            await self.record(
+                "question",
+                "الوكيل يسألك سؤالًا؛ اختر الإجابة من الرسالة أدناه.",
+                "info",
+            )
 
     async def refresh(self, force: bool = False, detail: bool = False, final: bool = False) -> None:
         if self.progress.message_id is None:

@@ -56,6 +56,7 @@ from bridge.services.user_preferences_service import UserPreferencesService
 from bridge.services.worker_capacity import WorkerCapacity
 from bridge.telegram.app import build_application, core_commands, register_core_handlers
 from bridge.telegram.attachments import TelegramMediaAdapter
+from bridge.telegram.callbacks.interactions import AgentInteractionCallbacks
 from bridge.telegram.callbacks.model_picker import ModelPickerCallbackAdapter
 from bridge.telegram.callbacks.reboot import RebootCallbackAdapter
 from bridge.telegram.callbacks.schedules import ScheduleCallbacks
@@ -72,6 +73,7 @@ from bridge.telegram.commands.tasks import TaskCommands
 from bridge.telegram.control_ui import ControlUI
 from bridge.telegram.draft_intake import DraftIntakeAdapter
 from bridge.telegram.execution import TelegramExecutionDelivery
+from bridge.telegram.interactions import InteractionRegistry
 from bridge.telegram.middleware import TelegramAccessController
 from bridge.telegram.panels import (
     ACT,
@@ -90,7 +92,7 @@ from messages import (
 from model_manager import ModelManager
 from opencode_client import OpenCodeClient
 from progress import ProgressStore
-from progress_reporter import DisplayPreferences, LiveProgressReporter
+from progress_reporter import DisplayPreferences, LiveProgressReporter, register_interaction_sink
 from prompt_enhancer import ResearchMode
 from reboot_state import decision_path, read_state, request_path, write_state
 from session_store import SessionStore
@@ -177,6 +179,8 @@ _draft_commands_instance: DraftCommands | None = None
 _draft_intake_instance: DraftIntakeAdapter | None = None
 _reboot_callback_instance: RebootCallbackAdapter | None = None
 _model_picker_callback_instance: ModelPickerCallbackAdapter | None = None
+_interaction_callbacks_instance: AgentInteractionCallbacks | None = None
+_interaction_registry_instance: InteractionRegistry | None = None
 _model_selection_service: ModelSelectionService | None = None
 _user_preferences_service: UserPreferencesService | None = None
 _panel_router_instance: PanelRouter | None = None
@@ -368,6 +372,28 @@ def _model_picker_callbacks() -> ModelPickerCallbackAdapter:
             logger=log,
         )
     return _model_picker_callback_instance
+
+
+def _interaction_callbacks() -> AgentInteractionCallbacks:
+    """The second direction of the conversation: the agent asks, Telegram answers."""
+    global _interaction_callbacks_instance
+    if _interaction_callbacks_instance is None:
+        _interaction_callbacks_instance = AgentInteractionCallbacks(
+            client=client,
+            registry=_interaction_registry(),
+            is_allowed=_is_allowed,
+            audit_write=audit.write,
+            logger=log,
+        )
+        register_interaction_sink(_interaction_callbacks_instance)
+    return _interaction_callbacks_instance
+
+
+def _interaction_registry() -> InteractionRegistry:
+    global _interaction_registry_instance
+    if _interaction_registry_instance is None:
+        _interaction_registry_instance = InteractionRegistry()
+    return _interaction_registry_instance
 
 
 def _downloads() -> DownloadService:
@@ -1111,6 +1137,16 @@ async def handle_panel_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await _panel_router().handle(update, context)
 
 
+async def handle_agent_interaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _interaction_callbacks().handle(update, context)
+
+
+async def handle_agent_interaction_reply(
+    update: Update, context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    await _interaction_callbacks().handle_reply(update, context)
+
+
 async def handle_control_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _control_ui().handle(update, context)
 
@@ -1236,6 +1272,9 @@ async def post_init(app: Application) -> None:
         log.warning("وكيل OpenCode غير متاح عند بدء التشغيل: %s", exc)
 
     await app.bot.set_my_commands(core_commands())
+    # The agent's permission requests and questions need a bot to answer them
+    # with; the adapter is built before the application exists.
+    _interaction_callbacks().attach_bot(app.bot)
     log.info(
         "تم تسجيل أوامر البوت. النموذج: %s، الاستدلال: %s، الوكيل: %s، وكيل تيليغرام: %s",
         DEFAULT_MODEL,

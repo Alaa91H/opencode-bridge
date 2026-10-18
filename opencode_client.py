@@ -19,6 +19,8 @@ from bridge.domain.tasks.retry_policy import (
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 4096
 TIMEOUT = 60.0
+# The three answers an agent permission request accepts.
+PERMISSION_DECISIONS = frozenset({"once", "always", "reject"})
 
 
 def message_model_reference(model: dict[str, str] | str) -> dict[str, str]:
@@ -274,6 +276,70 @@ class OpenCodeClient:
 
     async def unshare_session(self, session_id: str) -> bool:
         response = await self._client.delete(f"/session/{session_id}/share")
+        return response.status_code in (200, 204)
+
+    async def list_permission_requests(self) -> list[dict[str, Any]]:
+        """Pending permission requests across every session, oldest state kept."""
+        response = await self._client.get("/permission")
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, dict):
+            payload = payload.get("items", [])
+        if not isinstance(payload, list):
+            return []
+        return [item for item in payload if isinstance(item, dict)]
+
+    async def reply_permission(
+        self, request_id: str, decision: str, message: str = "",
+    ) -> bool:
+        """Answer an agent permission request: ``once``, ``always`` or ``reject``.
+
+        Without this the agent waits on a decision nobody can give from Telegram,
+        and the task burns its budget until the server's own timeout.
+        """
+        if decision not in PERMISSION_DECISIONS:
+            raise ValueError("Unsupported permission decision")
+        if not re.fullmatch(r"per[A-Za-z0-9_-]{0,63}", request_id):
+            raise ValueError("Invalid permission request id")
+        body: dict[str, Any] = {"reply": decision}
+        if message:
+            body["message"] = message[:400]
+        response = await self._task_request(
+            "POST", f"/permission/{quote(request_id, safe='')}/reply", json=body,
+        )
+        return response.status_code in (200, 204)
+
+    async def list_questions(self) -> list[dict[str, Any]]:
+        """Pending question requests: the agent is waiting on the operator."""
+        response = await self._client.get("/question")
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, dict):
+            payload = payload.get("items", [])
+        if not isinstance(payload, list):
+            return []
+        return [item for item in payload if isinstance(item, dict)]
+
+    async def reply_question(self, request_id: str, answers: list[list[str]]) -> bool:
+        """Answer the agent's question, one label list per question asked."""
+        if not re.fullmatch(r"que[A-Za-z0-9_-]{0,63}", request_id):
+            raise ValueError("Invalid question request id")
+        if not answers or not all(isinstance(item, list) for item in answers):
+            raise ValueError("Question answers must be one label list per question")
+        response = await self._task_request(
+            "POST",
+            f"/question/{quote(request_id, safe='')}/reply",
+            json={"answers": [[str(label)[:200] for label in item] for item in answers]},
+        )
+        return response.status_code in (200, 204)
+
+    async def reject_question(self, request_id: str) -> bool:
+        """Tell the agent its question was not answered, so it can carry on."""
+        if not re.fullmatch(r"que[A-Za-z0-9_-]{0,63}", request_id):
+            raise ValueError("Invalid question request id")
+        response = await self._task_request(
+            "POST", f"/question/{quote(request_id, safe='')}/reject",
+        )
         return response.status_code in (200, 204)
 
     async def update_session(

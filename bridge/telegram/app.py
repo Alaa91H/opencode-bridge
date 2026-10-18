@@ -113,6 +113,15 @@ def register_core_handlers(
     app.add_handler(CallbackQueryHandler(handlers.handle_schedule_callback, pattern=r"^sch:"))
     app.add_handler(CallbackQueryHandler(handlers.handle_model_callback, pattern=r"^mdl:"))
     app.add_handler(CallbackQueryHandler(handlers.handle_panel_callback, pattern=r"^pnl:"))
+    # The agent's own questions and permission requests: the only callbacks that
+    # carry a decision back to OpenCode.
+    if getattr(handlers, "handle_agent_interaction", None) is not None:
+        app.add_handler(
+            CallbackQueryHandler(
+                handlers.handle_agent_interaction,
+                pattern=r"^ag:",
+            )
+        )
     app.add_handler(CallbackQueryHandler(handlers.handle_control_callback, pattern=r"^ux:"))
     app.add_handler(CommandHandler("menu", handlers.cmd_menu))
     app.add_handler(CommandHandler("download", handlers.cmd_download))
@@ -145,6 +154,17 @@ def register_core_handlers(
         )
     )
     app.add_handler(MessageHandler(filters.ATTACHMENT, handlers.handle_attachment))
+    # A reply to an agent question card is the answer, not a new prompt. This
+    # handler must stay above the general text handler: in the default group only
+    # the first matching handler runs, and a question the agent asked must never
+    # be answered by starting a second task.
+    if getattr(handlers, "handle_agent_interaction_reply", None) is not None:
+        app.add_handler(
+            MessageHandler(
+                filters.REPLY & filters.TEXT & ~filters.COMMAND,
+                handlers.handle_agent_interaction_reply,
+            )
+        )
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_message)
     )

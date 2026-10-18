@@ -1,3 +1,22 @@
+## [3.49.0] - 2026-10-18
+
+### The agent can ask, and Telegram can answer — the conversation is now two-way
+
+Audit of the live OpenCode server against the bridge: the client exposes 162 endpoints, and the bridge used one direction of them. Two of them were simply not connected. `permission.asked` produced a status line saying the agent was waiting for a decision, and no button, no command and no message could answer it; the `question` tool produced nothing at all — when the agent asked the operator something, the question never reached Telegram at all. Both then burned the task's whole budget until the server's own timeout, and the audit recorded a perfectly healthy task.
+
+- New client calls for the missing half: `list_permission_requests`, `reply_permission` (`once` / `always` / `reject`), `list_questions`, `reply_question`, `reject_question`. Identifiers are validated against the server's own `per*` / `que*` prefixes, so a request id from one route cannot be replayed on the other.
+- A permission request now arrives as a card: the action in plain Arabic, up to four targets, and three buttons. The agent's `metadata` is never read into the card — it can carry command arguments, and a chat is not a channel for them.
+- A question now arrives as a card with the agent's own options as buttons. One tap answers a single-choice question; a multi-select question toggles and waits for an explicit confirm; `custom: true` adds a text answer, delivered by replying to that card.
+- Both server generations are read (`permission.asked` and `permission.v2.asked`, `question.asked` and `question.v2.asked`).
+- Every answer re-checks that the actor is allowed, because `CallbackQueryHandler` bypasses the `@authorized` decorator. A decision the server has already forgotten says so in plain words instead of appearing to succeed, and a card that cannot be delivered never fails the task.
+- A reply to a question card is registered above the general text handler: answering the agent must never start a second task.
+- Pending state lives in `bridge/telegram/interactions.py` with a one-hour TTL, so a card whose request the server forgot expires rather than answering a later, unrelated task.
+- Tests: `tests/test_agent_interactions.py` (28 tests) — both event generations, payload forgery and cross-route replay, a stranger's press, a forgotten request, a raising button, multi-select toggling, text answers, and that `metadata` never reaches the chat. 1149 local tests, only the 12 pre-existing environment failures.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
 ## [3.48.0] - 2026-10-18
 
 ### A collapsed answer is cut and explained, never delivered as repetition
