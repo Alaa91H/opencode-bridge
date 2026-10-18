@@ -1,3 +1,22 @@
+## [3.58.0] - 2026-10-18
+
+### The agent could not see 81 of the 84 skills in its own repository
+
+`Alaa91H/portable-agent-skills` grew from three skills sitting at the repository root into a collection of **84 skills** carried in `skills/`, with the same set mirrored for each supported tool — `.agents/`, `.claude/`, `.cursor/`, `.windsurf/` and the rest.
+
+The collector looked only at the checkout root, so it measured the real repository as: **0 accepted**, with `skills`, `docs`, `spec`, `tests` and `scripts` each refused for a missing `SKILL.md`. The sync then found nothing, treated the repository as empty, and — correctly, by its own rule — pruned nothing. The agent reported itself in sync while running on three stale skills it had installed months earlier.
+
+- `skill_roots` chooses exactly one location: `skills/` when the checkout has one, otherwise the checkout root. Older single-skill repositories keep working, and the mirrors are never installed twice.
+- `MAX_SKILLS` goes from 60 to 200. The cap exists to stop a mistaken or hostile repository flooding the agent's skill directory; 84 is the real collection, and 200 leaves room for twice that. It is not a number that should describe the collection, and describing it that way silently disabled the feature.
+- Measured against the real repository after the change: **84 accepted, 0 refused, 0.4 MiB** against a 32 MiB batch ceiling.
+- Tests cover the nested layout, the root layout that predates it, four mirrors of one skill resolving to a single install, project directories not being mistaken for skills, today's collection fitting inside the cap, and a pathological repository still being refused.
+
+An empty result was reported as success. That is the more serious half of this bug: the agent would have gone on claiming it was up to date while holding 3% of its library.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
 ## [3.57.0] - 2026-10-18
 
 ### The test suite was writing into the deployment it was testing

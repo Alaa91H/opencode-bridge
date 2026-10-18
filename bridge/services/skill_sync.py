@@ -39,7 +39,11 @@ STATE_FILENAME = "skills-state.json"
 NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 MAX_NAME = 64
 MAX_DESCRIPTION = 1024
-MAX_SKILLS = 60
+# A portable collection now carries 84 skills and grows; the cap is there to
+# stop a mistaken or hostile repository flooding the agent's skill directory,
+# not to describe the collection. 200 leaves room for roughly twice the current
+# set while still refusing anything absurd.
+MAX_SKILLS = 200
 MAX_SKILL_FILE_BYTES = 512 * 1024
 MAX_SKILL_DIR_BYTES = 4 * 1024 * 1024
 MAX_BATCH_BYTES = 32 * 1024 * 1024
@@ -160,23 +164,43 @@ def _digest(directory: Path) -> str:
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
 
 
+def skill_roots(root: Path) -> tuple[Path, ...]:
+    """Where skills live in a checkout, in the order they should be trusted.
+
+    A collection that serves many agents keeps one canonical copy in ``skills/``
+    and mirrors it for each tool it supports — ``.agents/``, ``.claude/``,
+    ``.cursor/``, ``.windsurf/`` and the rest. Scanning the whole checkout would
+    find the same 84 skills eight times, and scanning only the root finds none of
+    them, because the root holds ``skills/``, ``docs/``, ``spec/`` and ``tests/``
+    rather than skill folders.
+
+    So exactly one location is chosen: ``skills/`` when it exists, otherwise the
+    checkout root, which keeps older single-skill repositories working.
+    """
+    nested = root / "skills"
+    if nested.is_dir() and not nested.is_symlink():
+        return (nested,)
+    return (root,)
+
+
 def collect_skills(root: Path) -> tuple[tuple[Skill, ...], tuple[str, ...]]:
     """Validate every skill folder in a checkout, reporting the ones refused."""
     accepted: list[Skill] = []
     rejected: list[str] = []
     if not root.is_dir():
         return (), ()
-    for directory in sorted(root.iterdir()):
-        if not directory.is_dir() or directory.is_symlink():
-            continue
-        if directory.name.startswith("."):
-            continue
-        try:
-            accepted.append(validate_skill(directory))
-        except SkillSyncError as exc:
-            rejected.append(f"{directory.name}: {exc}")
-        except OSError as exc:
-            rejected.append(f"{directory.name}: {type(exc).__name__}")
+    for base in skill_roots(root):
+        for directory in sorted(base.iterdir()):
+            if not directory.is_dir() or directory.is_symlink():
+                continue
+            if directory.name.startswith("."):
+                continue
+            try:
+                accepted.append(validate_skill(directory))
+            except SkillSyncError as exc:
+                rejected.append(f"{directory.name}: {exc}")
+            except OSError as exc:
+                rejected.append(f"{directory.name}: {type(exc).__name__}")
     if len(accepted) > MAX_SKILLS:
         raise SkillSyncError(f"too many skills in one sync ({len(accepted)})")
     total = sum(skill.size_bytes for skill in accepted)

@@ -17,9 +17,11 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from bridge.services import skill_sync
 from bridge.services.host_control import CommandResult
 from bridge.services.skill_sync import (
     DEFAULT_SOURCE,
+    MAX_SKILLS,
     Skill,
     SkillSyncError,
     SkillSyncService,
@@ -295,6 +297,69 @@ class TheFakeWritesNothingIntoTheWorkingDirectoryTests(unittest.IsolatedAsyncioT
         self.assertTrue(git._places_a_tree(["git", "clone", "--depth", "1", "url", "/tmp/x"]))
         self.assertFalse(git._places_a_tree(["git", "-C", "/tmp/x", "rev-parse", "HEAD"]))
         self.assertFalse(git._places_a_tree(["systemctl", "--user", "restart", "opencode-serve.service"]))
+
+
+class PortableCollectionLayoutTests(unittest.TestCase):
+    """A collection that serves many agents keeps skills in ``skills/``.
+
+    Found live: the repository grew from three skills at the root to 84 inside
+    ``skills/``, mirrored for every supported tool. The shipped collector found
+    nothing — ``accepted=0``, with ``skills``, ``docs``, ``spec``, ``tests`` and
+    ``scripts`` all refused as missing a SKILL.md — so the agent kept running on
+    three stale skills and reported itself as in sync.
+    """
+
+    def test_skills_are_collected_from_the_nested_directory(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_skill(root / "skills", "alpha-skill")
+            write_skill(root / "skills", "beta-skill")
+            accepted, rejected = collect_skills(root)
+            self.assertEqual([skill.name for skill in accepted], ["alpha-skill", "beta-skill"])
+            self.assertEqual(rejected, ())
+
+    def test_a_root_level_repository_still_works(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_skill(root, "solo-skill")
+            accepted, _ = collect_skills(root)
+            self.assertEqual([skill.name for skill in accepted], ["solo-skill"])
+
+    def test_the_same_skills_are_not_installed_eight_times(self) -> None:
+        """The mirrors are for other agents; installing them all would be a mess."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for mirror in (".agents", ".claude", ".cursor", ".windsurf"):
+                write_skill(root / mirror / "skills", "mirrored-skill")
+            write_skill(root / "skills", "mirrored-skill")
+            accepted, _ = collect_skills(root)
+            self.assertEqual([skill.name for skill in accepted], ["mirrored-skill"])
+
+    def test_project_directories_are_not_mistaken_for_skills(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("docs", "spec", "tests", "scripts"):
+                (root / name).mkdir()
+            write_skill(root / "skills", "real-skill")
+            accepted, _ = collect_skills(root)
+            self.assertEqual([skill.name for skill in accepted], ["real-skill"])
+
+    def test_the_collection_of_today_is_inside_the_cap(self) -> None:
+        self.assertGreaterEqual(MAX_SKILLS, 84)
+
+    def test_a_pathological_repository_is_still_refused(self) -> None:
+        self.assertIsInstance(MAX_SKILLS, int)
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp) / "skills"
+            root.mkdir()
+            write_skill(root, "measured-skill")
+            original = skill_sync.MAX_SKILLS
+            skill_sync.MAX_SKILLS = 0
+            try:
+                with self.assertRaises(SkillSyncError):
+                    collect_skills(Path(tmp))
+            finally:
+                skill_sync.MAX_SKILLS = original
 
 
 if __name__ == "__main__":
