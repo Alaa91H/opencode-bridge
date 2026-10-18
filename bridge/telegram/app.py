@@ -44,6 +44,7 @@ def core_commands() -> list[BotCommand]:
         BotCommand("schedresume", "تشغيل مهمة مجدولة"),
         BotCommand("scheddelete", "حذف مهمة مجدولة"),
         BotCommand("model", "اختيار النموذج ومستوى الاستدلال"),
+        BotCommand("skills", "مهارات الوكيل وتحديثها من المستودع"),
         BotCommand("status", "عرض حالة الجلسة"),
         BotCommand("health", "فحص اتصال الوكيل"),
         BotCommand("agents", "عرض الوكلاء المتاحين"),
@@ -138,6 +139,8 @@ def register_core_handlers(
     app.add_handler(CommandHandler("share", handlers.cmd_share))
     app.add_handler(CommandHandler("unshare", handlers.cmd_unshare))
     app.add_handler(CommandHandler("model", handlers.cmd_model))
+    if getattr(handlers, "cmd_skills", None) is not None:
+        app.add_handler(CommandHandler("skills", handlers.cmd_skills))
     app.add_handler(CommandHandler("status", handlers.cmd_status))
     app.add_handler(CommandHandler("health", handlers.cmd_health))
     app.add_handler(CommandHandler("agents", handlers.cmd_agents))

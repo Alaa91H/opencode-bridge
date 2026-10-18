@@ -50,6 +50,8 @@ from bridge.services.model_selection_service import ModelSelectionService
 from bridge.services.provider_keys import ProviderKeyManager
 from bridge.services.runtime_controls import RuntimeControls
 from bridge.services.schedule_service import ScheduleService
+from bridge.services.skill_sync import DEFAULT_SOURCE as SKILLS_SOURCE_DEFAULT
+from bridge.services.skill_sync import SkillSyncService
 from bridge.services.task_execution_service import TaskExecutionService
 from bridge.services.task_service import TaskApplicationService
 from bridge.services.user_preferences_service import UserPreferencesService
@@ -68,6 +70,7 @@ from bridge.telegram.commands.manage import ManageCommands
 from bridge.telegram.commands.metrics import MetricsCommands
 from bridge.telegram.commands.schedules import ScheduleCommands
 from bridge.telegram.commands.shell import ShellCommands
+from bridge.telegram.commands.skills import SkillCommands
 from bridge.telegram.commands.system import SystemCommands
 from bridge.telegram.commands.tasks import TaskCommands
 from bridge.telegram.control_ui import ControlUI
@@ -130,6 +133,13 @@ AUTO_STRONGEST_FREE_MODEL = SETTINGS.features.auto_strongest_free_model
 PIN_DEFAULT_MODEL = SETTINGS.effective_pin_default_model
 DEFAULT_AGENT = SETTINGS.opencode.agent
 MODEL_CATALOG_SYNC_SECONDS = SETTINGS.opencode.model_sync_seconds
+# How often the agent's skills are refreshed from their repository. Six hours is
+# frequent enough that a pushed skill is live the same afternoon, and rare enough
+# that a scheduled task is never competing with a research run for the network.
+SKILLS_SYNC_SECONDS = max(
+    900.0,
+    float(os.environ.get("BRIDGE_SKILLS_SYNC_MINUTES", "360") or 360) * 60.0,
+)
 ATTACHMENT_MAX_BYTES = SETTINGS.telegram.attachment_max_bytes
 ATTACHMENT_MAX_COUNT = SETTINGS.telegram.attachment_max_count
 ATTACHMENT_MAX_TOTAL_BYTES = SETTINGS.telegram.attachment_max_total_bytes
@@ -181,6 +191,9 @@ _reboot_callback_instance: RebootCallbackAdapter | None = None
 _model_picker_callback_instance: ModelPickerCallbackAdapter | None = None
 _interaction_callbacks_instance: AgentInteractionCallbacks | None = None
 _interaction_registry_instance: InteractionRegistry | None = None
+_skill_sync_instance: SkillSyncService | None = None
+_skill_commands_instance: SkillCommands | None = None
+skill_sync_task: asyncio.Task[None] | None = None
 _model_selection_service: ModelSelectionService | None = None
 _user_preferences_service: UserPreferencesService | None = None
 _panel_router_instance: PanelRouter | None = None
@@ -831,6 +844,49 @@ def _agent_command_adapter() -> AgentCommands:
     return _agent_commands_instance
 
 
+def _skill_sync() -> SkillSyncService:
+    global _skill_sync_instance
+    if _skill_sync_instance is None:
+        source = os.environ.get("BRIDGE_SKILLS_SOURCE") or os.environ.get(
+            "OPENCODE_SKILLS_SOURCE", SKILLS_SOURCE_DEFAULT,
+        )
+        _skill_sync_instance = SkillSyncService(
+            BRIDGE_DIR / "runtime",
+            source=source,
+            logger=log,
+        )
+    return _skill_sync_instance
+
+
+def _skill_command_adapter() -> SkillCommands:
+    global _skill_commands_instance
+    if _skill_commands_instance is None:
+        _skill_commands_instance = SkillCommands(
+            _skill_sync(),
+            reply=_safe_reply,
+            error_message=user_error,
+            reload_service=_skill_sync().reload_agent_server,
+            audit_write=audit.write,
+            logger=log,
+        )
+    return _skill_commands_instance
+
+
+async def _skill_sync_loop() -> None:
+    """Keep the agent's skills current without the owner ever asking."""
+    interval = SKILLS_SYNC_SECONDS
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            if task_store is None:
+                continue
+            await _skill_command_adapter().sync_quietly()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # a scheduler must never die on one bad fetch
+            log.info("توقفت مزامنة المهارات التلقائية: %s", type(exc).__name__)
+
+
 def _system_command_adapter() -> SystemCommands:
     global _system_commands_instance
     if _system_commands_instance is None:
@@ -1195,6 +1251,11 @@ async def cmd_exec(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_agents(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _agent_command_adapter().agents(update, context)
 
+
+@authorized
+async def cmd_skills(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _skill_command_adapter().skills(update, context)
+
 @authorized
 async def cmd_maintenance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _system_command_adapter().maintenance(update, context)
@@ -1236,7 +1297,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await _draft_intake_adapter().text(update, context)
 
 async def post_init(app: Application) -> None:
-    global task_service, model_manager, pending_cleanup_task
+    global task_service, model_manager, pending_cleanup_task, skill_sync_task
     attachment_store.ensure_directories()
     if task_service is None:
         await task_store.init()
@@ -1247,6 +1308,8 @@ async def post_init(app: Application) -> None:
             log.warning("تمت معالجة %s مهمة منقطعة: استئناف المهام المحفوظة وفحص المهام القديمة.", interrupted)
     if pending_cleanup_task is None or pending_cleanup_task.done():
         pending_cleanup_task = asyncio.create_task(_pending_attachment_cleanup_loop())
+    if skill_sync_task is None or skill_sync_task.done():
+        skill_sync_task = asyncio.create_task(_skill_sync_loop())
     _schedule_download_cleanup()
     if model_manager is None:
         model_manager = ModelManager(
@@ -1285,7 +1348,7 @@ async def post_init(app: Application) -> None:
 
 
 async def post_shutdown(app: Application) -> None:
-    global task_service, model_manager, pending_cleanup_task
+    global task_service, model_manager, pending_cleanup_task, skill_sync_task
     if pending_cleanup_task is not None:
         pending_cleanup_task.cancel()
         try:
@@ -1293,6 +1356,13 @@ async def post_shutdown(app: Application) -> None:
         except asyncio.CancelledError:
             pass
         pending_cleanup_task = None
+    if skill_sync_task is not None:
+        skill_sync_task.cancel()
+        try:
+            await skill_sync_task
+        except asyncio.CancelledError:
+            pass
+        skill_sync_task = None
     if _media_adapter_instance is not None:
         await _media_adapter_instance.shutdown()
     if model_manager is not None:

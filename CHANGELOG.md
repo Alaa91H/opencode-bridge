@@ -1,3 +1,26 @@
+## [3.50.0] - 2026-10-18
+
+### The agent's skills now arrive from their repository, on their own
+
+Found by reading the Agent Skills documentation against this host: OpenCode discovers skills from `~/.config/opencode/skills/<name>/SKILL.md` and **reads that directory when the server starts**. The bridge knew nothing about it, so every skill pushed to `Alaa91H/portable-agent-skills` was invisible to the agent until someone restarted the server by hand. Two facts followed and shaped the whole design: writing files is not enough, and a skills repository lands inside the agent's own instruction path, where a file becomes behaviour.
+
+- New `bridge/services/skill_sync.py` clones the repository shallowly, validates every skill against the published Agent Skills rules — folder name matching `^[a-z0-9]+(-[a-z0-9]+)*$`, frontmatter `name` equal to the folder, a 1–1024 character description, no symlinks anywhere inside, and hard caps on file size, skill count and batch size — and only then publishes, all-or-nothing.
+- Publishing is a directory rename with a rollback: the live skill is moved aside, the new one moved in, and a failure puts the old one back. The agent never sees a half-written skill.
+- A skill removed upstream is removed here, but the bridge only ever deletes skills it published itself: a hand-written skill and the built-in one are untouched, and an **empty repository never deletes the installed library** — it reports "the repository has no skills yet" and leaves the agent working.
+- A failed fetch changes nothing and says so: `/skills` keeps showing the installed library and the last error.
+- When a sync actually changes something, the bridge restarts the agent server so the new skills are live, and only then. A no-op sync never touches the running server.
+- Automatic: a background loop syncs every six hours (`BRIDGE_SKILLS_SYNC_MINUTES` to change), source configurable with `BRIDGE_SKILLS_SOURCE`.
+- Telegram: `/skills` lists the library, its freshness, the commit it came from and anything refused; `/skills sync` forces a refresh and reports exactly what was installed, updated, removed or refused. Both are audited.
+- Tests: `tests/test_skill_sync.py` (18 tests) — validation refusals, symlinks, no-op syncs, upstream removal, the empty-repository guard, an unreachable repository, a hand-written skill surviving a sync, concurrent syncs, and the reload contract. 1167 local tests, only the 12 pre-existing environment failures.
+
+### Note for the operator
+
+`Alaa91H/portable-agent-skills` is currently empty. Push folders shaped as `<skill-name>/SKILL.md` with `name` and `description` frontmatter, and they will be installed automatically on the next sync, without restarting anything by hand.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
 ## [3.49.0] - 2026-10-18
 
 ### The agent can ask, and Telegram can answer — the conversation is now two-way
