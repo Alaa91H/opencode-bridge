@@ -16,12 +16,19 @@ from __future__ import annotations
 
 import re
 
-# A single character repeated this many times is a stuck decoder, not writing.
-_CHAR_RUN = re.compile(r"(?P<char>[^\s\w]|\w)\1{59,}")
-# The same short phrase, back to back, at least this many times.
-_PHRASE_LOOP = re.compile(r"(?P<phrase>[^\s]{4,120}?)(?:\s*\1){4,}", re.DOTALL)
-# A repeated line, which is how a loop usually looks once prose gives out.
-_REPEATED_LINE = re.compile(r"(?P<line>[^\n]{6,120})\n(?:\s*\1\n?){4,}")
+# A run of a single WORD character is a decoder that is stuck. Punctuation runs
+# are decoration: the 70 hyphens a unittest prints between results, a markdown
+# rule, a table border. Cutting a correct answer because it contained a rule is
+# worse than the collapse this guard exists to stop, so decoration is masked out
+# before anything is measured.
+_CHAR_RUN = re.compile(r"(?P<char>\w)\1{119,}")
+# The same short phrase back to back; it must be real words and long enough that
+# ordinary prose cannot match it.
+_PHRASE_LOOP = re.compile(r"(?P<phrase>\S*\w\S{4,119}?)(?:\s*\1){4,}")
+# The same content line repeated, which is how a loop looks once prose gives out.
+_REPEATED_LINE = re.compile(r"(?P<line>[^\n]{20,160}?\w[^\n]{0,160}?)\n(?:\s*\1\n?){4,}")
+_DECORATIVE_RULE = re.compile(r"^\s*[-=_*#~]{3,}\s*$")
+MIN_LOOP_CHARS = 200
 
 TAIL_NOTE = (
     "⚠️ **توقف الرد هنا** — انقطع الرد في منتصفه بسبب خلل في مخرجات النموذج "
@@ -42,19 +49,32 @@ def _clean_cut(text: str, index: int) -> int:
     return index
 
 
+def _mask_decoration(text: str) -> str:
+    """Blank decorative rules in place, so offsets stay meaningful.
+
+    Blank lines of ``-``, ``=``, ``*``, ``_``, ``#`` or ``~`` are layout: a
+    unittest separator, a markdown rule, a table border. They are replaced with
+    spaces of the same length, which keeps every later offset pointing at the
+    same place in the original answer.
+    """
+    return "\n".join(
+        " " * len(line) if _DECORATIVE_RULE.match(line) else line
+        for line in text.splitlines()
+    )
+
+
 def collapse_start(text: str) -> int | None:
     """Offset where a repetition collapse begins, or None when the answer is clean."""
     if not text:
         return None
-    positions = [
-        match.start()
-        for match in (
-            _CHAR_RUN.search(text),
-            _PHRASE_LOOP.search(text),
-            _REPEATED_LINE.search(text),
-        )
-        if match is not None
-    ]
+    scanned = _mask_decoration(text)
+    positions: list[int] = []
+    for match in (_CHAR_RUN.search(scanned), _REPEATED_LINE.search(scanned)):
+        if match is not None:
+            positions.append(match.start())
+    phrase = _PHRASE_LOOP.search(scanned)
+    if phrase is not None and len(phrase.group(0)) >= MIN_LOOP_CHARS:
+        positions.append(phrase.start())
     if not positions:
         return None
     return _clean_cut(text, min(positions))

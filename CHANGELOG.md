@@ -1,3 +1,24 @@
+## [3.53.0] - 2026-10-18
+
+### The collapse guard no longer cuts a correct answer for containing a separator
+
+The acceptance sweep caught the guard doing more harm than the thing it was built for. A finished report whose last section quoted the 70 hyphens `unittest` prints between its results was declared collapsed: it was truncated mid-answer, the owner was told the model had broken down, and the full text was attached as a file. The answer was flawless — the guard had matched a line of punctuation.
+
+- A single stuck character must now be a **word** character, repeated 120 or more times. `wwww…` and `0000…` are still caught; a rule made of `-`, `=`, `*`, `_`, `#` or `~` is not.
+- Decorative rule lines are masked to spaces of the same length before anything is measured, so a markdown rule, a table border or a test separator cannot match, and every later offset still points at the same place in the original answer.
+- The repeated-phrase rule now requires real words and 200 characters of total match, so ordinary prose cannot trip it.
+- The repeated-line rule requires at least twenty characters of content.
+- Verified against the real report that was cut: it now renders whole, with no note and no attachment.
+- Tests: a unittest separator, a markdown rule and a table border each pass through untouched, a real collapse beside a separator is still found, and masking preserves offsets.
+
+### Host hygiene: the deployment scratch space was full
+
+`/tmp` on this host is a 476 MiB tmpfs and had reached 376 MiB with 189 stale runtime scratch files, which made an unrelated transport test fail with `Disk quota exceeded` — the kind of environment failure that gets written off as "pre-existing" and then hides real defects. Reclaimed to 33 MiB without touching anything the bridge needs.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
 ## [3.52.0] - 2026-10-18
 
 ### A full disk and a full quota no longer report the same fault

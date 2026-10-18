@@ -61,6 +61,54 @@ class CollapseDetectionTests(unittest.TestCase):
         self.assertFalse(is_degenerate(""))
 
 
+class DecorationIsNotCollapseTests(unittest.TestCase):
+    """A correct answer must never be cut for containing a rule or a separator.
+
+    Found live: a report ending in the 70 hyphens that ``unittest`` prints
+    between its results was declared collapsed, truncated mid-answer and told
+    the owner the model had broken down. The answer was flawless.
+    """
+
+    UNITTEST_REPORT = (
+        "الخطوة 2 — مخرجات الاختبار:\n"
+        "```\n"
+        "test_replaces_spaces_with_hyphen (tests.test_slugify.SlugifyTest.test_replaces_spaces_with_hyphen) ... ok\n"
+        "test_rejects_non_string (tests.test_slugify.SlugifyTest.test_rejects_non_string) ... ok\n"
+        "\n"
+        + "-" * 70 + "\n"
+        "Ran 4 tests in 0.000s\n\n"
+        "OK\n"
+        "```\n\n"
+        "الخطوة 3 — النشر تم عبر git init ثم gh repo create.\n"
+    )
+
+    def test_a_unittest_separator_is_not_a_collapse(self) -> None:
+        self.assertIsNone(collapse_start(self.UNITTEST_REPORT))
+        kept, truncated = truncated_answer(self.UNITTEST_REPORT)
+        self.assertFalse(truncated)
+        self.assertEqual(kept, self.UNITTEST_REPORT)
+
+    def test_a_markdown_rule_is_not_a_collapse(self) -> None:
+        report = "# العنوان\n\nنص.\n\n" + "-" * 200 + "\n\n## قسم\n\nنص آخر.\n"
+        self.assertIsNone(collapse_start(report))
+
+    def test_a_table_border_is_not_a_collapse(self) -> None:
+        table = "| a | b |\n|---|---|\n" + ("| 1 | 2 |\n" * 12)
+        self.assertIsNone(collapse_start(table))
+
+    def test_a_real_collapse_next_to_a_separator_is_still_found(self) -> None:
+        text = "نص سليم.\n\n" + "-" * 70 + "\n\n" + "ww" * 400
+        self.assertIsNotNone(collapse_start(text))
+
+    def test_masking_preserves_offsets(self) -> None:
+        from bridge.telegram.rendering.collapse_guard import _mask_decoration
+
+        text = "أول\n" + "-" * 10 + "\nثاني"
+        masked = _mask_decoration(text)
+        self.assertEqual(len(masked), len(text))
+        self.assertEqual(masked.index("ثاني"), text.index("ثاني"))
+
+
 class TruncationTests(unittest.TestCase):
     def test_a_collapsed_answer_keeps_the_readable_part(self) -> None:
         kept, truncated = truncated_answer(COLLAPSED)
