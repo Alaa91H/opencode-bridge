@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from bridge.telegram.rendering.collapse_guard import truncated_answer
 from bridge.telegram.rendering.markdown_html import (
     MAX_PAGE_CHARS,
     Page,
@@ -143,6 +144,10 @@ def _section_label(section: str) -> str:
 
 def build_news_pages(text: str, *, max_len: int = MAX_PAGE_CHARS) -> list[Page]:
     """Render a digest item by item, falling back to section pages elsewhere."""
+    # A model that loops must never be delivered page after page of repetition,
+    # so the collapse is cut here — the single place every delivery path renders
+    # through — and the complete raw text is handed over as a file instead.
+    text, _truncated = truncated_answer(text)
     # One decision for the whole answer: a summary that keeps `[3]` while the
     # item it points to dropped it reads as a broken cross-reference.
     strip_citations = bool(extract_links(text or ""))

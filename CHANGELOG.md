@@ -1,3 +1,20 @@
+## [3.48.0] - 2026-10-18
+
+### A collapsed answer is cut and explained, never delivered as repetition
+
+Found by re-running the owner's digest request on the released build: the model wrote six good items and then collapsed into `wwwwww…` for the remaining 55,000 characters. The bridge delivered that faithfully — fifteen pages of noise in Telegram — because from its side the answer was long, successful and free of errors. Being faithful to a broken answer is not being correct.
+
+- New `bridge/telegram/rendering/collapse_guard.py` finds where a repetition collapse starts: a character run of 60+, the same phrase back to back five times, or the same line repeated. Each pattern must be long enough to be certain, so `100%` and a table row that repeats a character survive untouched.
+- The cut lands on the last coherent sentence, never mid-word, and the answer ends with a plain note: the answer stopped mid-way, here is the part that reads, the complete text is in the attached file.
+- The guard runs inside `delivery_pages`, the single renderer every delivery path goes through, so no caller can deliver a loop by accident.
+- A collapsed answer now always materializes `answer-full.md`, whatever its length: nothing the model actually wrote is thrown away, and the audit records `output_collapsed` with the delivery decision.
+- Verified on the real answer: 63,794 characters over 22 pages became 7 pages with zero repetitions, cut at 8,179 characters — the six items that read, plus the note.
+- Tests: `tests/test_collapse_guard.py` (12 tests) covering detection, boundary quality, untouched clean text, `100%`-style false positives, and that no page ever ships a loop; 1121 local tests, only the 12 pre-existing environment failures.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
 ## [3.47.0] - 2026-10-18
 
 ### A digest item arrives as a channel post, not a wall of text

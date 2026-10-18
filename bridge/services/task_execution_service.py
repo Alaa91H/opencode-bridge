@@ -445,11 +445,16 @@ class TaskExecutionService:
             # Truth-in-delivery: the overflow note promises the remainder is in
             # a task file, so materialize it when follow-ups cannot cover it.
             try:
+                from bridge.telegram.rendering.collapse_guard import is_degenerate
                 from bridge.telegram.rendering.news_pages import delivery_pages
                 from bridge.telegram.rich_delivery import MAX_FOLLOWUPS
 
                 overflow_text = reply_text.replace(COMPLETION_SENTINEL, "").strip()
-                if reply_text.strip() and len(delivery_pages(overflow_text or reply_text)) > MAX_FOLLOWUPS + 1:
+                collapsed = is_degenerate(overflow_text or reply_text)
+                needs_file = collapsed or len(
+                    delivery_pages(overflow_text or reply_text)
+                ) > MAX_FOLLOWUPS + 1
+                if reply_text.strip() and needs_file:
                     full_path = output_directory / "answer-full.md"
                     full_path.write_text(overflow_text or reply_text, encoding="utf-8")
                     try:
@@ -457,6 +462,19 @@ class TaskExecutionService:
                     except OSError:
                         pass
                     output_files = [*output_files, full_path.resolve()]
+                    if collapsed:
+                        # The pages say the answer stopped mid-way; the file is
+                        # where the rest of what the model actually wrote lives.
+                        self.audit_write(
+                            "task_finished",
+                            "output_collapsed",
+                            actor_id=task.owner_id,
+                            details={
+                                "task_id": task.id,
+                                "response_length": len(reply_text),
+                                "delivery": "truncated_pages_with_full_file",
+                            },
+                        )
             except Exception as overflow_exc:
                 self.log.warning(
                     "تعذر حفظ النص الكامل للمهمة %s: %s",
