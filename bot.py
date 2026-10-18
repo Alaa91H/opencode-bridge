@@ -864,6 +864,7 @@ def _skill_command_adapter() -> SkillCommands:
         _skill_commands_instance = SkillCommands(
             _skill_sync(),
             reply=_safe_reply,
+            reply_html=_safe_html_reply,
             error_message=user_error,
             reload_service=_skill_sync().reload_agent_server,
             audit_write=audit.write,
@@ -966,6 +967,28 @@ async def _safe_reply(message, text: str) -> None:
             log.warning("فشل إرسال رد تيليغرام (محاولة %d/3): %s", attempt + 1, exc)
             if attempt < 2:
                 await asyncio.sleep(2**attempt)
+
+
+async def _safe_html_reply(message, html: str, plain: str) -> None:
+    """Deliver a page that is already Telegram HTML, retrying, then degrading to words.
+
+    Renderers such as ``skills.py`` build finished HTML. Sending that through the
+    Markdown renderer would escape the markup it already holds and the owner
+    would read ``<b>heading</b>`` as literal text, so it goes out as HTML here and
+    falls back to the plain twin only if Telegram refuses the format.
+    """
+    for attempt in range(3):
+        try:
+            await message.reply_text(
+                html, parse_mode="HTML", disable_web_page_preview=True,
+            )
+            return
+        except Exception as exc:
+            log.warning("فشل إرسال صفحة HTML (محاولة %d/3): %s", attempt + 1, exc)
+            if attempt < 2:
+                await asyncio.sleep(2**attempt)
+    if plain:
+        await _safe_reply(message, plain)
 
 
 async def _create_task_status_message(bot, chat_id: int, text: str = "جاري تجهيز الطلب…") -> int | None:

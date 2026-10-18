@@ -11,11 +11,17 @@ from telegram.ext import ContextTypes
 
 from bridge.services.skill_sync import SkillSyncService
 from bridge.telegram.rendering import skills as view
-from bridge.telegram.rendering.markdown_html import render_markdown_html
+from bridge.telegram.rendering.markdown_html import html_to_plain
+from bridge.telegram.rich_delivery import send_html
 
 Reply = Callable[[Any, str], Awaitable[None]]
+ReplyHtml = Callable[[Any, str, str], Awaitable[None]]
 ErrorMessage = Callable[[Exception, str], str]
 ReloadService = Callable[[], Awaitable[tuple[bool, str]]]
+
+
+async def _reply_html(message: Any, html: str, plain: str) -> None:
+    await send_html(message, html, fallback=plain or None)
 
 
 class SkillCommands:
@@ -26,6 +32,7 @@ class SkillCommands:
         service: SkillSyncService,
         *,
         reply: Reply,
+        reply_html: ReplyHtml | None = None,
         error_message: ErrorMessage,
         reload_service: ReloadService | None = None,
         audit_write: Callable[..., Any] | None = None,
@@ -33,6 +40,7 @@ class SkillCommands:
     ) -> None:
         self.service = service
         self.reply = reply
+        self.reply_html = reply_html or _reply_html
         self.error_message = error_message
         self.reload_service = reload_service
         self.audit_write = audit_write
@@ -58,7 +66,9 @@ class SkillCommands:
                 last_error=str(status.get("last_error", "")),
                 needs_reload=bool(status.get("needs_reload")),
             )
-            await self.reply(update.effective_message, render_markdown_html(page))
+            await self.reply_html(
+                update.effective_message, page, html_to_plain(page),
+            )
         except Exception as exc:  # a read must never look like a broken bot
             self.log.exception("فشل عرض مهارات الوكيل")
             await self.reply(
@@ -79,19 +89,15 @@ class SkillCommands:
                 self._audit("skills_sync", "failed", detail=result.message[:160])
                 return
             await self.reload_if_needed()
-            await self.reply(
-                message,
-                render_markdown_html(
-                    view.skills_updated_page(
-                        status=result.status,
-                        commit=result.commit,
-                        installed=result.installed,
-                        updated=result.updated,
-                        removed=result.removed,
-                        rejected=result.rejected,
-                    )
-                ),
+            page = view.skills_updated_page(
+                status=result.status,
+                commit=result.commit,
+                installed=result.installed,
+                updated=result.updated,
+                removed=result.removed,
+                rejected=result.rejected,
             )
+            await self.reply_html(message, page, html_to_plain(page))
             self._audit(
                 "skills_sync",
                 "success",

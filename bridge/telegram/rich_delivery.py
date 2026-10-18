@@ -191,6 +191,33 @@ async def send_rendered_pages(
     return sent_ids
 
 
+async def send_html(message: Any, html: str, *, fallback: str | None = None) -> bool:
+    """Send a page that is already Telegram HTML, with a plain-text safety net.
+
+    A pre-rendered page must never be handed to the Markdown renderer: that would
+    escape the markup it already contains, so the owner reads ``<b>heading</b>``
+    and ``&gt;`` as literal text. Pre-rendered HTML is sent as HTML, and if the
+    client refuses it the same words are sent as plain text rather than lost.
+    """
+    if message is None or not html:
+        return False
+    try:
+        await message.reply_text(
+            html, parse_mode="HTML", disable_web_page_preview=True,
+        )
+        return True
+    except Exception as exc:  # a rejected format must never lose the answer
+        logger.info("تعذر إرسال صفحة HTML كما هي: %s", type(exc).__name__)
+    if fallback is None:
+        return False
+    try:
+        await message.reply_text(fallback, disable_web_page_preview=True)
+        return True
+    except Exception as exc:
+        logger.warning("تعذر إرسال النسخة النصية من الصفحة: %s", type(exc).__name__)
+        return False
+
+
 async def send_long_text(
     bot: Any,
     chat_id: int,

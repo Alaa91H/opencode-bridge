@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from html import unescape
 
 TELEGRAM_LIMIT = 4096
 # Room left for the page counter and markup overhead inside TELEGRAM_LIMIT.
@@ -492,3 +493,17 @@ def render_markdown_html(text: str, *, max_len: int = MAX_PAGE_CHARS) -> str:
     Delivery uses :func:`build_pages` instead; this is the one-shot rendering.
     """
     return "\n\n".join(page.html for page in build_pages(text, max_len=max_len)).strip()
+
+
+_TAG_RE = re.compile(r"<[^>]{1,40}>")
+
+
+def html_to_plain(html: str) -> str:
+    """The readable twin of an HTML page, for a client that rejects the markup.
+
+    A page built here or by a renderer like ``skills.py`` is already escaped, so
+    unescaping after stripping the tags restores the original words instead of a
+    wall of ``&amp;``.
+    """
+    text = _TAG_RE.sub("", html or "")
+    return unescape(text).strip()

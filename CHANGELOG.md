@@ -1,3 +1,22 @@
+## [3.54.0] - 2026-10-18
+
+### `/skills` no longer shows its own markup as words
+
+`/skills` built a finished Telegram HTML page and then handed it to the Markdown renderer, which escaped the markup the page already contained, and the result went out as plain text. The owner read `<b>🧠 مهارات الوكيل (3)</b>` and `&gt;` as literal words on a screen that had been rendering every other answer as clean text. The same mistake in an ad-hoc report showed an empty version and a raw JSON line, which is how the defect was found.
+
+- A page that is already HTML is now sent with `parse_mode="HTML"`: `send_html` in `rich_delivery`, and `_safe_html_reply` in `bot.py` which retries like every other reply and degrades to the plain twin only if Telegram refuses the format.
+- `html_to_plain` produces that twin by stripping tags and unescaping entities, so a rejected page still reads as the original words rather than a wall of `&amp;`.
+- `SkillCommands` takes an optional `reply_html` seam and no longer imports the Markdown renderer at all. After this change the Markdown renderer has **no production caller left**; every other page is either Markdown rendered once, or plain text, which is why this could not happen twice.
+- Checked the other HTML-shaped renderers (`schedule_page`, `model_page`): they return plain text and are unaffected.
+
+### The preview mirror had drifted from the repository
+
+`/home/ubuntu/preview` — the tree used to iterate locally instead of spending a CI round trip — was an older revision of `tests/test_v2_baseline_contract.py`, so the quality gate reported a `B007` that does not exist in the repository. A test environment that is not the repository cannot be trusted to catch anything, so it is now rebuilt from the deployed tree by `resync-preview.sh`, and a mirror-wide trailing-newline repair runs after each copy. `quality=PASS` on the mirror now means the same thing it means in CI.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
 ## [3.53.0] - 2026-10-18
 
 ### The collapse guard no longer cuts a correct answer for containing a separator
