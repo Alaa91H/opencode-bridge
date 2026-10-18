@@ -1,3 +1,25 @@
+## [3.56.0] - 2026-10-18
+
+### The collapse guard now catches the shape it was most often missing
+
+Writing the acceptance sweep found a hole: the commonest collapse is the same two or three words repeated inline along one long line. `_PHRASE_LOOP` builds its phrase from `\S*`, which cannot span a space, so a multi-word loop matched nothing; `_REPEATED_LINE` cannot see it either, because the repetition never reaches a newline.
+
+- `_inline_phrase_loop` finds it with a plain period scan rather than a regex. A pattern spanning arbitrary words is exactly where backtracking turns a 4000-character page into a stalled delivery.
+- A repetition must still be at least 200 characters and five copies, and the repeated chunk must contain real letters, so a short refrain, a list that reuses a word, and a long normal sentence all pass untouched.
+- Verified against the answers this host has actually delivered, not invented samples: **zero disagreements** with the shipped guard. One stored answer really had collapsed — `Allocateallocate_html_docs…` repeated 3212 times — and it was already being caught, at exactly the same offset.
+- A timing test keeps the scan under three seconds on a 120-paragraph clean answer.
+
+### `scripts/acceptance.py` — the sweep lives in the repository
+
+Verifying a deployment had been an ad-hoc script rebuilt by hand each time, which is how a report once shipped with an empty version number, a raw JSON line and a visible `&gt;`. It is now a repository tool with twenty checks that read the live deployment: identity, git head, working tree, services, agent health, watchdog verdict, queue, the three permission blocks, capability posture, systemd's live config, the agent's skill list, digest pages, the collapse guard, plain-answer rendering, the skills repository, the two-way client protocol, host control and the reload path.
+
+- The agent health probe loads the deployment's own `.env` and sends basic auth. Without the password the server answers 401 and a healthy service reads as broken.
+- The report is built as Markdown and rendered **once** through the product's renderer, then sent as HTML. `--report` delivers it to the owner's chat.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
 ## [3.55.0] - 2026-10-18
 
 ### The watchdog stopped calling a healthy host degraded

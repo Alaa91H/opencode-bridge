@@ -109,6 +109,50 @@ class DecorationIsNotCollapseTests(unittest.TestCase):
         self.assertEqual(masked.index("ثاني"), text.index("ثاني"))
 
 
+class InlinePhraseLoopTests(unittest.TestCase):
+    """The commonest collapse shape: the same few words repeated along one line.
+
+    ``\\S*`` cannot span a space, so a phrase of two or three words repeated
+    inline matched no rule at all, and a whole-line pattern cannot see it because
+    the repetition never reaches a newline.
+    """
+
+    def test_a_multi_word_phrase_repeated_inline_is_found(self) -> None:
+        text = "مقدمة صحيحة.\n\nتخطيط مساحة العمل " * 30
+        self.assertIsNotNone(collapse_start(text))
+
+    def test_an_english_phrase_repeated_inline_is_found(self) -> None:
+        text = "Intro.\n\nthe deployment pipeline validates every release " * 20
+        self.assertIsNotNone(collapse_start(text))
+
+    def test_a_long_normal_sentence_is_not_a_collapse(self) -> None:
+        text = (
+            "نشرنا اليوم الإصدار الذي يضيف صفحة لكل خبر على حدة، مع زر يفتح "
+            "المصدر الأصلي، ومسار كامل للنص إذا تعذّر العرض على شاشة واحدة."
+        )
+        self.assertIsNone(collapse_start(text))
+
+    def test_a_list_that_repeats_a_short_word_is_not_a_collapse(self) -> None:
+        text = "\n".join(f"- الخطوة {index}: الإعداد جاهز." for index in range(12))
+        self.assertIsNone(collapse_start(text))
+
+    def test_a_short_repetition_stays_allowed(self) -> None:
+        text = "نص.\n\nنعم نعم نعم نعم نعم\n"
+        self.assertIsNone(collapse_start(text))
+
+    def test_the_guard_stays_fast_on_a_large_clean_answer(self) -> None:
+        import time
+
+        body = "\n\n".join(
+            f"## فقرة رقم {index}\n\nنص عربي طويل بما فيه الكفاية ليمر دون ملاحظة، "
+            "مع رقم وكلمة إنجليزية مثل pipeline و token و checksum."
+            for index in range(120)
+        )
+        started = time.monotonic()
+        self.assertIsNone(collapse_start(body))
+        self.assertLess(time.monotonic() - started, 3.0)
+
+
 class TruncationTests(unittest.TestCase):
     def test_a_collapsed_answer_keeps_the_readable_part(self) -> None:
         kept, truncated = truncated_answer(COLLAPSED)

@@ -29,6 +29,9 @@ _PHRASE_LOOP = re.compile(r"(?P<phrase>\S*\w\S{4,119}?)(?:\s*\1){4,}")
 _REPEATED_LINE = re.compile(r"(?P<line>[^\n]{20,160}?\w[^\n]{0,160}?)\n(?:\s*\1\n?){4,}")
 _DECORATIVE_RULE = re.compile(r"^\s*[-=_*#~]{3,}\s*$")
 MIN_LOOP_CHARS = 200
+MIN_PHRASE_CHARS = 5
+MAX_PHRASE_CHARS = 60
+MIN_PHRASE_REPEATS = 5
 
 TAIL_NOTE = (
     "⚠️ **توقف الرد هنا** — انقطع الرد في منتصفه بسبب خلل في مخرجات النموذج "
@@ -63,6 +66,41 @@ def _mask_decoration(text: str) -> str:
     )
 
 
+def _inline_phrase_loop(scanned: str) -> int | None:
+    """Offset where a multi-word phrase starts repeating inside a single line.
+
+    The patterns above see either one token or a whole line. The commonest shape
+    of a collapse is neither: the same two or three words repeated inline,
+    separated by spaces, along one long line. ``\\S*`` cannot span a space, so
+    that shape slipped through every rule, and a whole-line pattern cannot see it
+    because the repetition never reaches a newline.
+
+    The search is a plain period scan rather than a regex, because a pattern that
+    spans arbitrary words is exactly where backtracking turns a four-thousand
+    character page into a stalled delivery.
+    """
+    for line_match in re.finditer(r"[^\n]+", scanned):
+        line = line_match.group(0)
+        length = len(line)
+        if length < MIN_LOOP_CHARS:
+            continue
+        largest = min(MAX_PHRASE_CHARS, length // MIN_PHRASE_REPEATS)
+        for period in range(MIN_PHRASE_CHARS, largest + 1):
+            index = 0
+            while index + 2 * period <= length:
+                chunk = line[index:index + period]
+                if not chunk.strip() or not any(character.isalnum() for character in chunk):
+                    index += 1
+                    continue
+                repeats = 1
+                while line[index + repeats * period:index + (repeats + 1) * period] == chunk:
+                    repeats += 1
+                if repeats >= MIN_PHRASE_REPEATS and repeats * period >= MIN_LOOP_CHARS:
+                    return line_match.start() + index
+                index += 1
+    return None
+
+
 def collapse_start(text: str) -> int | None:
     """Offset where a repetition collapse begins, or None when the answer is clean."""
     if not text:
@@ -75,6 +113,9 @@ def collapse_start(text: str) -> int | None:
     phrase = _PHRASE_LOOP.search(scanned)
     if phrase is not None and len(phrase.group(0)) >= MIN_LOOP_CHARS:
         positions.append(phrase.start())
+    inline = _inline_phrase_loop(scanned)
+    if inline is not None:
+        positions.append(inline)
     if not positions:
         return None
     return _clean_cut(text, min(positions))
