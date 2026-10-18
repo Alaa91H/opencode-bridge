@@ -18,7 +18,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from bridge.telegram.rendering.markdown_html import MAX_PAGE_CHARS, Page, build_pages
+from bridge.telegram.rendering.markdown_html import (
+    MAX_PAGE_CHARS,
+    Page,
+    build_pages,
+    extract_links,
+)
 
 _IMAGE_RE = re.compile(r"!\[(?P<alt>[^\]]{0,200})\]\((?P<url>https?://[^\s)]+)\)")
 _SECTION_RE = re.compile(r"^#{1,6}\s+(?P<title>.+?)\s*#*\s*$")
@@ -138,10 +143,13 @@ def _section_label(section: str) -> str:
 
 def build_news_pages(text: str, *, max_len: int = MAX_PAGE_CHARS) -> list[Page]:
     """Render a digest item by item, falling back to section pages elsewhere."""
+    # One decision for the whole answer: a summary that keeps `[3]` while the
+    # item it points to dropped it reads as a broken cross-reference.
+    strip_citations = bool(extract_links(text or ""))
     pages: list[Page] = []
     for chunk in _chunks(text):
         source = "\n".join(chunk.lines)
-        produced = build_pages(source, max_len=max_len)
+        produced = build_pages(source, max_len=max_len, strip_citations=strip_citations)
         if not produced:
             continue
         if chunk.kind != "item":
@@ -149,7 +157,9 @@ def build_news_pages(text: str, *, max_len: int = MAX_PAGE_CHARS) -> list[Page]:
             continue
         label = _section_label(chunk.section)
         body = f"{label}\n\n{source}" if label else source
-        rendered = build_pages(body, max_len=max_len)
+        rendered = build_pages(
+            body, max_len=max_len, strip_citations=strip_citations
+        )
         if not rendered:
             continue
         first = rendered[0]

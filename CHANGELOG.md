@@ -1,3 +1,24 @@
+## [3.47.0] - 2026-10-18
+
+### A digest item arrives as a channel post, not a wall of text
+
+Found by re-running the owner's own digest request end to end and reading what the bot actually sent: the per-item pages were correct, but each item was one dense paragraph — `التاريخ / التصنيف / المزود / ما يشمله / الحدود والشروط / طريقة الحصول / الرابط` all ran together with `[1]` markers no page could resolve and a rule dangling at the end.
+
+- Every labelled field of a run-on line becomes its own bullet, so an item reads as a short list a channel would publish, not a slab.
+- A headline that swallowed its own fields (`### 7. … الكلام**التاريخ:** …`) keeps the headline and hands the fields to the list, instead of a heading the size of a page.
+- A lone labelled field joins the list rather than sitting between two tidy lists as prose.
+- A field name is one or two words: `Mistral تطلق Timestral: نماذج…` is a title with a colon in it, not a field, and no longer gets its title bolded.
+- Long prose is broken into paragraphs at sentence ends, so a 700-character paragraph no longer arrives as one dense block. A URL is never cut: a boundary only ever follows whitespace.
+- `[3]` citation markers are dropped when — and only when — the answer really carries sources, decided once for the whole answer so no page disagrees with its neighbour. An answer whose sources are only markers keeps them.
+- A page never opens or closes on a `────────────` rule; a rule inside a page stays.
+- `«Rosalind Plan»:30` gets its missing space, while `12:30` is left alone.
+- Verified live: the owner's digest now renders as 14 pages — a title, an executive summary, and one page per item with its own headline, field list, and source button, longest page 1,456 characters.
+- Tests: `tests/test_readable_field_layout.py` (17 tests) plus the existing rendering and news-item suites; 1109 local tests, only the 12 pre-existing environment failures.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
 ## [3.46.1] - 2026-10-17
 
 ### A section label stops arriving as its own message

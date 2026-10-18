@@ -40,6 +40,11 @@ _STRIKE_RE = re.compile(r"~~(?P<body>[^~]+?)~~")
 _ITALIC_RE = re.compile(r"(?<![\w*])\*(?P<body>[^*\n]{1,300})\*(?![\w*])")
 _ANCHOR_RE = re.compile(r'<a href="(?P<url>[^"]+)">(?P<label>[^<]*)</a>')
 _LABEL_RE = re.compile(r"^(?P<label>[^:：\n]{2,24})\s*[:：]\s+(?P<rest>.+)$")
+_FIELD_RE = re.compile(r"\*\*(?P<label>[^*\n]{1,40}?)\s*[:：]\s*\*\*?")
+_CITATION_RE = re.compile(r"[ \t]*\[\d{1,3}\]")
+_GLUED_COLON_RE = re.compile(r"(?<=[\"»”)\]]):(?=\S)")
+_SENTENCE_RE = re.compile(r"(?<=[.!؟?!…؛;])\s+(?=[^\s])")
+_FIELD_HEAD_RE = re.compile(r"^\*\*[^*\n]{1,40}?\s*[:：]\s*\*\*")
 
 _PARAGRAPH = "paragraph"
 _LIST = "list"
@@ -147,14 +152,79 @@ def _plain_inline(text: str) -> str:
     return working.strip()
 
 
+def _split_fields(line: str) -> tuple[str, list[str]]:
+    """Give each labelled field of a run-on paragraph its own line.
+
+    Agents write digests as ``**التاريخ:** 15 أكتوبر · **التصنيف:** مؤكد · …``
+    in one paragraph. On Telegram that is a wall of text with no place to rest
+    the eye, so every field becomes a bullet and the item reads like a channel
+    post. The text before the first field is the headline and is kept apart;
+    fewer than two fields means there is nothing to split and the line is prose.
+    """
+    matches = list(_FIELD_RE.finditer(line))
+    if len(matches) < 2:
+        return "", []
+    head = line[: matches[0].start()].strip().rstrip(" ·•")
+    fields: list[str] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(line)
+        chunk = line[match.start() : end].strip().strip("·•—-– \t")
+        if chunk:
+            fields.append(chunk)
+    return head, fields
+
+
+def _split_wall(text: str, limit: int = 340) -> list[str]:
+    """Break one long paragraph into readable paragraphs at sentence ends.
+
+    Telegram wraps text on its own, so a 700-character paragraph arrives as one
+    dense slab with nowhere to rest the eye. Splitting at sentence boundaries
+    gives the reader paragraphs without touching a word of the answer, and a URL
+    is never cut because a boundary always follows whitespace.
+    """
+    if len(text) <= limit:
+        return [text]
+    sentences = _SENTENCE_RE.split(text)
+    chunks: list[str] = []
+    current = ""
+    for sentence in sentences:
+        piece = sentence.strip()
+        if not piece:
+            continue
+        if current and len(current) + len(piece) + 1 > limit:
+            chunks.append(current)
+            current = piece
+            continue
+        current = f"{current} {piece}".strip() if current else piece
+    if current:
+        chunks.append(current)
+    return chunks or [text]
+
+
+def _tidy(line: str, *, strip_citations: bool) -> str:
+    """Typographic repairs that make a delivered answer look written, not dumped."""
+    if strip_citations:
+        # `[3]` only means something next to a sources list; the page already
+        # carries the source as a button, so the marker is dead weight.
+        line = _CITATION_RE.sub("", line)
+    return _GLUED_COLON_RE.sub(": ", line)
+
+
 def _labelled(body: str) -> tuple[str, str] | None:
-    """Bold a short leading label (``ما حدث:``) the way digests are read."""
+    """Bold a short leading label (``ما حدث:``) the way digests are read.
+
+    Only a name, never a headline: ``Mistral تطلق Timestral: نماذج…`` is a
+    sentence whose colon belongs to the title, and bolding the title reads as a
+    formatting fault. Field names are one or two words long.
+    """
     match = _LABEL_RE.match(body.strip())
     if match is None:
         return None
-    label = _escape(match.group("label").strip())
-    rest = _inline(match.group("rest"))
     plain_label = match.group("label").strip()
+    if len(plain_label.split()) > 2:
+        return None
+    label = _escape(plain_label)
+    rest = _inline(match.group("rest"))
     return f"<b>{label}:</b> {rest}", f"{plain_label}: {_plain_inline(match.group('rest'))}"
 
 
@@ -197,17 +267,19 @@ def _heading_block(line: str) -> _Block | None:
     )
 
 
-def build_blocks(text: str) -> list[_Block]:
+def build_blocks(text: str, *, strip_citations: bool | None = None) -> list[_Block]:
     """Render an answer into display blocks: headings, lists, quotes, code."""
     blocks: list[_Block] = []
     quote: list[str] = []
     fence: list[str] = []
     in_fence = False
+    if strip_citations is None:
+        strip_citations = bool(extract_links(text or ""))
 
-    def add(block: _Block) -> None:
+    def add(block: _Block, *, merge: bool = True) -> None:
         if not block.html:
             return
-        if blocks and blocks[-1].kind == block.kind and block.kind == _LIST:
+        if merge and blocks and blocks[-1].kind == block.kind and block.kind == _LIST:
             previous = blocks[-1]
             blocks[-1] = _Block(
                 f"{previous.html}\n{block.html}",
@@ -215,7 +287,7 @@ def build_blocks(text: str) -> list[_Block]:
                 _LIST,
             )
             return
-        if blocks and blocks[-1].kind == _PARAGRAPH and block.kind == _PARAGRAPH:
+        if merge and blocks and blocks[-1].kind == _PARAGRAPH and block.kind == _PARAGRAPH:
             previous = blocks[-1]
             blocks[-1] = _Block(
                 f"{previous.html} {block.html}",
@@ -258,27 +330,48 @@ def build_blocks(text: str) -> list[_Block]:
             in_fence = True
             fence = []
             continue
+        line = _tidy(line, strip_citations=strip_citations)
         if not line.strip():
             flush_quote()
             continue
         flush_quote()
-        heading = _heading_block(line)
+        stripped = line.strip()
+        head, fields = _split_fields(stripped)
+        if fields:
+            # A headline that swallowed its own fields keeps the headline and
+            # hands the fields to the list, never a heading the size of a page.
+            if head:
+                block = _heading_block(head)
+                if block is None:
+                    block = _Block(_inline(head), _plain_inline(head))
+                add(block)
+            for field in fields:
+                add(_Block(f"• {_inline(field)}", f"• {_plain_inline(field)}", _LIST))
+            continue
+        heading = _heading_block(stripped)
         if heading is not None:
             add(heading)
             continue
-        if _RULE_RE.match(line) is not None:
+        if _RULE_RE.match(stripped) is not None:
             add(_Block(DIVIDER, DIVIDER, _DIVIDER))
             continue
-        quoted = _QUOTE_RE.match(line)
+        quoted = _QUOTE_RE.match(stripped)
         if quoted is not None:
             quote.append(quoted.group("body").strip())
             continue
-        bullet = _bullet_block(line)
+        bullet = _bullet_block(stripped)
         if bullet is not None:
             add(bullet)
             continue
-        stripped = line.strip()
-        add(_Block(_inline(stripped), _plain_inline(stripped)))
+        if _FIELD_HEAD_RE.match(stripped):
+            # A lone labelled field belongs with the fields above it, not as a
+            # slab of prose between two tidy lists.
+            add(_Block(f"• {_inline(stripped)}", f"• {_plain_inline(stripped)}", _LIST))
+            continue
+        # A long paragraph becomes several paragraphs; merging them back into
+        # one block would undo the only breathing room the reader gets.
+        for chunk in _split_wall(stripped):
+            add(_Block(_inline(chunk), _plain_inline(chunk)), merge=False)
     flush_quote()
     flush_fence()
     return blocks
@@ -308,15 +401,25 @@ def _split_block(block: _Block, max_len: int) -> list[_Block]:
     return pieces
 
 
-def build_pages(text: str, *, max_len: int = MAX_PAGE_CHARS) -> list[Page]:
+def build_pages(
+    text: str, *, max_len: int = MAX_PAGE_CHARS, strip_citations: bool | None = None
+) -> list[Page]:
     """Render Markdown into Telegram-ready pages, never cutting a topic in half."""
+    # Citation markers are decided once for the whole answer: a page whose
+    # neighbour stripped `[3]` while it kept them reads as a broken reference.
+    if strip_citations is None:
+        strip_citations = bool(extract_links(text or ""))
     blocks: list[_Block] = []
-    for block in build_blocks(text):
+    for block in build_blocks(text, strip_citations=strip_citations):
         blocks.extend(_split_block(block, max_len))
     pages: list[Page] = []
     current: list[_Block] = []
     size = 0
     for block in blocks:
+        # A rule that would open a page separates nothing: the section heading
+        # above it already did, and a message that starts with a line is noise.
+        if block.kind == _DIVIDER and not current:
+            continue
         addition = len(block.html) + (2 if current else 0)
         # A heading starts a new page, except directly under a document title:
         # "# نشرة" followed by "## عاجل" is one page, not a lonely title page.
@@ -362,8 +465,13 @@ def _page_links(
 
 
 def _page(blocks: list[_Block], images: tuple[tuple[str, str], ...] = ()) -> Page:
-    html = _join(blocks, html=True)
-    plain = _join(blocks, html=False)
+    trimmed = list(blocks)
+    # A page that ends on a divider looks cut off: the rule belonged to a
+    # section that continues on the next page, so it never closes a page.
+    while len(trimmed) > 1 and trimmed[-1].kind == _DIVIDER:
+        trimmed.pop()
+    html = _join(trimmed, html=True)
+    plain = _join(trimmed, html=False)
     return Page(
         html=html,
         plain=plain,
