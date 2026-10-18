@@ -95,5 +95,62 @@ class WatchdogPolicyTests(unittest.TestCase):
         self.assertIn("hourly limit", reason)
 
 
+class MemoryIsNotPressureByItselfTests(unittest.TestCase):
+    """Free memory alone must not be reported as pressure.
+
+    Found live on the deployment host: 951 MiB of RAM, 255 MiB available, 5082
+    MiB of swap with 4778 MiB free and PSI at zero, and the watchdog called it
+    "degraded / high memory pressure" every five minutes. An alarm that fires
+    when nothing is wrong is how the real alarm stops being read.
+    """
+
+    LIVE_HOST = {
+        "total": 951, "available": 255, "swap_total": 5082,
+        "swap_free": 4778, "psi": 0.0,
+    }
+
+    def assess(self, **overrides):
+        values = {**self.LIVE_HOST, **overrides}
+        return assess_health(
+            ResourceSnapshot(
+                values["total"], values["available"], values["swap_total"],
+                values["swap_free"], 2, 0.3, 40.0, values["psi"],
+            ),
+            ServiceHealth(True, True, True),
+            QueueHealth(),
+            UpdateHealth(deployed_matches_head=True, behind_origin_main=0),
+        )
+
+    def test_the_shape_that_raised_a_false_alarm_is_healthy(self) -> None:
+        result = self.assess()
+        self.assertEqual(result.status, "healthy")
+        self.assertEqual(result.score, 100)
+        self.assertEqual(result.issues, ())
+
+    def test_a_full_swap_restores_the_alarm(self) -> None:
+        result = self.assess(swap_free=64)
+        self.assertIn("high memory pressure", result.issues)
+        self.assertEqual(result.status, "degraded")
+
+    def test_unknown_swap_is_not_room(self) -> None:
+        result = self.assess(swap_total=0, swap_free=0)
+        self.assertIn("high memory pressure", result.issues)
+
+    def test_no_headroom_and_critically_low_memory_asks_for_a_human(self) -> None:
+        result = self.assess(available=90, swap_free=32)
+        self.assertIn("critically low available memory", result.issues)
+        self.assertTrue(result.manual_action_required)
+
+    def test_stalls_are_reported_once_not_twice(self) -> None:
+        result = self.assess(psi=3.0)
+        self.assertIn("memory stalls detected", result.issues)
+        self.assertNotIn("high memory pressure", result.issues)
+
+    def test_stalls_above_ten_always_ask_for_a_human(self) -> None:
+        result = self.assess(psi=12.0)
+        self.assertIn("sustained memory stalls", result.issues)
+        self.assertTrue(result.manual_action_required)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -11,6 +11,19 @@ OPENCODE_SERVICE = "opencode-serve.service"
 TELEGRAM_SERVICE = "opencode-bridge-telegram.service"
 ALLOWED_SERVICES = (OPENCODE_SERVICE, TELEGRAM_SERVICE)
 
+# Free RAM on its own is not pressure. A host that swaps freely keeps its
+# available-memory figure low while every task still runs: the pages live in
+# swap and the kernel brings them back only when they are touched. The kernel
+# itself says whether that is costing anything, through PSI. So memory pressure
+# is reported when tasks are actually stalling, or when there is nowhere left to
+# put a page — not merely because the free-memory number is small.
+#
+# Judged by free memory alone this host reported "degraded / high memory
+# pressure" every five minutes with 4.7 GiB of swap free and PSI at zero, which
+# is an alarm the owner learns to ignore and then stops seeing the real one.
+MIN_SWAP_HEADROOM_PERCENT = 15.0
+MEMORY_STALL_AVG10 = 2.0
+
 
 @dataclass(frozen=True)
 class QueueHealth:
@@ -67,26 +80,40 @@ def assess_health(
         issues.append("Telegram bridge service is inactive")
         recoverable.append(TELEGRAM_SERVICE)
 
-    memory_percent = (
-        resources.available_memory_mib * 100.0 / resources.total_memory_mib
-        if resources.total_memory_mib > 0
-        else 0.0
+    memory_percent = resources.memory_available_percent
+    # A negative figure stands for "swap size unknown", which must never be read
+    # as room: a host that reports no swap has nowhere to put a page.
+    swap_headroom_percent = (
+        resources.swap_free_mib * 100.0 / resources.swap_total_mib
+        if resources.swap_total_mib > 0
+        else -1.0
     )
-    normalized_load = resources.load1 / max(1, resources.cpu_count)
+    swap_has_room = swap_headroom_percent >= MIN_SWAP_HEADROOM_PERCENT
 
-    if resources.available_memory_mib < 128 or memory_percent < 6:
-        score -= 25
-        issues.append("critically low available memory")
-        manual = True
-    elif resources.available_memory_mib < 384 or memory_percent < 12:
-        score -= 15
-        issues.append("high memory pressure")
+    memory_critical = resources.available_memory_mib < 128 or memory_percent < 6
+    memory_tight = resources.available_memory_mib < 384 or memory_percent < 12
+
+    # Only the absence of somewhere to put a page is pressure here. Actual stalls
+    # are reported by the PSI rules below, so a stalling host is never counted
+    # twice for one condition.
+    if (memory_critical or memory_tight) and not swap_has_room:
+        if memory_critical:
+            score -= 25
+            issues.append("critically low available memory")
+            manual = True
+        else:
+            score -= 15
+            issues.append("high memory pressure")
+    # Otherwise the host is tight but coping: no stalls, and somewhere to move a
+    # page. The numbers stay in the reported snapshot, so nothing is hidden.
+
+    normalized_load = resources.load1 / max(1, resources.cpu_count)
 
     if resources.memory_psi_avg10 is not None and resources.memory_psi_avg10 >= 10.0:
         score -= 15
         issues.append("sustained memory stalls")
         manual = True
-    elif resources.memory_psi_avg10 is not None and resources.memory_psi_avg10 >= 2.0:
+    elif resources.memory_psi_avg10 is not None and resources.memory_psi_avg10 >= MEMORY_STALL_AVG10:
         score -= 7
         issues.append("memory stalls detected")
 

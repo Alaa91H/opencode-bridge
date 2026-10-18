@@ -1,3 +1,21 @@
+## [3.55.0] - 2026-10-18
+
+### The watchdog stopped calling a healthy host degraded
+
+Deploying 3.54.0 exposed the alarm this host has been living under: every five minutes the watchdog reported `degraded / score 85 / high memory pressure` while the host reported 951 MiB of RAM, 255 MiB available, **5082 MiB of swap with 4778 MiB free, and memory PSI at 0.00**. Nothing was wrong. Free memory is not pressure: a host that swaps freely keeps that figure low precisely *because* nothing is stalling.
+
+- Pressure is now reported when there is nowhere left to put a page — swap below 15% free — rather than when the free-memory number alone is small. The thresholds themselves are unchanged, so a host that really is out of room still alarms exactly as before.
+- A host that reports **no swap** is treated as having no room, not as having unlimited room. An unknown must never be read as a green light.
+- Actual stalls are still reported by the PSI rules, and a stalling host is no longer counted twice: `high memory pressure` and `memory stalls detected` can no longer both fire for one condition.
+- The protective guard on automatic restarts is deliberately untouched. It refuses to act when memory is critically low, and that is the safe direction to be wrong in.
+- Tests carry the exact live numbers that produced the false alarm, so the regression cannot return silently.
+
+An alarm that fires when nothing is wrong is not a nuisance, it is a defect: it is how the owner stops reading the watchdog at all.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
 ## [3.54.0] - 2026-10-18
 
 ### `/skills` no longer shows its own markup as words
