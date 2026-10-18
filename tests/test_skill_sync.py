@@ -56,10 +56,23 @@ class _FakeGit:
         self.commit = commit
         self.calls: list[list[str]] = []
 
+    def _places_a_tree(self, argv: list[str]) -> bool:
+        """True only for the commands whose last argument is a directory to fill."""
+        if len(argv) < 2:
+            return False
+        return "clone" in argv or "worktree" in argv
+
     async def __call__(self, argv: list[str], *, timeout: float = 60.0) -> CommandResult:
         self.calls.append(list(argv))
         if self.fixture is None:
             return CommandResult(code=self.code, output="")
+        if not self._places_a_tree(argv):
+            # Copying for every argv invented directories in the working
+            # directory: `git rev-parse HEAD` produced a folder called HEAD, and
+            # the systemctl restart produced one named after the service. Running
+            # the suite inside the deployment left debris there, and the
+            # acceptance sweep then reported the deployment as a dirty tree.
+            return CommandResult(code=0, output=self.commit)
         target = Path(argv[-1])
         import shutil
 
@@ -253,6 +266,35 @@ class LoopHygieneTests(unittest.IsolatedAsyncioTestCase):
             service = SkillSyncService(runtime, target_dir=target, runner=git)
             results = await asyncio.gather(service.sync(), service.sync())
             self.assertTrue(all(result.ok for result in results))
+
+
+class TheFakeWritesNothingIntoTheWorkingDirectoryTests(unittest.IsolatedAsyncioTestCase):
+    """Found live: the suite left debris inside the deployment tree.
+
+    The git stand-in copied its fixture for every command it was handed, so
+    ``git rev-parse HEAD`` created a directory called ``HEAD`` and the systemctl
+    restart created one named after the service. Running the tests where the
+    product lives therefore littered the deployment, and the acceptance sweep
+    correctly reported the release as a dirty working tree.
+    """
+
+    async def test_a_full_sync_and_reload_touch_nothing_here(self) -> None:
+        before = set(os.listdir("."))
+        with TemporaryDirectory() as upstream, TemporaryDirectory() as tmp:
+            write_skill(Path(upstream), "no-debris")
+            service, git = SyncTests()._service(tmp, Path(upstream))
+            result = await service.sync()
+            self.assertTrue(result.ok)
+            await service.reload_agent_server()
+            self.assertTrue(any("opencode-serve.service" in call for call in git.calls))
+        after = set(os.listdir("."))
+        self.assertEqual(after - before, set())
+
+    async def test_only_clone_like_commands_place_a_tree(self) -> None:
+        git = _FakeGit(Path("/nonexistent-fixture"))
+        self.assertTrue(git._places_a_tree(["git", "clone", "--depth", "1", "url", "/tmp/x"]))
+        self.assertFalse(git._places_a_tree(["git", "-C", "/tmp/x", "rev-parse", "HEAD"]))
+        self.assertFalse(git._places_a_tree(["systemctl", "--user", "restart", "opencode-serve.service"]))
 
 
 if __name__ == "__main__":

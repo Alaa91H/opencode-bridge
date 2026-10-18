@@ -1,3 +1,18 @@
+## [3.57.0] - 2026-10-18
+
+### The test suite was writing into the deployment it was testing
+
+The acceptance sweep's only failing check on 3.56.0 was the working tree, and the debris was ours: two directories inside the release tree, `HEAD/` and `opencode-serve.service/`, holding nothing but `SKILL.md` fixtures. The git stand-in in `tests/test_skill_sync.py` copied its fixture for **every** command it was handed, so `git rev-parse HEAD` created a directory called `HEAD` and the systemctl restart created one named after the service.
+
+- `_FakeGit` now answers with a copy only for commands that actually place a tree on disk, and reports the commit for the rest. It was also lying about what those commands do.
+- Running the suite where the product lives is now side-effect free, which is what made the check meaningful in the first place.
+- The debris was removed from the deployment: ten skill fixtures, nothing else. A guard refuses to delete either path unless it holds nothing but `SKILL.md`.
+- Tests record the working directory before a full sync and reload, and require it unchanged afterwards.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+
 ## [3.56.0] - 2026-10-18
 
 ### The collapse guard now catches the shape it was most often missing

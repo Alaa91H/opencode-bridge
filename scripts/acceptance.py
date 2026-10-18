@@ -304,11 +304,12 @@ def check_host_control() -> Check:
         payload = collect_inventory(ROOT)
     except Exception as exc:
         return Check("host control is reachable", False, f"{type(exc).__name__}")
-    identity_status = (payload.get("deployment") or {}).get("status", "unknown")
+    identity_status = (payload.get("deployed") or {}).get("status", "unknown")
+    worktree = payload.get("git") or {}
     ok = bool(payload)
     return Check(
         "host control is reachable", ok,
-        f"deployment {identity_status}, {len(payload)} sections",
+        f"deployment {identity_status}, dirty={worktree.get('worktree_dirty')}",
     )
 
 
