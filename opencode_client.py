@@ -1,4 +1,21 @@
-"""Asynchronous client for the local OpenCode HTTP server."""
+"""Asynchronous client for the local OpenCode HTTP server.
+
+This is the **production OpenCode client** used by the running bridge
+(``bot.py``, ``workspace_runtime.py``, ``watchdog_runner.py``,
+``maintenance/daily_agent_maintenance.py``, and the task execution service).
+
+It sits alongside ``bridge/infrastructure/opencode/client_v2.py``
+(``OpenCodeClientV2``), which is the newer typed client with bounded retries,
+correlation IDs and reconnectable events. ``OpenCodeClientV2`` is the preferred
+implementation for new code; this module remains the stable production entry
+point until the two are fully consolidated (tracked under T46 legacy/V3
+consolidation).
+
+Helper functions defined here (``message_model_reference``,
+``extract_text_response``, ``extract_file_response``) are shared across the
+bridge and imported by ``model_manager.py``, ``task_execution_service.py`` and
+``attachments.py``.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,33 @@
-"""Arabic Telegram bridge for a locally hosted OpenCode agent."""
+"""Arabic Telegram bridge for a locally hosted OpenCode agent.
+
+``bot.py`` is the **production orchestrator** (coordinator) of OpenCode Bridge.
+It wires together the core bridge services and the V2 architecture layer under
+``bridge/``:
+
+- Settings and configuration (``bridge.config.get_settings``)
+- Task queue and execution (``task_queue``, ``bridge.services.task_service``,
+  ``bridge.services.task_execution_service``, ``worker_capacity``)
+- OpenCode client (``opencode_client``)
+- Session store (``bridge.domain.sessions.session_store``)
+- Attachment store (``attachments``)
+- Model manager, agent scout, adaptive workers, watchdog
+- Telegram application, commands, callbacks, panels (``bridge.telegram.*``)
+
+It is intentionally kept as a thin coordinator: business logic lives in the
+``bridge/`` services and domain modules, while this module owns the
+application lifecycle (``main``, ``post_init``, ``post_shutdown``), global
+service instances, and the Telegram command/callback adapters that expose them.
+
+Entry points:
+- ``python -m run_v3`` — production entrypoint (used by systemd). Layers
+  ``v3_plugin``, ``ci_plugin``, ``resource_commands``, ``watchdog_plugin`` and
+  ``workspace_runtime`` on top of this module.
+- ``python -m bot`` (via ``start.sh``) — manual/local entrypoint only.
+
+Do not add new business logic here. Prefer adding it to the appropriate
+``bridge/services`` or ``bridge/domain`` module and wiring it through an adapter
+in this file.
+"""
 
 from __future__ import annotations
 

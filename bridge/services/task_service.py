@@ -1,4 +1,21 @@
-"""Application-level task use cases, separate from worker execution."""
+"""Application-level task use cases, separate from worker execution.
+
+This is the **application-service layer** of the three-tier task architecture
+(see ``task_service_v3.py`` for the full picture). ``TaskApplicationService`` is
+independent of worker execution: it depends on protocol ports
+(``TaskRepository``, ``AttachmentCleanupPort``) rather than concrete classes,
+which makes it testable in isolation.
+
+Responsibilities:
+- Enqueue prompts with policy validation and idempotency.
+- List active/recent/failed tasks per owner.
+- Cancel, retry-failed, and abort running tasks.
+- Save task checkpoints through the repository port.
+
+Worker pool execution lives in ``task_service_v3.py`` (``TaskServiceV3``) and its
+root compatibility wrapper ``task_service.py`` (``TaskService``). This service
+does not subclass either — it only consumes ports.
+"""
 
 from __future__ import annotations
 

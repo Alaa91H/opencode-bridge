@@ -1,4 +1,19 @@
-"""Compatibility entry point for the bounded V3 task worker pool."""
+"""Production task service with stable live host-pressure-aware concurrency.
+
+This is the **middle layer** of the three-tier task architecture (see
+``task_service_v3.py`` for the full picture). It subclasses ``TaskServiceV3``
+and adds:
+
+- ``HostResourcePolicy`` + ``StabilizedWorkerLimit``: fast pressure reductions
+  with gradual recovery, preventing worker-count oscillation near thresholds.
+- ``AuditedShadowPolicy``: every real admission-limit change is written to the
+  structured audit log (never every resource sample).
+- ``WorkerCapacity``: a hard claim-admission ceiling (1 or 2) persisted atomically
+  in a runtime file, independent of the adaptive limit.
+
+``AGENT_TASK_WORKERS`` remains the administrative ceiling. Running tasks are
+never cancelled solely to reduce load.
+"""
 
 from __future__ import annotations
 

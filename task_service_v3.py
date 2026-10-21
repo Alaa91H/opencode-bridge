@@ -1,4 +1,20 @@
-"""Bounded worker pool for independent Telegram agent tasks."""
+"""Bounded worker pool for independent Telegram agent tasks.
+
+This is the **foundation layer** of the three-tier task architecture:
+
+1. ``TaskServiceV3`` (this file) — low-level bounded worker pool; claims from the
+   durable queue, executes tasks, heartbeats, and finishes them.
+2. ``root/TaskService`` (``task_service.py``) — compatibility wrapper that adds
+   stabilized host-pressure-aware concurrency and audited shadow policy on top of
+   this pool.
+3. ``bridge/services/task_service.py`` — ``TaskApplicationService``, application-
+   level use cases (enqueue, cancel, retry, checkpoint) that are independent of
+   worker execution and depend on protocol ports rather than concrete classes.
+
+``TaskServiceV3`` is the single source of truth for the worker pool. The root
+``TaskService`` subclasses it; the bridge service does not — it only consumes
+repository-style ports.
+"""
 
 from __future__ import annotations
 

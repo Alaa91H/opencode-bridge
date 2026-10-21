@@ -1,4 +1,28 @@
-"""Safe attachment storage and output collection for the Telegram bridge."""
+"""Safe attachment storage and output collection for the Telegram bridge.
+
+This is the **production attachment store** (``AttachmentStore``) used by the
+running bridge (``bot.py``, ``maintenance/daily_agent_maintenance.py``, tests).
+
+It complements the attachment services in the bridge layer:
+
+- ``bridge/domain/attachments/intelligence.py`` — ``AttachmentIntelligenceRouter``,
+  framework-independent attachment routing (direct / text_index / pdf / video /
+  audio / archive / binary).
+- ``bridge/domain/attachments/media_pipeline.py`` — ``MediaPipeline`` with
+  pluggable media processors (detect → verify → normalize → extract → split →
+  compose).
+- ``bridge/services/attachment_storage_service.py`` — ``AttachmentStorageService``,
+  application-level ingest/release/cleanup backed by a storage backend and
+  metadata store.
+- ``bridge/services/attachment_intelligence_service.py`` and
+  ``bridge/services/attachment_context_service.py`` — higher-level intelligence
+  and context assembly for task execution.
+
+``AttachmentStore`` remains the stable production entry point for Telegram
+media intake, SHA-256 integrity validation, bounded scratch workspaces and
+output collection until the two layers are fully consolidated
+(tracked under T46 legacy/V3 consolidation).
+"""
 
 from __future__ import annotations
 

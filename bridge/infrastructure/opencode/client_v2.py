@@ -1,4 +1,18 @@
-"""Typed OpenCode HTTP client with bounded retries, correlation IDs and reconnectable events."""
+"""Typed OpenCode HTTP client with bounded retries, correlation IDs and reconnectable events.
+
+This is the **modern OpenCode client** in the bridge infrastructure layer. It is
+the preferred implementation for new code and complements the production client
+in ``root/opencode_client.py`` (``OpenCodeClient``), which remains the stable
+entry point used by the running bridge until full consolidation
+(tracked under T46 legacy/V3 consolidation).
+
+``OpenCodeClientV2`` adds:
+- Bounded retries with exponential backoff.
+- Per-request correlation IDs for tracing.
+- Credential-pool failover with success/failure recording.
+- Reconnectable event streams (SSE).
+- Structured metrics (requests, retries, failures, reconnects).
+"""
 
 from __future__ import annotations
 
