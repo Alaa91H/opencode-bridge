@@ -1,15 +1,18 @@
-"""GitHub project management services for OpenCode Bridge.
+"""نظام إدارة مشاريع GitHub الشامل لـ OpenCode Bridge.
 
-Provides comprehensive GitHub REST API integration including:
-- Repository management (create, clone, configure, delete)
-- Pull Request management (create, review, merge, close)
-- Issue management (create, label, assign, comment)
-- Release management (create, publish, upload assets)
-- Branch management (create, delete, protect)
-- Secrets and deploy keys management
+يوفر تكاملاً شاملاً مع GitHub REST API v3 بما في ذلك:
+- إدارة المستودعات (إنشاء، استنساخ، تكوين، حذف)
+- إدارة طلبات السحب (إنشاء، مراجعة، دمج، إغلاق)
+- إدارة القضايا (إنشاء، تسمية، تخصيص، إغلاق، إعادة فتح)
+- إدارة الإصدارات (إنشاء، نشر، رفع أصول)
+- إدارة الفروع (إنشاء، حذف، حماية)
+- إدارة الأسرار ومفاتيح النشر
+- لوحة تحكم المشاريع (عرض شامل لحالة جميع المشاريع)
+- سير العمل التلقائي (تنفيذ مهام متكررة تلقائياً)
+- الإشعارات الذكية (إشعارات فورية للأحداث المهمة)
 
-All services use authenticated GitHub API v3 with rate limit
-handling, retry logic, and Arabic error messages for Telegram users.
+تستخدم جميع الخدمات مصادقة GitHub API v3 مع معالجة حدود المعدل،
+منطق المحاولة مجدداً، ورسائل أخطاء بالعربية لمستخدمي Telegram.
 """
 
 from bridge.services.github.api import (
@@ -28,10 +31,23 @@ from bridge.services.github.branches import (
     GitHubBranchProtection,
 )
 from bridge.services.github.commands import GitHubCommandHandler
+from bridge.services.github.dashboard import (
+    DashboardFormatter,
+    DashboardSummary,
+    ProjectDashboard,
+    RepositoryDashboard,
+)
 from bridge.services.github.issues import (
     GitHubIssue,
     GitHubIssueComment,
     GitHubIssueManager,
+)
+from bridge.services.github.notifications import (
+    Notification,
+    NotificationPriority,
+    NotificationRule,
+    NotificationType,
+    SmartNotificationManager,
 )
 from bridge.services.github.pull_requests import (
     GitHubPRComment,
@@ -57,6 +73,8 @@ from bridge.services.github.secrets import (
 )
 
 __all__ = [
+    "DashboardFormatter",
+    "DashboardSummary",
     "GitHubAPIClient",
     "GitHubAPIError",
     "GitHubAuthenticationError",
@@ -86,4 +104,12 @@ __all__ = [
     "GitHubSecret",
     "GitHubSecretManager",
     "LocalRepositoryManager",
+    "Notification",
+    "NotificationPriority",
+    "NotificationRule",
+    "NotificationType",
+    "ProjectDashboard",
+    "RepositoryDashboard",
+    "SmartNotificationManager",
 ]
+
