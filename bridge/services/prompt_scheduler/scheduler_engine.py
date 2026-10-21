@@ -58,7 +58,7 @@ class ScheduledPrompt:
     max_executions: int | None = None  # الحد الأقصى لعدد مرات التنفيذ (للمتكرر)
     metadata: dict[str, Any] = field(default_factory=dict)  # بيانات إضافية
 
-    def __lt__(self, other: "ScheduledPrompt") -> bool:
+    def __lt__(self, other: ScheduledPrompt) -> bool:
         """مقارنة للترتيب في قائمة الانتظار based على الأولوية والوقت."""
         if self.priority.value != other.priority.value:
             return self.priority.value < other.priority.value
@@ -91,7 +91,6 @@ class ScheduledPrompt:
         if self.schedule_type != ScheduleType.RECURRING or not self.interval:
             return None
 
-        now = datetime.now(UTC)
         base = self.next_execution or self.created_at
 
         try:
@@ -175,7 +174,7 @@ class ConditionEngine:
         if not conditions:
             return True
 
-        for condition_type, condition_value in conditions.items():
+        for _condition_type, condition_value in conditions.items():
             if isinstance(condition_value, bool):
                 if not condition_value:
                     return False
