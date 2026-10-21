@@ -58,9 +58,6 @@ from block_patterns import check_build, check_hardline
 from bridge.config import get_settings
 from bridge.config.runtime_flags import enabled as runtime_flag_enabled
 from bridge.domain.policies import RequestGuard
-from bridge.domain.schedules import (
-    parse_utc_datetime as schedule_parse_utc_datetime,
-)
 from bridge.infrastructure.database.draft_store import DraftStore
 from bridge.infrastructure.database.user_settings_store import UserSettingsStore
 from bridge.infrastructure.opencode.credential_pool import CredentialPool, parse_credential_pool
@@ -113,6 +110,7 @@ from bridge.telegram.panels import (
     PanelRouter,
     build_panels,
 )
+from bridge.telegram.helpers import parse_utc_datetime, task_status_text
 from bridge.telegram.role_policy import resolve_owner_id
 from formatter import MAX_MESSAGE_LENGTH
 from messages import (
@@ -1060,20 +1058,13 @@ async def _create_fresh_session(user_id: str) -> str:
 
 
 def _parse_utc_datetime(value: str) -> datetime:
-    """Compatibility wrapper for the T02 scheduling domain parser."""
-    return schedule_parse_utc_datetime(value)
+    """Compatibility wrapper; delegates to ``bridge.telegram.helpers.parse_utc_datetime``."""
+    return parse_utc_datetime(value)
 
 
 def _task_status_text(task: QueuedTask) -> str:
-    labels = {
-        "queued": "بانتظار التنفيذ",
-        "scheduled": "مجدولة",
-        "running": "قيد التنفيذ",
-        "completed": "مكتملة",
-        "failed": "فشلت",
-        "cancelled": "ملغاة",
-    }
-    return labels.get(task.status, task.status)
+    """Compatibility wrapper; delegates to ``bridge.telegram.helpers.task_status_text``."""
+    return task_status_text(task)
 
 
 def _variant_for_model(model_id: str | None) -> str | None:
