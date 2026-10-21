@@ -164,10 +164,40 @@ Important settings include Telegram credentials/allow-lists, OpenCode host/authe
 See:
 
 - [`.env.example`](.env.example)
+- [`.env.v3.example`](.env.v3.example)
+- [`bridge.toml.example`](bridge.toml.example) — optional central config
 - [`opencode.json`](opencode.json)
 - [Arabic deployment guide](DEPLOYMENT_AR.md)
 - [Release process](RELEASE_PROCESS_AR.md)
 - [Changelog](CHANGELOG.md)
+
+## Entrypoints
+
+The bridge has two entrypoints; use the production one for deployment:
+
+- **`python -m run_v3`** — Production entrypoint. Loads `bot` as core and layers on
+  `v3_plugin`, `ci_plugin`, `resource_commands`, `watchdog_plugin`, and
+  `workspace_runtime`. This is what systemd user services should run.
+- **`python -m bot`** (via `start.sh`) — Manual/local entrypoint only. Runs the core
+  bridge without the V3 plugin stack; useful for quick local checks but not the
+  supported production path.
+
+### Environment files
+
+Two example files exist for different contexts:
+
+- **`.env.example`** — General-purpose template. Uses `telegram-operator` as the
+  OpenCode agent. Copy to `.env`, set secrets locally, never commit the real file.
+- **`.env.v3.example`** — V3-specific template. Uses `development-agent` as the
+  OpenCode agent and adds GitHub workspace/CI variables (`GITHUB_WORKSPACE_ROOT`,
+  `GITHUB_ALLOWED_REPOS`, `GITHUB_TOKEN`, `GITHUB_CI_WORKFLOW`) plus
+  `AGENT_ADAPTIVE_WORKERS=1`. Use this when running the V3 development stack.
+
+### Central configuration (optional)
+
+`BridgeSettings` also supports a central TOML/JSON config file. See
+[`bridge.toml.example`](bridge.toml.example) for a template; set
+`BRIDGE_CONFIG_FILE` to use it. Environment variables always override file values.
 
 ## Deployment
 

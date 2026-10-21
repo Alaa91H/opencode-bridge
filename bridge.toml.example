@@ -1,0 +1,57 @@
+# OpenCode Bridge central configuration file (optional).
+# Environment variables take precedence over values in this file.
+# Set BRIDGE_CONFIG_FILE to point to a different path if needed.
+
+[telegram]
+bot_token = ""
+allowed_users = []
+owner_id = 0            # Optional; required for owner-only host controls when 2+ users are allowed.
+allowed_chat_ids = []
+proxy_url = ""
+attachment_max_bytes = 20971520
+attachment_max_count = 10
+attachment_max_total_bytes = 52428800
+attachment_pending_seconds = 600
+media_group_debounce_seconds = 1.25
+api_mode = "cloud"      # "cloud" or "local"
+local_api_base_url = "http://127.0.0.1:8081/bot"
+local_file_base_url = "http://127.0.0.1:8081/file/bot"
+
+[opencode]
+host = "127.0.0.1"
+port = 4096
+password = ""
+server_username = "opencode"
+server_password = ""
+default_model = "opencode/muse-spark-1.3-contributor-free"
+model_variant = "xhigh"
+variant_model = "opencode/muse-spark-1.3-contributor-free"
+pin_default_model = 0
+agent = "telegram-operator"
+model_sync_seconds = 900
+free_daily_points = 200
+
+[agent]
+scout_interval_seconds = 86400
+scout_auto_strongest = true
+scout_preferred_agent = "development-agent"
+scout_web_research = true
+task_workers = 2
+task_poll_seconds = 5
+worker_recovery_seconds = 300
+
+[watchdog]
+interval_seconds = 300
+stale_task_seconds = 7200
+restart_cooldown_seconds = 300
+max_restarts_per_hour = 3
+
+[logging]
+level = "INFO"
+
+[features]
+adaptive_workers = true
+auto_strongest_free_model = true
+full_access = false
+live_output = false
+stream_drafts = false
