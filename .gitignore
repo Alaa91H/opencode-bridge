@@ -1,0 +1,36 @@
+# أسرار وتكوين محلي
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+
+# بيانات تشغيلية ونسخ احتياطية
+sessions.db
+sessions.db-*
+runtime/
+*.log
+backups/
+*.tar.gz
+*.tar.xz
+
+# بيئات واعتماديات مولدة
+venv/
+.venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ملفات نظام ومحرر
+.DS_Store
+.vscode/
+.idea/

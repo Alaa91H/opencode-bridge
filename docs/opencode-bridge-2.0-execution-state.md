@@ -1,0 +1,1321 @@
+# OpenCode Bridge 2.0 — حالة التنفيذ
+
+> المرجع الملزم: `docs/opencode-bridge-2.0-execution-plan-ar.md`
+
+## المرحلة الحالية
+
+- المرحلة المغلقة الأخيرة: **T08 — واجهة إدارة الجدولة الحديثة**
+- حالة T00: **مكتملة**
+- حالة T01: **مكتملة**
+- حالة T02: **مكتملة**
+- المرحلة التالية المسموحة فقط: **T09 — Draft / Prompt Editor للأوامر الضخمة**
+- قاعدة الانتقال: لا يجوز بدء T10 قبل إغلاق T09 بالكامل بنفس الصرامة.
+
+## تقدم T00
+
+- [x] إنشاء وثيقة Architecture Baseline للحالة الحالية.
+- [x] تسجيل جميع جداول SQLite الحالية ومخططها.
+- [x] تسجيل جميع متغيرات البيئة الحالية، مع فصل الإعدادات الموثقة عن مراجع الصيانة/الداخلية.
+- [x] حصر أوامر Telegram الحالية في مسار الإنتاج الفعلي `run_v3`.
+- [x] حصر جميع خدمات systemd والمؤقتات.
+- [x] تسجيل حدود المرفقات الحالية.
+- [x] تسجيل سياسات OpenCode الحالية.
+- [x] إنشاء اختبارات regression للوظائف الأساسية قبل refactor.
+- [x] إنشاء benchmark baseline للذاكرة والـCPU وقاعدة البيانات.
+- [x] توثيق نتائج baseline وCI على commit إغلاق التنفيذ البرمجي لـT00.
+
+## أدلة T00
+
+### المرجع والخطة
+- ملف الخطة: `docs/opencode-bridge-2.0-execution-plan-ar.md`
+- commit إنشاء المرجع: `049020b62db93180dcde9155f74df19f367d8227`
+
+### وثيقة baseline
+- `docs/v2-baseline-architecture-ar.md`
+- توثق production entrypoint، architecture، الجداول، env، Telegram commands، systemd، attachment limits، OpenCode policy، workers وCI.
+
+### Regression baseline
+- `tests/test_v2_baseline_contract.py`
+- يثبت production `run_v3` path، الجداول الستة، attachment limits، OpenCode deny policy، schedule API، systemd units، وsingle-message V3 task lifecycle.
+
+### Probe / benchmark
+- `scripts/v2_baseline_probe.py`
+- inventory: modules/tests/commands/environment references/SQLite/systemd/attachments/OpenCode policy.
+- benchmark: CPU SHA-256 throughput + peak RSS + SQLite WAL inserts + indexed point selects.
+
+### إصلاح baseline لازم قبل التثبيت
+- تم إصلاح `v3_plugin.py` كي لا يعرض task ID أو queue position وكي يستخدم نفس رسالة الحالة الواحدة.
+- commit: `eb0fcce01c26ac47db4794d2fc6c73cb9bae8308`
+
+### CI
+- commit التنفيذ المتحقق منه: `840c25f15dad17cf31cda15a4353380e686bcd9d`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36353649290
+- النتيجة: **success**
+- نجح:
+  - Install runtime dependencies
+  - Validate Python syntax
+  - Run unit tests
+  - Record v2 baseline inventory
+  - Run v2 baseline micro-benchmark
+  - Validate shell maintenance scripts
+  - Validate OpenCode configuration
+  - Validate V3 OpenCode configuration
+  - Validate version
+
+## سجل التنفيذ
+
+### 2026-09-27 — T00
+1. تم إنشاء الخطة المرجعية الدائمة.
+2. تم إنشاء ملف حالة التنفيذ.
+3. تم جرد production path الحقيقي `python -m run_v3`.
+4. تم جرد SQLite وTelegram commands وsystemd وenvironment وattachments وOpenCode policies.
+5. تم اكتشاف مسار V3 قديم ما زال يعرض أرقام الطابور؛ تم إصلاحه قبل تثبيت baseline.
+6. تم إنشاء architecture baseline.
+7. تم إنشاء regression contract.
+8. تم إنشاء reproducible inventory + micro-benchmark probe.
+9. تم تشغيل probe وbenchmark داخل CI.
+10. نجح CI بالكامل على commit `840c25f15dad17cf31cda15a4353380e686bcd9d`.
+11. **T00 مغلقة.**
+
+## الخطوة التالية المسموحة فقط
+
+بدء **T01 — تحديث Runtime والاعتماديات** بقراءة ملف الخطة كاملًا أولًا، ثم:
+1. تثبيت الإصدارات المستقرة الحالية من المصادر الرسمية.
+2. إضافة Python 3.12/3.13/3.14 CI matrix.
+3. ترقية الاعتماديات stable فقط.
+4. إضافة reproducible dependency constraints/lock.
+5. Dependabot أو Renovate.
+6. upgrade tests وإزالة deprecation warnings الحرجة.
+7. عدم بدء T02 حتى نجاح كامل Acceptance T01.
+
+
+## تقدم T01
+
+- [x] CI matrix: Python 3.12/3.13/3.14.
+- [x] ترقية `python-telegram-bot` إلى stable 22.8.
+- [x] إبقاء `httpx` على stable 0.28.1 وعدم اعتماد 1.0 prerelease.
+- [x] ترقية `aiosqlite` إلى stable 0.22.1.
+- [x] إضافة `requirements.in` و`constraints.txt`.
+- [x] إضافة full stable runtime lock في `requirements.lock`.
+- [x] إضافة Dependabot لـpip/npm/GitHub Actions.
+- [x] إضافة upgrade/runtime dependency tests.
+- [x] تشغيل `pip check` على كل Python matrix.
+- [x] جعل `DeprecationWarning` خطأ في unit tests.
+- [x] توثيق قرارات runtime/dependencies.
+- [x] نجاح كامل CI على commit التوثيق النهائي.
+
+## أدلة T01
+
+### Runtime / dependencies
+- `python-telegram-bot==22.8`
+- `httpx==0.28.1`
+- `aiosqlite==0.22.1`
+- `requirements.in`: compatibility intent.
+- `requirements.txt`: direct exact runtime pins.
+- `constraints.txt`: stable-line guardrails.
+- `requirements.lock`: full pinned runtime closure لـPython 3.12–3.14.
+
+### CI / policy
+- Python matrix: 3.12, 3.13, 3.14.
+- `PYTHONWARNINGS=error::DeprecationWarning`.
+- `python -m pip check`.
+- `.github/dependabot.yml` يغطي pip/npm/github-actions.
+- `tests/test_dependency_policy.py` يثبت pins/lock/matrix/Dependabot والنسخ المثبتة فعليًا.
+
+### Documentation
+- `docs/t01-runtime-dependencies-ar.md`
+
+### Commit / CI
+- commit التوثيق النهائي لـT01: `8d98b7e3bb8db8f28da4e7585a536eeb7a24c521`
+- GitHub Actions: https://github.com/Alaa91H/opencode-bridge/actions/runs/36354198319
+- النتيجة: **success** على Python 3.12/3.13/3.14.
+- كل job نجح في: locked install, pip check, syntax, unit tests, baseline inventory, micro-benchmark, shell validation, OpenCode configs, version validation.
+
+### ملاحظة supply-chain
+- T01 يقفل الإصدارات ويمنع prerelease.
+- hash locking/SBOM/attestation ليست ناقصة من T01؛ هي ضمن **T38** المخصصة لسلسلة التوريد، ولذلك لم يتم تقديمها خارج ترتيب الخطة.
+
+## سجل التنفيذ — T01
+
+### 2026-09-27
+1. تم التحقق من الإصدارات المستقرة من المصادر الرسمية.
+2. تمت ترقية PTB 21.6 → 22.8 وaiosqlite 0.20.0 → 0.22.1.
+3. تم إبقاء HTTPX 0.28.1 لأن خط 1.0 الحالي prerelease.
+4. تمت إضافة stable compatibility ranges.
+5. تمت إضافة full runtime version lock.
+6. تمت إضافة Python 3.12/3.13/3.14 matrix.
+7. تمت إضافة warnings-as-errors وpip check.
+8. تمت إضافة Dependabot.
+9. تمت إضافة اختبارات dependency policy والنسخ المثبتة فعليًا.
+10. نجح CI النهائي على المصفوفة الثلاثية.
+11. **T01 مغلقة.**
+
+## الخطوة التالية المسموحة فقط
+
+بدء **T02 — تفكيك bot.py وإعادة بناء Architecture** بقراءة ملف الخطة كاملًا أولًا ثم ملف الحالة هذا. يجب الحفاظ على production compatibility أثناء النقل، ولا يجوز حذف المسارات القديمة قبل تغطية behavior بعقود واختبارات. لا يبدأ T03 قبل إغلاق T02 بالكامل.
+
+## تقدم T02
+
+- [x] Telegram handlers لا تحتوي business logic؛ كل compatibility handlers أصبحت delegates رفيعة ومفروضة باختبار AST.
+- [x] SQL لا يظهر في Telegram command adapters.
+- [x] OpenCode layer لا تعتمد على Telegram.
+- [x] scheduler مستقل عن bot عبر `ScheduleService`.
+- [x] attachment pipeline مستقلة وقابلة للاختبار عبر `MediaTaskService`.
+- [x] compatibility layer مؤقتة تمنع كسر الإنتاج أثناء النقل.
+- [x] تغطية اختبارات قبل حذف أي مسار legacy.
+- [x] إنشاء كامل حدود الهيكل المستهدف: telegram/domain/services/infrastructure/workers/config.
+- [x] نقل دورة تنفيذ queue من `bot.py` إلى `TaskExecutionService`.
+- [x] نقل OpenCode variant/file/model fallback إلى `AgentService`.
+- [x] نقل workspace/V3 وCI/resource/maintenance business rules خلف services/adapters مستقلة.
+- [x] توثيق Architecture T02.
+- [x] نجاح كامل CI على Python 3.12/3.13/3.14.
+
+## أدلة T02
+
+### Architecture
+- `docs/t02-architecture-ar.md`
+- `bridge/telegram/app.py`
+- `bridge/telegram/middleware.py`
+- `bridge/telegram/execution.py`
+- `bridge/telegram/commands/*`
+- `bridge/services/task_execution_service.py`
+- `bridge/services/task_service.py`
+- `bridge/services/schedule_service.py`
+- `bridge/services/media_service.py`
+- `bridge/services/agent_service.py`
+- `bridge/services/workspace_service.py`
+- `bridge/services/ci_service.py`
+- `bridge/services/resource_service.py`
+- `bridge/services/maintenance_service.py`
+- `bridge/services/notification_service.py`
+
+### Compatibility
+- `bot.py` بقي production compatibility surface مع thin handlers وthin task-execution wrapper.
+- `run_v3.py` production entrypoint لم يتغير.
+- `v3_plugin.py`, `ci_plugin.py`, `resource_commands.py` بقيت install/compatibility layers فقط.
+- حذف legacy/V3 duplication الكامل لم يتم تقديمه خارج ترتيبه؛ يبقى ضمن T46.
+
+### Tests
+- `tests/test_v2_architecture_boundaries.py`
+- `tests/test_v2_task_architecture.py`
+- `tests/test_v2_media_architecture.py`
+- `tests/test_v2_task_execution_service.py`
+- `tests/test_v2_workspace_service.py`
+- `tests/test_v2_agent_service.py`
+- `tests/test_bot_import.py`
+- `tests/test_v2_baseline_contract.py`
+
+### CI
+- commit آخر تنفيذ/اختبارات T02 قبل تحديث سجل الحالة: `d770c8028e130b34815d5a6bbc5517d01d332140`
+- GitHub Actions: https://github.com/Alaa91H/opencode-bridge/actions/runs/36358325811
+- النتيجة: **success**
+- نجح CI على Python 3.12 و3.13 و3.14، بما في ذلك locked dependency install، `pip check`، syntax، unit tests، baseline inventory/benchmark، shell validation، OpenCode config validation، version validation.
+
+## سجل التنفيذ — T02
+
+### 2026-09-27 / 2026-09-28
+1. تم إنشاء `bridge/telegram`, `bridge/domain`, `bridge/services` ثم استكمال boundaries الخاصة بـinfrastructure/workers/config.
+2. تم نقل schedule rules من Telegram handlers إلى `ScheduleService`.
+3. تم نقل task enqueue/cancel/progress routing إلى `TaskApplicationService`.
+4. تم نقل pending attachments/media-group orchestration خلف `MediaTaskService` و`TelegramMediaAdapter`.
+5. تم نقل Agent/session/model logic إلى `AgentService`.
+6. تم نقل workspace business rules من `v3_plugin.py` إلى `WorkspaceService`.
+7. تم تحويل CI/resource/system plugins إلى thin Telegram adapters.
+8. تم استخراج Telegram access middleware وapplication registration.
+9. تم نقل دورة تنفيذ المهمة كاملة إلى `TaskExecutionService` مع `TelegramExecutionDelivery`.
+10. تم نقل variant/file/model fallback إلى `AgentService` مع اختبارات مباشرة.
+11. تم فرض اختبارات تمنع SQL أو Telegram imports عبر الحدود غير المسموحة وتمنع handlers غير الرفيعة.
+12. تم الحفاظ على compatibility وعدم حذف production paths القديمة.
+13. نجح كامل CI على commit `d770c8028e130b34815d5a6bbc5517d01d332140`.
+14. **T02 مغلقة.**
+
+## الخطوة التالية المسموحة فقط
+
+بدء **T03 — نظام Configuration مركزي** فقط:
+1. إنشاء `BridgeSettings` typed ومتحقق منه عند التشغيل.
+2. دعم env + config file + defaults + per-user policy + per-task override + feature flags.
+3. إزالة قراءات `os.environ` المتفرقة ضمن نطاق T03.
+4. إضافة `/config` لعرض الإعدادات غير السرية.
+5. إضافة `/limits` لعرض الحدود الفعلية.
+6. إضافة validation tests للأخطاء والتعارضات.
+7. عدم بدء T04 قبل إغلاق T03 بالكامل ونجاح CI.
+
+
+
+## تقدم T03 — مكتملة
+
+- [x] BridgeSettings typed والتحقق عند التشغيل.
+- [x] env + config file + defaults + per-user policy + per-task override + feature flags.
+- [x] توحيد قراءات إعدادات Python التشغيلية عبر get_settings مع توافق الإعدادات القديمة.
+- [x] /config لعرض الإعدادات غير السرية.
+- [x] /limits لعرض الحدود الفعلية.
+- [x] validation وprecedence tests في tests/test_v3_settings.py.
+- [x] توثيق BRIDGE_CONFIG_FILE في .env.example.
+- [x] نجاح CI النهائي وتسجيل رابط التشغيل.
+
+### أدلة T03
+- bridge/config/settings.py
+- bridge/services/config_service.py
+- bridge/telegram/commands/config.py
+- bridge/telegram/rendering/config.py
+- tests/test_v3_settings.py
+- commit الاختبارات: f0818c4ad6af2ccc7328ad0edaf94d1521767969
+- commit bot المركزي: e87fd72ae04db809daed4fa95874be49dff68f64
+- commit تسجيل الأوامر: 1a433d2b2d597e260a9189e7e60ec7556fc48bbb
+- commit help: e50b7edcdfa0ee136ef998ff71249228ff038813
+- commit توثيق BRIDGE_CONFIG_FILE: 04bb94fa9ccf50340b438e15a9d81d16e340b700
+
+### CI النهائي وإغلاق T03
+- commit المتحقق منه: `0df11ec2f8f0d3e696508dc3776593cd4b58faf7`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36360198610
+- النتيجة: **success**
+- نجحت jobs: Python 3.12 وPython 3.13 وPython 3.14، وكل خطوات locked install وdependency graph وsyntax وunit tests وbaseline probe/benchmark وshell/OpenCode/version validation.
+- **T03 مغلقة.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T04 — Database Layer v2: **توحيد SessionStore وTaskQueueStore خلف طبقة DB واحدة**. لا يبدأ أي جزء من T05 قبل استكمال جميع بنود T04 واختباراتها وخطة rollback ونجاح CI.
+
+
+## تقدم T04 — مكتملة
+
+- [x] توحيد SessionStore وTaskQueueStore خلف BridgeDatabase واحدة مع دعم حقن connection lifecycle مشترك.
+- [x] WAL وbusy_timeout وforeign_keys وsynchronous policy مركزية.
+- [x] transaction boundaries مع BEGIN/BEGIN IMMEDIATE وcommit/rollback.
+- [x] indexes مثبتة باختبارات EXPLAIN QUERY PLAN للمسارات الحرجة.
+- [x] checkpoint management: PASSIVE/FULL/RESTART/TRUNCATE.
+- [x] periodic integrity check بفاصل افتراضي 24 ساعة.
+- [x] schema_migrations مع version/name/checksum/applied_at.
+- [x] migrations صريحة بدل ALTER المبعثر داخل TaskQueueStore.init.
+- [x] الجداول المستقلة المطلوبة: task_attempts, task_events, attachments, task_outputs, schedules, schedule_runs, agent_sessions, user_settings, resource_snapshots, failure_records.
+- [x] migration/idempotency/transaction rollback tests وخطة rollback موثقة.
+
+### أدلة T04
+- `bridge/infrastructure/database/sqlite.py`
+- `bridge/infrastructure/database/migrations.py`
+- `session_store.py`, `task_queue.py`, `workspace_store.py`
+- `tests/test_v2_database_layer.py`
+- `tests/test_v2_database_migrations.py`
+- `tests/test_v2_database_query_plans.py`
+- `docs/t04-database-layer-ar.md`
+- إصلاح regression لعقد baseline بعد نقل schema إلى migrations: commit `2975c7df853f89168c46333479b852394a822397`.
+
+### CI النهائي لـT04
+- commit المتحقق منه: `2975c7df853f89168c46333479b852394a822397`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36384440768
+- النتيجة: **success**
+- نجحت jobs: Python 3.12 وPython 3.13 وPython 3.14.
+- **T04 مغلقة.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T05 — Durable Queue v2: إضافة UUID عام وidempotency key وlease وheartbeat وattempt/priority/checkpoint والحالات الجديدة، ثم recovery/retry/DLQ وأوامر /failed و/retry واختبارات crash/restart. لا يبدأ T06 قبل إغلاق T05 بالكامل ونجاح CI.
+
+
+## تقدم T05 — مكتملة
+
+- [x] UUID عام وidempotency key وlease وheartbeat وattempt/priority/checkpoint لكل Task.
+- [x] الحالات المطلوبة مدعومة في durable state model مع توافق legacy أثناء الترحيل.
+- [x] worker lease واسترجاع المهمة بعد موت worker/انتهاء lease.
+- [x] heartbeat وتمديد lease للworker المالك فقط.
+- [x] retry engine مع exponential backoff + jitter واحترام Retry-After.
+- [x] تصنيف retryable/non-retryable.
+- [x] Dead Letter Queue.
+- [x] /failed و/retry عبر Telegram → service → durable store مع owner isolation.
+- [x] crash/restart-style tests: lease expiry/reclaim، heartbeat، attempts، retry، DLQ، manual retry، idempotency uniqueness.
+- [x] توثيق state/recovery/failure semantics.
+
+### أدلة T05
+- `bridge/infrastructure/database/migrations.py` — migration durable_queue_v2.
+- `task_queue.py` — durable metadata، claim/lease/heartbeat/recovery/retry/DLQ.
+- `bridge/services/task_service.py` — failed/retry use cases.
+- `bridge/telegram/commands/tasks.py`, `bridge/telegram/app.py`, `bot.py` — /failed و/retry مع thin compatibility handlers.
+- `tests/test_v2_durable_queue.py`.
+- `docs/t05-durable-queue-ar.md`.
+- commits الرئيسية: `32f0edc45b04b80d64eda77016ced11e27eef257`, `a41f4cbbbbabe05f08b29f10ad8c0e6b01f295c6`, `40c1755c63404bd058be0f8bf3e19ab1ac4f1f32`, `c862460e92d5f3e46c3124862fd9bd5ecec4550b`, `9cf36ec90ce29d6aec6a5f55d246ce12c55d9310`.
+
+### CI النهائي لـT05
+- commit المتحقق منه: `9cf36ec90ce29d6aec6a5f55d246ce12c55d9310`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36384731641
+- النتيجة: **success**
+- نجحت jobs: Python 3.12 وPython 3.13 وPython 3.14.
+- **T05 مغلقة.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T06 — Idempotency ومنع التكرار: idempotency record لكل Telegram update، at-least-once input مع effectively-once task creation، منع duplicate schedule occurrence وduplicate enqueue بعد restart، واختبارات update/tick مكررة. لا يبدأ T07 قبل إغلاق T06 بالكامل ونجاح CI.
+
+
+## تقدم T06 — مكتملة
+
+- [x] idempotency record دائم لكل Telegram update عبر scope + update_id.
+- [x] at-least-once input مع effectively-once task creation بمعاملة SQLite ذرية.
+- [x] منع duplicate schedule occurrence عبر primary key مركب وINSERT OR IGNORE.
+- [x] منع duplicate enqueue بعد restart.
+- [x] اختبارات Telegram update مكرر وschedule tick مكرر قبل/بعد restart.
+- [x] إصلاح lock re-entry في مسار duplicate delivery.
+- [x] توثيق semantics والatomicity وحدود المرحلة.
+
+### أدلة T06
+- `bridge/infrastructure/database/migrations.py` — idempotency_records وschedule_occurrences.
+- `task_queue.py` — enqueue_once وclaim_schedule_occurrence.
+- `bridge/services/task_service.py` — تمرير idempotency إلى repository.
+- `bridge/telegram/commands/tasks.py` — update.update_id كمفتاح Telegram.
+- `tests/test_v2_idempotency.py`.
+- `docs/t06-idempotency-ar.md`.
+- commits: `e493391e84c0a43a958c99ff236eec8d1b579191`, `f724688ddbac641497f92b6c39cac400b14c4ecf`, `229ae8adea092b91a4eec4485d1b88eff0835cfb`, `6b653a779dedf73d7e9472d295b0db99725ddd29`, `227a374412b6d1dcf685e512090c3dc69e2b6357`, `75f75a468057c5b898c22b334c987b729cfc8e63`.
+
+### CI النهائي لـT06
+- commit المتحقق منه: `75f75a468057c5b898c22b334c987b729cfc8e63`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36385053502
+- النتيجة: **success**
+- نجحت jobs: Python 3.12 وPython 3.13 وPython 3.14.
+- **T06 مغلقة.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T07 — Scheduler Engine v2: once/interval/cron/daily/weekly/monthly/weekdays مع IANA timezone وDST، misfire/overlap policies، history و/schedhistory وrecovery بعد downtime واختبارات DST. لا يبدأ T08 قبل إغلاق T07 بالكامل ونجاح CI.
+
+
+## تقدم T07 — مكتملة
+
+- [x] once/interval/cron/daily/weekly/monthly/weekdays.
+- [x] user timezone عبر IANA zoneinfo مع validation.
+- [x] DST-aware wall-clock recurrence واختبارات spring-forward/fall-back.
+- [x] misfire policies: skip/run_once/catch_up/coalesce.
+- [x] overlap policies: forbid/allow/replace/queue مع قرارات domain واختبارات.
+- [x] schedule history durable.
+- [x] /schedhistory عبر service/Telegram adapter رفيع.
+- [x] recovery بعد downtime بمعاملة idempotent ومنع duplicate occurrence.
+- [x] توافق legacy scheduled_jobs مع catalog v2 دون كسر FK.
+- [x] توثيق Scheduler v2.
+
+### أدلة T07
+- `bridge/domain/schedules/engine.py`.
+- `bridge/infrastructure/database/migrations.py` — scheduler_v2 migration.
+- `task_queue.py` — recovery/history/materialization.
+- `bridge/services/schedule_service.py`.
+- `bridge/telegram/commands/schedules.py`, `bridge/telegram/app.py`, `bot.py`.
+- `tests/test_v2_scheduler_engine.py`, `tests/test_v2_scheduler_recovery.py`.
+- `docs/t07-scheduler-v2-ar.md`.
+- commits الرئيسية: `e535aa2a`, `0bb2719e`, `40a617ee`, `6991d99d`, `6b392504`, `e1f6cdee`, `94e923a3`, `7abc864c`.
+
+### CI النهائي لـT07
+- commit المتحقق منه: `7abc864c747c9949bf88f175e9665c3b6b87ddec`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36385545521
+- النتيجة: **success**
+- نجحت jobs على Python 3.12 وPython 3.13 وPython 3.14.
+- **T07 مغلقة.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T08 — واجهة إدارة الجدولة الحديثة: Inline Keyboard، pagination، تشغيل/إيقاف/استئناف، تعديل الاسم/الأمر/الوقت/timezone/recurrence، history، duplicate، delete confirmation. لا يبدأ T09 قبل إغلاق T08 بالكامل ونجاح CI.
+
+
+## تقدم T08 — مكتملة
+
+- [x] Inline Keyboard لمتصفح الجدولات.
+- [x] pagination ديناميكية.
+- [x] تشغيل الآن/إيقاف/استئناف.
+- [x] تعديل الاسم/الأمر/الوقت/timezone/recurrence مع بقاء الأوامر النصية متوافقة.
+- [x] history.
+- [x] duplicate باسم غير متعارض.
+- [x] delete confirmation بخطوتين.
+- [x] owner isolation لكل callbacks.
+- [x] اختبارات browser/actions/confirmation.
+- [x] توثيق واجهة الإدارة الحديثة.
+
+### أدلة T08
+- `bridge/telegram/rendering/schedule_browser.py`.
+- `bridge/telegram/callbacks/schedules.py`.
+- `bridge/telegram/commands/schedules.py`.
+- `bridge/services/schedule_service.py`.
+- `bridge/telegram/app.py`, `bot.py`.
+- `tests/test_v2_schedule_ui.py`.
+- `docs/t08-schedule-ui-ar.md`.
+
+### CI النهائي لـT08
+- commit المتحقق منه: `1767d350fb70bf6ef7b3071f08d6cab9f5cc16cb`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36385791260
+- النتيجة: **success**
+- نجحت مصفوفة Python 3.12/3.13/3.14.
+- **T08 مغلقة.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T09 — Draft / Prompt Editor للأوامر الضخمة: /draft new، تجميع رسائل وملفات في Draft دائم، show/clear/save/run/schedule، prompt versioning، دعم أحجام كبيرة حسب storage policy، وrestart persistence. لا يبدأ T10 قبل إغلاق T09 بالكامل ونجاح CI.
+
+
+## تقدم T09 — مكتملة
+
+- [x] `/draft new` وإنشاء Draft دائم versioned.
+- [x] جمع عدة رسائل وملفات عبر DraftIntakeAdapter مع بقاء compatibility handlers رفيعة.
+- [x] `/draft show`, `clear`, `save`, `run`, `schedule`.
+- [x] prompt versioning في `draft_versions` مع snapshot لكل تعديل.
+- [x] اختبار prompt بحجم 1 MiB دون قص اصطناعي.
+- [x] restart persistence بإغلاق BridgeDatabase وإعادة فتحها ثم استعادة المحتوى والإصدار.
+- [x] owner-scoped DraftStore وعدم تخزين binary داخل SQLite.
+- [x] توثيق T09.
+
+### أدلة T09
+- `bridge/infrastructure/database/draft_store.py`
+- `bridge/services/draft_service.py`
+- `bridge/telegram/commands/drafts.py`
+- `bridge/telegram/draft_intake.py`
+- `tests/test_v2_drafts.py`
+- `docs/t09-draft-editor-ar.md`
+- commit بوابة الاختبارات المعمارية: `5dcac7af3f2992c559a693ef1de0b53b0a213ed1`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36386713637
+
+### CI النهائي وإغلاق T09
+- commit المتحقق منه: `59305ddc111b283e7fdfaf230f1268b59d4a6ef0`
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36387350322
+- النتيجة: **success**
+- نجحت jobs على Python 3.12 وPython 3.13 وPython 3.14.
+- **T09 مغلقة.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T10 — إزالة قيود Telegram للملفات الكبيرة: Local Bot API اختياري، `TELEGRAM_API_MODE=cloud|local`، local paths في local mode، streaming download/upload، capability detection، وعدم تحميل الملف كاملًا إلى RAM. لا يبدأ T11 قبل إغلاق T10 بالكامل ونجاح CI.
+
+
+## تقدم T10 — مكتملة
+
+- [x] دعم اختياري Telegram Local Bot API Server مع بقاء cloud هو الافتراضي.
+- [x] `TELEGRAM_API_MODE=cloud|local` typed ومتحقق منه.
+- [x] دعم local file paths في local mode عبر streamed disk copy.
+- [x] streaming download عبر `download_to_drive` في cloud وchunked copy في local.
+- [x] streaming upload بتمرير file handle إلى `send_document` دون bytes buffer.
+- [x] capability detection مستقل عبر `TelegramCapabilities`.
+- [x] لا يوجد مسار T10 يحمل الملف كاملًا إلى RAM.
+- [x] اختبارات cloud/local/validation/download/upload.
+- [x] توثيق T10.
+
+### أدلة T10
+- `bridge/config/settings.py`
+- `bridge/infrastructure/telegram/capabilities.py`
+- `bridge/telegram/app.py`
+- `attachments.py`
+- `bridge/telegram/execution.py`
+- `tests/test_v2_telegram_transport.py`
+- `.env.example`
+- `docs/t10-telegram-large-files-ar.md`
+- commits التنفيذية: `6d0672d2`, `fa17a4b2`, `4289dfc3`, `41a427de`, `99afc1d6`, `ba268519`, `3f373e08`, `5da7ef64`.
+
+### CI
+- اختبارات النقل الجديدة: https://github.com/Alaa91H/opencode-bridge/actions/runs/36387662978 — success.
+- آخر CI مكتمل قبل وثيقة T10: https://github.com/Alaa91H/opencode-bridge/actions/runs/36387669238 — success.
+- CI النهائي لوثيقة T10: https://github.com/Alaa91H/opencode-bridge/actions/runs/36387770136 — **success** على commit `5da7ef64c11c722d67af62ad381c69bf3c774428` ومصفوفة Python 3.12/3.13/3.14.\n- **T10 مغلقة تنفيذيًا.**
+
+## الخطوة التالية المشروطة
+
+بعد نجاح CI للرأس الحالي فقط: T11 — Attachment Storage v2. لا يبدأ T11 قبل ذلك.
+
+
+## تقدم T11 — Attachment Storage v2
+
+- [x] StorageBackend abstraction.
+- [x] LocalStorage.
+- [x] S3/MinIO optional عبر S3-compatible client دون dependency إلزامية.
+- [x] content-addressed storage حسب SHA-256.
+- [x] deduplication للـblobs المتطابقة.
+- [x] reference counting دائم ومعاملاتي.
+- [x] metadata: file_id/file_unique_id/hash/detected MIME/claimed MIME/size/owner/retention/scan state.
+- [x] cleanup policies للـexpired references والـorphan blobs.
+- [x] owner isolation عند release.
+- [x] اختبارات Local CAS وmetadata وretention وS3 contract.
+- [x] توثيق T11.
+
+### أدلة T11
+- `bridge/infrastructure/storage/backend.py`
+- `bridge/infrastructure/storage/local.py`
+- `bridge/infrastructure/storage/s3.py`
+- `bridge/infrastructure/database/migrations.py` — migration 7.
+- `bridge/infrastructure/database/attachment_store.py`
+- `bridge/services/attachment_storage_service.py`
+- `tests/test_v2_attachment_storage.py`
+- `tests/test_v2_s3_storage.py`
+- `docs/t11-attachment-storage-v2-ar.md`
+- CI Local CAS/metadata: https://github.com/Alaa91H/opencode-bridge/actions/runs/36387962628 — success.
+
+### بوابة إغلاق T11
+لا تعتبر T11 مغلقة تنفيذيًا حتى ينجح CI للرأس الذي يحتوي S3 contract + توثيق T11 + سجل الحالة على Python 3.12/3.13/3.14. لا يبدأ T12 قبل ذلك.
+
+
+## تقدم T12 — Streaming وليس Buffering
+
+- [x] download/upload/hash/copy/archive/media على chunks.
+- [x] قياس RAM مع ملف افتراضي 3 GiB دون تخصيص payload كامل.
+- [x] backpressure عبر bounded asyncio queue.
+- [x] cooperative cancellation بين chunks مع تنظيف partial media/archive output.
+- [x] اختبارات multi-GB دون RAM proportional growth.
+- [x] توحيد LocalStorage وS3 وTelegram local-copy على streaming primitive.
+- [x] توثيق T12.
+
+### أدلة T12
+- `bridge/infrastructure/storage/streaming.py`
+- `bridge/infrastructure/storage/local.py`
+- `bridge/infrastructure/storage/s3.py`
+- `bridge/services/streaming_media_service.py`
+- `attachments.py`
+- `tests/test_v2_streaming.py`
+- `tests/test_v2_streaming_media.py`
+- `docs/t12-streaming-ar.md`
+
+### CI النهائي وإغلاق T12
+- commit المتحقق منه: `453f51a43c423011a566c19af2dc9ebfe7f8099b`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36388643897
+- النتيجة: **success** على Python 3.12/3.13/3.14.
+- **T12 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T13 — Media Processing Pipeline: input → detect → validate → normalize → extract → segment → agent → compose؛ يبدأ بـtool availability detection وsafe archive manifest/extraction ثم processors للصور/PDF/video/audio. لا يبدأ T14 قبل إغلاق T13 بالكامل.
+
+
+## تقدم T13 — Media Processing Pipeline
+
+- [x] pipeline contracts: input → detect → validate → normalize → extract → segment → agent → compose.
+- [x] الصور: metadata وOCR اختياري وإعلان normalize/tiling وmulti-image capabilities.
+- [x] PDF: text/layout extraction وchunking وإعلان pages/images/table-layout capabilities.
+- [x] video: ffprobe metadata وإعلان audio/keyframes/scene/frame capabilities عند توفر ffmpeg.
+- [x] audio: normalize/segment capabilities؛ STT/timestamps/speaker segmentation لا تُعلن إلا عند توفر backend فعلي.
+- [x] archives: manifest-first وsafe extraction ومنع traversal وحدود expansion/compression ratio/file count.
+- [x] tool availability detection عبر PATH فقط.
+- [x] لا يوجد أي dependency installation تلقائي أو عشوائي.
+- [x] degraded mode واختبارات archive security موثقة.
+
+### أدلة T13
+- `bridge/domain/attachments/media_pipeline.py`
+- `bridge/infrastructure/media/tools.py`
+- `bridge/infrastructure/media/processors.py`
+- `bridge/infrastructure/media/archives.py`
+- `bridge/infrastructure/media/archive_processor.py`
+- `bridge/services/media_pipeline_service.py`
+- `tests/test_v2_media_pipeline.py`
+- `docs/t13-media-pipeline-ar.md`
+
+### CI النهائي وإغلاق T13
+- commit المتحقق منه: `681ce591e721a0d2a6401f126892d848ba4d91d8`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36389228396
+- النتيجة: **success** على مصفوفة CI.
+- **T13 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T14 — Attachment Intelligence Router: direct للصغير المدعوم، chunk/index/select للنص الكبير، وتمثيلات PDF/video/audio/archive مع context-aware selection. لا يبدأ T15 قبل إغلاق T14 بالكامل.
+
+
+## تقدم T14 — Attachment Intelligence Router
+
+- [x] small supported → direct attachment.
+- [x] large text → chunk/index/select.
+- [x] PDF → text/pages/images/selected chunks.
+- [x] video → frames/transcript/metadata representation.
+- [x] audio → transcript/timestamps/metadata representation.
+- [x] archive → manifest + selected files.
+- [x] context-aware deterministic text chunk selection.
+- [x] unsupported binary → metadata فقط بدل direct context.
+- [x] اختبارات وتوثيق.
+
+### أدلة T14
+- `bridge/domain/attachments/intelligence.py`
+- `bridge/services/attachment_intelligence_service.py`
+- `tests/test_v2_attachment_intelligence.py`
+- `docs/t14-attachment-intelligence-ar.md`
+
+### CI النهائي وإغلاق T14
+- commit المتحقق منه: `aa7d26aef0a8e682a783b7860d65b31774bc19d3`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36389344821
+- النتيجة: **success**.
+- **T14 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+
+T15 — OpenCode Client v2: typed models/contracts، HTTP config/retry/timeouts، correlation IDs/metrics، streaming reconnect، contract tests وتقييم OpenAPI. لا يبدأ T16 قبل إغلاق T15 بالكامل.
+
+
+## تقدم T15 — OpenCode Client v2
+- [x] typed structured request/response/config models.
+- [x] endpoint contracts.
+- [x] centralized HTTP timeout config.
+- [x] bounded retry middleware semantics مع Retry-After.
+- [x] request/correlation IDs.
+- [x] metrics counters.
+- [x] streaming event reconnection مع Last-Event-ID.
+- [x] contract tests عبر MockTransport.
+- [x] تقييم OpenAPI: لا schema رسمي versioned مثبت، لذلك لا توليد speculative.
+
+### CI النهائي وإغلاق T15
+- commit المتحقق منه: `0f013695c22973b3850195688900c4c8c9e0ae03`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36389538170
+- النتيجة: **success** على Python 3.12/3.13/3.14.
+- **T15 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T16 — Circuit Breakers مستقلة لـTelegram/OpenCode/model provider/GitHub/storage، مع CLOSED/OPEN/HALF_OPEN وthresholds/metrics/events/recovery tests.
+
+
+## تقدم T16 — Circuit Breakers
+- [x] دوائر مستقلة لـ Telegram/OpenCode/model provider/GitHub/storage.
+- [x] CLOSED/OPEN/HALF_OPEN.
+- [x] failure/recovery/half-open thresholds قابلة للضبط.
+- [x] metrics + transition events.
+- [x] deterministic recovery/reopen/isolation tests.
+- [x] توثيق semantics.
+
+### CI النهائي وإغلاق T16
+- commit المتحقق منه: `6b4d6bb368b06b104c71962d3d447dba41037924`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36389664666
+- النتيجة: **success** على Python 3.12/3.13/3.14.
+- **T16 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T17 — Model Router v2: capability/quality/latency/reliability/cost/context scoring، availability/quota/failure history، fallback chain، per-task selection، واختبار catalog runtime changes.
+
+
+## تقدم T17 — Model Router v2
+- [x] routing حسب text/image/coding/long-context/reasoning capabilities.
+- [x] dynamic scoring للcapability/quality/latency/reliability/cost/context/quota.
+- [x] availability/quota/failure-history eligibility والpenalty.
+- [x] fallback chain مرتبة.
+- [x] preferred model per-task دون تعديل global state.
+- [x] runtime catalog replacement واختبار القرار بعد التغيير.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T17
+- commit المتحقق منه: `07a1438a8a882461e5ea220d4d7691695b86d539`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36389789205
+- النتيجة: **success** على مصفوفة CI.
+- **T17 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T18 — Context Management: budget، summarization، task-history retrieval، selective attachments، token estimation، compression، checkpoints، واختبارات تجاوز context.
+
+
+## تقدم T18 — Context Management
+- [x] context budget مع output reserve.
+- [x] conversation summarization/compression.
+- [x] retrieval من task history حسب relevance/query.
+- [x] selective attachment/context retrieval.
+- [x] dependency-free conservative token estimation.
+- [x] prompt compression مع required prompt preservation.
+- [x] reusable context checkpoints.
+- [x] overflow tests دون فقد تعليمات المهمة.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T18
+- commit المتحقق منه: `7be838160ffb22c5bc3e7d69ec1c786a446b695f`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36391942827
+- النتيجة: **success**.
+- **T18 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T19 — Execution Policy Profiles: SAFE/DEVELOPMENT/POWER/HOST_ADMIN، capability matrix، per-user/per-task selection، escalation audit، SAFE default، HOST_ADMIN allowlist، ومنع كشف الأسرار.
+
+
+## تقدم T19 — Execution Policy Profiles
+- [x] SAFE/DEVELOPMENT/POWER/HOST_ADMIN capability matrix.
+- [x] per-user/per-task selection مع task precedence.
+- [x] audit لكل escalation مسموح أو مرفوض.
+- [x] SAFE default.
+- [x] HOST_ADMIN allowlist.
+- [x] secret-bearing environment keys لا تمر إلى execution environment.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T19
+- commit المتحقق منه: `3a557e23ee5e367fbf51de8c5d8fbab384a3654e`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36395315476
+- النتيجة: **success**.
+- **T19 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T20 — Build Sandbox: اختيار backend موثوق حسب البيئة، resource/network/process/time limits، dependency install/build داخل sandbox فقط، build profiles، cleanup، واختبارات breakout/security.
+
+
+## تقدم T20 — Build Sandbox
+- [x] rootless Podman ثم bubblewrap حسب البيئة، بلا host fallback.
+- [x] CPU/RAM/scratch-disk/wall-time/PIDs/network controls.
+- [x] dependency/build execution داخل sandbox فقط.
+- [x] Python/npm/Gradle test profiles.
+- [x] ephemeral cleanup semantics.
+- [x] breakout/security command-plan tests.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T20
+- commit المتحقق منه: `6add3ff224d9b9ee608a8d5f4db352ae0fa1b947`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36397603257
+- النتيجة: **success**.
+- **T20 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T21 — Workspace Isolation: workspace مستقل لكل development task، worktree/temp clone/container volume، locking، commit/push/PR policy، failure retention، cleanup آمن.
+
+
+## تقدم T21 — Workspace Isolation
+- [x] workspace مستقل لكل development task.
+- [x] Git worktree افتراضي وtemp clone اختياري.
+- [x] lock يمنع امتلاك نفس task/repository مرتين.
+- [x] commit/push/PR وفق WorkspacePolicy وpush/PR deny-by-default.
+- [x] failure retention للتشخيص.
+- [x] cleanup محصور بمساحة المهمة ويحافظ على source repository.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T21
+- commit المتحقق منه: `098b7e820d7dd184c6196b4c02a76c08f2f427b3`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36403644595
+- النتيجة: **success** بعد إصلاح test double الخاص بـworktree remove.
+- **T21 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T22 — Resource Scheduler v2: ResourceCost CPU/RAM/disk/I/O/model/media، dynamic bin-packing، current pressure، OOM/disk guards، mixed workload tests.
+
+
+## تقدم T22 — Resource Scheduler v2
+- [x] ResourceCost: CPU/RAM/disk/I/O/model/media.
+- [x] dynamic dominant-resource bin-packing.
+- [x] current CPU/RAM/disk/I/O pressure ضمن admission.
+- [x] RAM/disk safety headroom لمنع OOM/exhaustion.
+- [x] mixed workload/model/media tests.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T22
+- commit المتحقق منه: `ef856f984a60bc367bc287c6ed872a6f1b85441b`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36406595994
+- النتيجة: **success**.
+- **T22 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T23 — Priority & Fairness: low/normal/high/urgent، aging، fairness per owner، resource weighting، منع starvation، وحماية interactive tasks من schedule workloads الثقيلة.
+
+
+## تقدم T23 — Priority & Fairness
+- [x] low/normal/high/urgent.
+- [x] unbounded aging لمنع starvation.
+- [x] fairness per owner عبر running-work penalty.
+- [x] resource weighting.
+- [x] interactive boost أمام scheduled heavy work.
+- [x] deterministic ordering واختبارات.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T23
+- commit المتحقق منه: `8795cb88d11eff7faad4d48b9081abda84d6659a`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36414872706
+- النتيجة: **success**.
+- **T23 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T24 — Cancellation حقيقية: token موحد، cooperative cancellation، cleanup، subprocess kill escalation، no zombies، واختبارات الإلغاء عبر المراحل.
+
+
+## تقدم T24 — Cancellation حقيقية
+- [x] CancellationToken موحد مع cooperative checkpoints.
+- [x] cleanup callbacks idempotent بترتيب LIFO.
+- [x] subprocess TERM → grace → KILL escalation.
+- [x] process.wait/reap لمنع zombies.
+- [x] اختبارات cancel لمراحل Telegram/TaskService/OpenCode/subprocess/media/upload.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T24
+- commit المتحقق منه: `77807d34ac4b787e4a921f6af0e3aa18f6bb4f58`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36422856064
+- النتيجة: **success**.
+- **T24 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T25 — Progress Protocol موحد: structured events، renderer مستقل، Telegram debounce/rate-limit، one-message principle، persisted progress بعد restart.
+
+
+## تقدم T25 — Progress Protocol موحد
+- [x] structured events للحالات التسع.
+- [x] renderer مستقل.
+- [x] Telegram debounce/rate-limit per task.
+- [x] one-message update semantics.
+- [x] persist-before-render وإعادة binding بعد restart.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T25
+- commit المتحقق منه: `41554afe36c8b57f943fddbf3da6544f3a4e71b1`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36426853440
+- النتيجة: **success**.
+- **T25 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T26 — نتائج طويلة بلا قص: summary، full artifact، pagination اختياري، output manifest، واختبارات نتائج ضخمة دون فقد المحتوى.
+
+
+## تقدم T26 — نتائج طويلة بلا قص
+- [x] full UTF-8 artifact دون قص.
+- [x] summary منفصل لرسالة Telegram.
+- [x] .md/.txt output artifact مع MIME/size/SHA-256.
+- [x] paginated view اختياري قابل لإعادة تركيب النص كاملًا.
+- [x] OutputManifest.
+- [x] اختبارات نتائج ضخمة متعددة اللغات.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T26
+- commit المتحقق منه: `447e34d0216dc49f1c35b0eaea43543b85389728`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36432456022
+- النتيجة: **success**.
+- **T26 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T27 — Telegram UX v2: pagination/inline keyboard/breadcrumbs/confirmations/task history/output browser/schedule browser/retry/cancel/duplicate/rerun/download، مع بقاء الأوامر النصية.
+
+
+## تقدم T27 — Telegram UX v2
+- [x] pagination وinline action model.
+- [x] breadcrumbs.
+- [x] confirmations.
+- [x] task history/output/schedule browsers.
+- [x] retry/cancel/duplicate/rerun/download buttons.
+- [x] compatibility: الأوامر النصية باقية.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T27
+- commit المتحقق منه: `139e5aacba5db9a6aa349d61d8be10fcc9f97dd6`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36446513708
+- النتيجة: **success**.
+- **T27 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T28 — User Preferences: timezone/language/notification/default workspace/default execution profile/model preference/output style/retention/schedule defaults.
+
+
+## تقدم T28 — User Preferences
+- [x] timezone/language/notification level.
+- [x] default workspace/execution profile/model preference.
+- [x] output style/retention/schedule defaults.
+- [x] owner-scoped persistence في user_settings.
+- [x] validation وrestart persistence واختبارات العزل.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T28
+- commit المتحقق منه: `ffe57fa09741854b565c224d976f64e4aae7e25e`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36457086659
+- النتيجة: **success**.
+- **T28 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T29 — Observability كاملة: queue/task/retry/failure/DB/resource/attachment/worker/schedule metrics وPrometheus endpoint اختياري.
+
+
+## تقدم T29 — Observability كاملة
+- [x] queue depth/task latency-duration/retry metrics.
+- [x] model/Telegram failures وDB latency/locks.
+- [x] memory/CPU/disk وattachment throughput وactive workers وschedule lag.
+- [x] Prometheus endpoint اختياري.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T29
+- commit المتحقق منه: `d8474367b1565bfcc5212805ca9062d95b365fff`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36465231506
+- النتيجة: **success**.
+- **T29 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T30 — Distributed Tracing: OpenTelemetry-compatible trace context، propagation عبر Telegram/DB/OpenCode/model/media/GitHub/result، sampling وprivacy redaction.
+
+
+## تقدم T30 — Distributed Tracing
+- [x] W3C/OpenTelemetry-compatible trace context.
+- [x] trace_id عبر Telegram/DB/OpenCode/model/media/GitHub/result.
+- [x] ContextVar/header propagation.
+- [x] sampling policy.
+- [x] privacy redaction.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T30
+- commit المتحقق منه: `ad13b52ad23b551e9e8656c23b7600b78afd3d12`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36465761286
+- النتيجة: **success**.
+- **T30 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T31 — Logging احترافي: structured JSON، الحقول السياقية المطلوبة، privacy redaction، وعدم تسجيل prompt كامل، مع rotation/retention.
+
+
+## تقدم T31 — Logging احترافي
+- [x] structured JSON logs.
+- [x] event/task/schedule/owner_hash/trace/attempt/component/duration/status.
+- [x] prompt/file content غير مسجل افتراضيًا عبر safe logging API.
+- [x] secret redaction.
+- [x] bounded rotation/retention.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T31
+- commit المتحقق منه: `33fd73ad8207644b11682fea8e6e754e06abc8b8`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36466135379
+- النتيجة: **success**.
+- **T31 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T32 — Health / Readiness / Liveness مع degraded semantics وsystemd readiness integration.
+
+
+## تقدم T32 — Health / Readiness / Liveness
+- [x] liveness مستقل.
+- [x] readiness مستقل.
+- [x] Telegram/DB/OpenCode/disk/workers/scheduler/model catalog.
+- [x] systemd READY/STATUS contract.
+- [x] degraded-mode semantics.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T32
+- commit المتحقق منه: `4c0de04106609d0ab258d990b0fe1b6d36860766`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36466288425
+- النتيجة: **success**.
+- **T32 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T33 — Backup & Disaster Recovery: SQLite online backup، metadata/config غير السري، verify/restore test، RPO/RTO، encryption hook.
+
+
+## تقدم T33 — Backup & Disaster Recovery
+- [x] SQLite online backup API.
+- [x] persistent schedules/settings/metadata ضمن DB backup دون config secrets خارجية.
+- [x] checksum/size/integrity verification.
+- [x] automated restore test.
+- [x] RPO/RTO موثقان وقابلان للضبط.
+- [x] encryption hook اختياري.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T33
+- commit المتحقق منه: `38d558dbb7cce9b075b25008d7c4ad2dab86458e`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36466452221
+- النتيجة: **success**.
+- **T33 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T34 — Atomic Deployment: download/verify/test/migrate/health/switch/restart/smoke/automatic rollback.
+
+
+## تقدم T34 — Atomic Deployment
+- [x] artifact verify/checksum.
+- [x] test/migrate/health callbacks.
+- [x] releases/version + atomic current symlink.
+- [x] restart + smoke.
+- [x] automatic rollback/restart.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T34
+- commit المتحقق منه: `ae66b6ab3194eb3e0762c4513d4ccca618e2b666`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36466614515
+- النتيجة: **success**.
+- **T34 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T35 — Database Migration Rollback: version/checksum، snapshot requirement، compatibility window، forward/restore strategy، self-update safety.
+
+
+## تقدم T35 — Database Migration Rollback
+- [x] version/checksum.
+- [x] verified snapshot requirement للمigrations الخطرة.
+- [x] compatibility window.
+- [x] forward migration safety gate.
+- [x] reverse/restore rollback strategy.
+- [x] self-update snapshot protection.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T35
+- commit المتحقق منه: `649eb25e6324ef4f56301b6127b2de491cd8d7f7`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36466746106
+- النتيجة: **success**.
+- **T35 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T36 — Security Hardening.
+
+
+## تقدم T36 — Security Hardening
+- [x] localhost-only OpenCode policy.
+- [x] systemd hardening contract.
+- [x] file magic inspection.
+- [x] zip-bomb/traversal protections متكاملة مع T13.
+- [x] symlink/path traversal output jail.
+- [x] secret redaction متكامل مع T30/T31.
+- [x] max subprocess runtime.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T36
+- commit المتحقق منه: `bdb2ac28b8a6ee31e1aba15545da9e8e0da2762b`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36466899777
+- النتيجة: **success**.
+- **T36 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T37 — Secret Management.
+
+
+## تقدم T37 — Secret Management
+- [x] systemd credentials اختياري.
+- [x] SecretSource extensible لمصدر encrypted/secrets manager حقيقي.
+- [x] scoped minimal exposure.
+- [x] migration تدريجية من env/.env دون كسر deployment.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T37
+- commit المتحقق منه: `21d359b246de4518a61f7fab248607a858f74e7a`.
+- GitHub Actions CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36467046227
+- النتيجة: **success**.
+- **T37 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T38 — Supply Chain Security.
+
+
+## تقدم T38 — Supply Chain Security
+- [x] pip-audit dependency vulnerability scan.
+- [x] detect-secrets repository scan مع استثناء fixtures الاختبارية المتعمدة فقط.
+- [x] Bandit static security gate عالي الخطورة مع إبقاء legacy findings ظاهرة.
+- [x] SPDX JSON SBOM.
+- [x] release SHA-256 checksums.
+- [x] GitHub/Sigstore-compatible artifact attestation عبر OIDC.
+- [x] supply-chain artifacts.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T38
+- commit المتحقق منه: `d572cd0ae891c2563a268f1193fc1bb39c75cde2`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36467656462 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36467656413 — success.
+- **T38 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T39 — Code Quality Gates.
+
+
+## تقدم T39 — Code Quality Gates
+- [x] Ruff correctness gate.
+- [x] mypy type gate للوحدات الحديثة.
+- [x] formatting/import checks في report/migration mode.
+- [x] dead-code detection report.
+- [x] complexity report.
+- [x] progressive enforcement لا يكسر main بلا migration.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T39
+- commit المتحقق منه: `5d0e487d6bdedbb16212624707e480f5483d1fe3`.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36467993801 — success.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36467993753 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36467994056 — success.
+- **T39 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T40 — Test Architecture.
+
+
+## تقدم T40 — Test Architecture
+- [x] unit/integration/contract/e2e/load/fault/security/migration taxonomy.
+- [x] Bridge/OpenCode contract coverage موجودة ومصنفة.
+- [x] Telegram abstraction coverage موجودة ومصنفة.
+- [x] deterministic E2E Telegram mock → queue → OpenCode mock → output.
+- [x] stable local fixtures.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T40
+- commit المتحقق منه: `2490dd6c9eb6e2fc78541c4d0afa97576f69f374`.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468177400 — success.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468177392 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468177465 — success.
+- **T40 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T41 — Fault Injection.
+
+
+## تقدم T41 — Fault Injection
+- [x] fault matrix لكل الحالات المطلوبة.
+- [x] recovery assertion لكل fault.
+- [x] committed task لا يفقد.
+- [x] duplicate update effectively-once invariant.
+- [x] output retry invariant.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T41
+- commit المتحقق منه: `96a2800f5d2eb990bda7fd107c0f20f2fab34073`.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468334692 — success.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468334858 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468334699 — success.
+- **T41 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T42 — Load & Soak Testing.
+
+
+## تقدم T42 — Load & Soak Testing
+- [x] آلاف المهام ومئات schedules.
+- [x] logical large-file/huge payload دون RAM proportional allocation.
+- [x] parallel owners.
+- [x] slow backend mode.
+- [x] memory peak checks.
+- [x] 24–72h duration mode موثق وقابل للتشغيل خارج CI القصير.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T42
+- commit المتحقق منه: `8065f33a9ae277f7c809d2199b5589569709f15f`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468586944 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468586965 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468586753 — success.
+- **T42 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T43 — Performance Targets.
+
+
+## تقدم T43 — Performance Targets
+- [x] durability/idempotency/recovery targets.
+- [x] text ACK <1s SLO موثق للبيئة المرجعية.
+- [x] DB lock/worker/restart/RAM/10k queue targets.
+- [x] critical metrics/tracing linkage.
+- [x] 99.9% monthly self-service uptime SLO موثق وقابل للقياس.
+- [x] contract tests تربط المقاييس/suites بالأهداف.
+
+### CI النهائي وإغلاق T43
+- commit المتحقق منه: `61edfe30a9743ca4698626b3bee08a06c0b803fe`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468731704 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468731654 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468731605 — success.
+- **T43 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T44 — إزالة الحدود الداخلية القديمة.
+
+
+## تقدم T44 — إزالة الحدود الداخلية القديمة
+- [x] attachment count/bytes/pending/workers/output policies.
+- [x] 0 = unlimited by application policy.
+- [x] auto = resource-calculated.
+- [x] Resource Guard يبقى فعالًا.
+- [x] finite legacy values متوافقة.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T44
+- commit المتحقق منه: `3a61beee5ee8629aac473f7b37fd19a1f5eb5193`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468919917 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468920360 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36468919850 — success.
+- **T44 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T45 — Local Telegram API كخيار Production.
+
+
+## تقدم T45 — Local Telegram API Production
+- [x] deployment profile مستقل.
+- [x] cloud default.
+- [x] capability detection عبر العقود الحالية.
+- [x] systemd hardening guidance.
+- [x] logical 4GiB streaming/load shape.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T45
+- commit المتحقق منه: `ff69bbaa04e9a083f2858ecc61f0cc45ddceea54`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36469234518 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36469234386 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36469234604 — success.
+- **T45 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T46 — إزالة ازدواجية Legacy/V3.
+
+
+## تقدم T46 — إزالة ازدواجية Legacy/V3
+- [x] opencode.json هو production config canonical الوحيد.
+- [x] BridgeSettings/task engine/OpenCode client مسارات موحدة.
+- [x] migration path موثق.
+- [x] opencode-v3.json بقي compatibility artifact فقط حتى إثبات T48، لا production path.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T46
+- commit المتحقق منه: `af93fbbefc435f1c821f066dce7868e3acf8ddcc`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36469435592 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36469435496 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36469435525 — success.
+- **T46 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T47 — Documentation.
+
+
+## تقدم T47 — Documentation as Code
+- [x] architecture.
+- [x] DB schema/state machine.
+- [x] scheduler/failure semantics.
+- [x] attachment pipeline.
+- [x] security profiles.
+- [x] deployment/disaster recovery.
+- [x] troubleshooting.
+- [x] documentation-in-same-change policy.
+- [x] CI tests للروابط والتغطية.
+
+### CI النهائي وإغلاق T47
+- commit المتحقق منه: `bc7d255a5fe2b69b2206417138b5c6b191a528a3`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471213192 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471213273 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471212887 — success.
+- **T47 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T48 — Migration من v1.8 إلى 2.0.
+
+
+## تقدم T48 — Migration من v1.8 إلى 2.0
+- [x] backup-first requirement.
+- [x] sessions migration.
+- [x] schedules migration بمفتاح legacy ثابت/idempotent.
+- [x] pending attachments migration.
+- [x] user/owner IDs report.
+- [x] dry-run + migration report.
+- [x] rollback source/test.
+- [x] idempotent repeated migration test.
+- [x] توثيق.
+
+### CI النهائي وإغلاق T48
+- commit المتحقق منه: `1691fdaa8ae40b7936f7e0d385d05c6861e371a0`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471662833 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471662843 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471662937 — success.
+- **T48 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T49 — Canary: shadow، scheduler comparison، نسبة صغيرة من المهام، metrics، توسعة تدريجية، rollback thresholds.
+
+
+## تقدم T49 — Canary
+- [x] shadow scheduler comparison دون تنفيذ.
+- [x] deterministic small-percentage task routing.
+- [x] metrics thresholds.
+- [x] gradual expansion.
+- [x] automatic rollback decision.
+- [x] اختبارات وتوثيق.
+
+### CI النهائي وإغلاق T49
+- commit المتحقق منه: `16d7a13dd22548b52317dd8e145e8d06be119eda`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471847712 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471847818 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36471847807 — success.
+- **T49 مغلقة تنفيذيًا.**
+
+## الخطوة التالية غير المكتملة بالضبط
+T50 — إصدار OpenCode Bridge 2.0، ولا يغلق إلا بعد تحقق release checklist كاملة وtag/release 2.0.0.
+
+
+## تقدم T50 — إصدار OpenCode Bridge 2.0
+- [x] release-readiness evidence gate fail-closed.
+- [x] CI/Python matrix/migration/backup/crash/schedule/duplicate/streaming/Local API/long-prompt/multi-workspace/security/rollback/docs evidence mapped.
+- [x] Release workflow يمنع 2.0.0 عند نقص evidence.
+- [x] اختبارات تثبت رفض soak أقصر من 24h أو أطول من 72h وعدم اكتماله.
+- [x] CI الحالي أخضر.
+- [ ] تنفيذ soak حقيقي مستمر 24–72 ساعة في بيئة endurance وتسجيل نتيجته.
+- [ ] رفع VERSION إلى 2.0.0 وإضافة release notes بعد نجاح soak.
+- [ ] tag/release 2.0.0 ناجح.
+
+### تحقق T50 الحالي
+- commit المتحقق منه: `318df75f06805a009779f9094c77dae750d131de`.
+- CI: https://github.com/Alaa91H/opencode-bridge/actions/runs/36472093190 — success.
+- Code Quality: https://github.com/Alaa91H/opencode-bridge/actions/runs/36472093108 — success.
+- Supply Chain Security: https://github.com/Alaa91H/opencode-bridge/actions/runs/36472093218 — success.
+- **T50 غير مغلقة** لأن شرط الخطة الصريح 24–72h soak لم يُنفذ فعليًا بعد؛ لا يجوز تزوير evidence أو إنشاء release قبل ذلك.
+
+## الخطوة التالية غير المكتملة بالضبط
+تشغيل `scripts/load_soak.py --duration-seconds 86400` (أو حتى 259200) على بيئة endurance فعلية، مراقبة T29/T43 thresholds، ثم فقط عند النجاح تحديث evidence وVERSION/release notes وإنشاء v2.0.0.

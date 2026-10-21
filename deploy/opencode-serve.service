@@ -1,0 +1,35 @@
+[Unit]
+Description=OpenCode Agent Server
+After=network-online.target
+Wants=network-online.target
+PartOf=opencode-bridge.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/opencode-bridge
+EnvironmentFile=-/home/ubuntu/opencode-bridge/.env
+Environment=HOME=/home/ubuntu
+Environment=OPENCODE_CONFIG=/home/ubuntu/opencode-bridge/opencode.json
+Environment=OPENCODE_CONFIG_DIR=/home/ubuntu/opencode-bridge
+ExecStart=/home/ubuntu/.opencode/bin/opencode serve --hostname 127.0.0.1 --port 4096
+Restart=on-failure
+RestartSec=5
+# Back off exponentially (5s -> 60s) so a crash loop cannot burn CPU forever (systemd >= 254).
+RestartSteps=5
+RestartMaxDelaySec=60
+TimeoutStopSec=120
+NoNewPrivileges=yes
+# Resource guard rails. The agent and the tools it spawns are the heaviest workload on the host,
+# so keep them from starving the Telegram bridge or the OS. MemoryHigh only throttles (reclaim
+# pressure) and never kills; under real memory exhaustion the kernel prefers this unit over the
+# bridge. Lowering a score needs root, raising it does not, hence the bridge stays at default.
+# Tune per host with: systemctl --user edit opencode-serve.service
+Nice=5
+CPUWeight=80
+MemoryHigh=75%
+TasksMax=4096
+LimitNOFILE=65536
+OOMScoreAdjust=300
+
+[Install]
+WantedBy=opencode-bridge.target

@@ -1,0 +1,133 @@
+# Strict hygiene policy for opencode-bridge.
+#
+# Selection principle: a rule earns its place here if a violation can hide a
+# defect, a security hole, or an inconsistency between what the code says and
+# what the operator sees. Pure formatting taste is excluded, and every exclusion
+# below carries the reason it exists, so a future reader can challenge it.
+#
+# This file is an error gate. There is deliberately no allow-fail switch: a
+# check that cannot fail the build is a report, not a gate.
+
+target-version = "py312"
+line-length = 100
+
+[lint]
+select = [
+  "F",    # pyflakes: undefined names, dead code, f-string defects
+  "E4",   # import hygiene
+  "E7",   # statement packing, lambda assignment
+  "E9",   # syntax and IO errors
+  "W",    # pycodestyle warnings
+  "B",    # bugbear: real footguns (mutable defaults, blind excepts)
+  "S",    # bandit: security
+  "C4",   # comprehension rules
+  "RUF",  # ruff correctness rules
+  "ARG",  # unused arguments
+  "T20",  # stray print() in library code
+  "UP",   # pyupgrade
+  "I",    # import order
+]
+
+ignore = [
+  # 231 hits. This project raises with a full Arabic message because the text
+  # is what the operator reads; moving it onto custom exception classes would
+  # hide the message behind a class name and change every call site.
+  "TRY003",
+  # try/except shape preferences. Control flow here is deliberate: a preference
+  # read must never be able to fail a task, so a broad catch with a fallback is
+  # the requirement, not an oversight.
+  "TRY301",
+  "TRY300",
+  "TRY201",
+  "TRY004",
+  # 26 hits, all false positives on Arabic UI strings. RUF001 flags characters
+  # that look confusable; Arabic script has no confusable-with-Latin forms here.
+  "RUF001",
+  "RUF002",
+  "RUF003",
+  # Ruff cannot know these are protocol signatures. The panel Renderer, the
+  # python-telegram-bot handler callbacks, and the media processor interface all
+  # fix the argument list by contract; removing a parameter would break the
+  # contract, not the code.
+  "ARG001",
+  "ARG002",
+  "ARG005",
+  # Formatting taste, not defects.
+  "SIM",
+  "PT",
+  "PTH",
+  "COM",
+  "ISC",
+  "Q",
+  "RET",
+  "PL",
+  "N",
+  "ANN",
+  "D",
+  "ERA",
+  "FBT",
+  "EM",
+  "TID",
+  "INP",
+  "PYI",
+  "A",
+  "DTZ",
+  "EXE",
+  "FA",
+  "PD",
+  "PIE",
+  "PERF",
+  "SLF",
+  "TD",
+  "AIR",
+  # S108/S110/S311: /tmp scratch files, deliberate best-effort cleanup, and
+  # non-cryptographic jitter are intended in scripts and tests.
+  "S108",
+  "S110",
+  "S311",
+]
+
+[lint.flake8-bugbear]
+# B008 fires on any call in an argument default. Every hit in this tree is a
+# frozen dataclass config used as a default; a frozen dataclass is immutable, so
+# sharing one instance across callers cannot alias state. Declaring them here is
+# the intended use of this setting, and a genuinely mutable default would still
+# be caught.
+extend-immutable-calls = [
+  "ArchiveLimits",
+  "CircuitBreakerConfig",
+  "ResourcePressure",
+  "ResourceCost",
+  "SandboxLimits",
+  "WorkspacePolicy",
+]
+
+[lint.per-file-ignores]
+# bot.py is the composition root: it wires PTB, the bridge services, and the
+# panel registry into one object graph. Its import order is load-bearing
+# (side-effectful plugin registration depends on it), and it re-exports names
+# that run_v3.py and the baseline contract tests read as `bot.NAME`.
+"bot.py" = ["E402"]
+
+# unittest is used, not pytest, so PT rules do not apply.
+"tests/*" = ["S101", "S105", "S106", "E402", "RUF012", "S603", "S607"]
+"wait_for_opencode.py" = ["S310", "T20"]
+
+# CLI entry points: printing is the product. These scripts are invoked from a
+# terminal or a systemd unit and their stdout IS the report.
+"github_ci.py" = ["T201", "E402"]
+"agent_scout.py" = ["S608"]
+"watchdog_runner.py" = ["T201", "S603"]
+"systemd.py" = ["T201", "S603", "S607"]
+"run_v3.py" = ["E402"]
+"maintenance/daily_agent_maintenance.py" = ["E402", "S603", "S607", "T20"]
+"scripts/*" = ["T20", "S603", "S607", "S310"]
+
+# Maintenance and test helpers talk to the host directly by design.
+"maintenance/*" = ["S603", "S607", "T20"]
+"opencode_client.py" = ["S603", "S607"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"

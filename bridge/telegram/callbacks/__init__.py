@@ -1,0 +1,1 @@
+"""Telegram callback-query adapters."""

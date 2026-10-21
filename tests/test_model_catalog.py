@@ -1,0 +1,205 @@
+from __future__ import annotations
+
+import unittest
+
+from model_catalog import (
+    best_zen_general_model_id,
+    free_model_ids,
+    is_zero_cost_model,
+    model_supports_inputs,
+    model_variant_ids,
+    ranked_zen_general_model_ids,
+    ranked_zen_model_ids_for_inputs,
+    strongest_model_variant,
+    zen_free_model_ids,
+)
+
+
+class ModelCatalogTests(unittest.TestCase):
+    def test_zero_cost_model_requires_explicit_zero_pricing(self) -> None:
+        self.assertTrue(is_zero_cost_model({"cost": {"input": 0, "output": 0, "cache": {"read": 0, "write": 0}}}))
+        self.assertFalse(is_zero_cost_model({"cost": {"input": 0, "output": 0.01}}))
+        self.assertFalse(is_zero_cost_model({"cost": {"input": 0, "output": 0, "cache": {"read": 0.001}}}))
+        self.assertFalse(is_zero_cost_model({"name": "Model marked free but without pricing"}))
+
+    def test_catalog_keeps_only_zero_cost_provider_models(self) -> None:
+        providers = {
+            "all": [
+                {
+                    "id": "free-provider",
+                    "models": {
+                        "free-model": {"cost": {"input": 0, "output": 0}},
+                        "paid-model": {"cost": {"input": 1, "output": 2}},
+                    },
+                },
+                {
+                    "id": "unknown-provider",
+                    "models": {"unknown-model": {"name": "Unknown pricing"}},
+                },
+            ]
+        }
+        self.assertEqual(free_model_ids(providers), ["free-provider/free-model"])
+
+    def test_general_ranking_prefers_active_rich_capability_model(self) -> None:
+        providers = {
+            "all": [
+                {
+                    "id": "opencode",
+                    "models": {
+                        "text-only": {
+                            "status": "active",
+                            "cost": {"input": 0, "output": 0},
+                            "capabilities": {"input": {"text": True}, "toolcall": True, "reasoning": True},
+                            "limit": {"context": 1_000_000, "output": 128_000},
+                        },
+                        "general-rich": {
+                            "status": "active",
+                            "cost": {"input": 0, "output": 0},
+                            "capabilities": {
+                                "attachment": True,
+                                "toolcall": True,
+                                "reasoning": True,
+                                "input": {"text": True, "image": True, "pdf": True, "audio": True, "video": True},
+                            },
+                            "limit": {"context": 200_000, "output": 64_000},
+                        },
+                        "retired": {
+                            "status": "deprecated",
+                            "cost": {"input": 0, "output": 0},
+                            "capabilities": {"input": {"text": True}, "toolcall": True, "reasoning": True},
+                        },
+                    },
+                }
+            ]
+        }
+        self.assertEqual(ranked_zen_general_model_ids(providers), ["opencode/general-rich", "opencode/text-only"])
+        self.assertEqual(best_zen_general_model_id(providers), "opencode/general-rich")
+        self.assertEqual(best_zen_general_model_id(providers, {"opencode/general-rich"}), "opencode/text-only")
+
+    def test_input_specific_ranking_requires_explicit_capability(self) -> None:
+        providers = {
+            "all": [
+                {
+                    "id": "opencode",
+                    "models": {
+                        "text-strong": {
+                            "status": "active",
+                            "cost": {"input": 0, "output": 0},
+                            "capabilities": {
+                                "toolcall": True,
+                                "reasoning": True,
+                                "input": {"text": True, "image": False},
+                            },
+                            "limit": {"context": 1_000_000, "output": 128_000},
+                        },
+                        "vision-free": {
+                            "status": "active",
+                            "cost": {"input": 0, "output": 0},
+                            "capabilities": {
+                                "attachment": True,
+                                "toolcall": True,
+                                "reasoning": True,
+                                "input": {"text": True, "image": True},
+                            },
+                            "limit": {"context": 200_000, "output": 64_000},
+                        },
+                        "vision-paid": {
+                            "status": "active",
+                            "cost": {"input": 0.1, "output": 0.2},
+                            "capabilities": {"input": {"text": True, "image": True}},
+                        },
+                    },
+                }
+            ]
+        }
+        self.assertFalse(model_supports_inputs(providers, "opencode/text-strong", {"image"}))
+        self.assertTrue(model_supports_inputs(providers, "opencode/vision-free", {"image"}))
+        self.assertEqual(
+            ranked_zen_model_ids_for_inputs(providers, {"image"}),
+            ["opencode/vision-free"],
+        )
+
+    def test_strongest_variant_uses_live_catalog_without_guessing(self) -> None:
+        providers = {
+            "all": [
+                {
+                    "id": "opencode",
+                    "models": {
+                        "reasoning-free": {
+                            "cost": {"input": 0, "output": 0},
+                            "variants": {
+                                "low": {},
+                                "high": {},
+                                "xhigh": {},
+                                "disabled-max": {"disabled": True},
+                            },
+                        },
+                        "custom-only": {
+                            "cost": {"input": 0, "output": 0},
+                            "variants": [{"id": "creative"}, {"id": "turbo"}],
+                        },
+                    },
+                }
+            ]
+        }
+        self.assertEqual(
+            model_variant_ids(providers, "opencode/reasoning-free"),
+            ["high", "low", "xhigh"],
+        )
+        self.assertEqual(
+            strongest_model_variant(providers, "opencode/reasoning-free"),
+            "xhigh",
+        )
+        self.assertIsNone(strongest_model_variant(providers, "opencode/custom-only"))
+
+    def test_max_outranks_xhigh_like_the_opencode_reasoning_selector(self) -> None:
+        providers = {
+            "all": [
+                {
+                    "id": "opencode",
+                    "models": {
+                        "reasoning-free": {
+                            "cost": {"input": 0, "output": 0},
+                            "variants": {
+                                "low": {},
+                                "medium": {},
+                                "high": {},
+                                "xhigh": {},
+                                "max": {},
+                            },
+                        }
+                    },
+                }
+            ]
+        }
+        self.assertEqual(
+            model_variant_ids(providers, "opencode/reasoning-free"),
+            ["high", "low", "max", "medium", "xhigh"],
+        )
+        self.assertEqual(
+            strongest_model_variant(providers, "opencode/reasoning-free"),
+            "max",
+        )
+
+    def test_zen_catalog_excludes_free_models_from_other_providers(self) -> None:
+        providers = {
+            "all": [
+                {
+                    "id": "other-free-provider",
+                    "models": {"free-model": {"cost": {"input": 0, "output": 0}}},
+                },
+                {
+                    "id": "opencode",
+                    "name": "OpenCode Zen",
+                    "models": {
+                        "zen-free": {"cost": {"input": 0, "output": 0, "cache": {"read": 0}}},
+                        "zen-paid": {"cost": {"input": 0.1, "output": 0.2}},
+                    },
+                },
+            ]
+        }
+        self.assertEqual(zen_free_model_ids(providers), ["opencode/zen-free"])
+
+
+if __name__ == "__main__":
+    unittest.main()

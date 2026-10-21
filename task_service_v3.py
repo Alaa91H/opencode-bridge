@@ -1,0 +1,175 @@
+"""Bounded worker pool for independent Telegram agent tasks."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+import time
+from collections.abc import Awaitable, Callable
+
+from task_queue import QueuedTask, TaskQueueStore
+
+log = logging.getLogger(__name__)
+TaskExecutor = Callable[[QueuedTask], Awaitable[None]]
+WorkerLimitProvider = Callable[[], int]
+
+
+class TaskServiceV3:
+    """Process independent owners concurrently while preserving per-owner order.
+
+    ``max_workers`` is the hard concurrency ceiling. When a live
+    ``worker_limit_provider`` is supplied, workers above the current safe limit
+    remain idle and re-check before claiming new work. Running tasks are never
+    cancelled solely because host pressure increased.
+    """
+
+    def __init__(
+        self,
+        store: TaskQueueStore,
+        executor: TaskExecutor,
+        poll_seconds: float = 5.0,
+        max_workers: int = 3,
+        worker_limit_provider: WorkerLimitProvider | None = None,
+    ) -> None:
+        self.store = store
+        self.executor = executor
+        self.poll_seconds = max(0.5, min(60.0, float(poll_seconds)))
+        self.max_workers = max(1, min(int(max_workers), 3))
+        self.worker_limit_provider = worker_limit_provider
+        self._wake = asyncio.Event()
+        self._stop = asyncio.Event()
+        self._workers: list[asyncio.Task[None]] = []
+        # Schedule promotion is pool-wide maintenance, not per-worker work: see
+        # _promote_if_due for why running it once per interval matters.
+        self._promote_lock = asyncio.Lock()
+        self._last_promote = 0.0
+
+    def active_worker_limit(self) -> int:
+        """Return the current claim-admission limit within the configured ceiling."""
+        if self.worker_limit_provider is None:
+            return self.max_workers
+        try:
+            policy = getattr(self.worker_limit_provider, "policy", None)
+            sample = getattr(policy, "snapshot", None)
+            if callable(sample):
+                sample(force=True)
+            requested = int(self.worker_limit_provider())
+        except Exception as exc:
+            log.warning("adaptive worker limit provider failed: %s", type(exc).__name__)
+            return 0
+        return max(0, min(requested, self.max_workers))
+
+    def worker_can_claim(self, worker_id: int) -> bool:
+        """Return whether this worker may claim a new task right now."""
+        return 1 <= worker_id <= self.active_worker_limit()
+
+    async def start(self) -> int:
+        interrupted = await self.store.recover_interrupted()
+        self._stop.clear()
+        if not self._workers:
+            self._workers = [
+                asyncio.create_task(self._run(index), name=f"agent-worker-{index}")
+                for index in range(1, self.max_workers + 1)
+            ]
+        self._wake.set()
+        return interrupted
+
+    async def stop(self) -> None:
+        self._stop.set()
+        self._wake.set()
+        workers, self._workers = self._workers, []
+        for worker in workers:
+            worker.cancel()
+        if workers:
+            await asyncio.gather(*workers, return_exceptions=True)
+
+    def wake(self) -> None:
+        self._wake.set()
+
+    async def _wait_for_work(self) -> None:
+        self._wake.clear()
+        try:
+            await asyncio.wait_for(self._wake.wait(), timeout=self.poll_seconds)
+        except TimeoutError:
+            pass
+
+    async def _promote_if_due(self) -> None:
+        """Materialize due schedules at most once per poll interval, pool-wide.
+
+        ``promote_due()`` opens ``BEGIN IMMEDIATE`` and commits: it is a write
+        transaction that takes SQLite's write lock. Running it from every worker
+        on every poll meant up to three identical no-op write transactions every
+        five seconds forever, all queued behind the same connection lock that
+        ``claim_next``, heartbeats and status updates need. Redundant maintenance
+        that scales with the pool size is worse than useless.
+
+        The interval is unchanged, so the worst-case delay for a due schedule is
+        exactly what it was: one poll interval.
+        """
+        # 0.0 means "nothing promoted yet", not "promoted at epoch zero": on a
+        # freshly booted host the monotonic clock can be smaller than the
+        # interval, and comparing it as a timestamp would skip the first ticks.
+        if self._last_promote and time.monotonic() - self._last_promote < self.poll_seconds:
+            return
+        async with self._promote_lock:
+            if self._last_promote and time.monotonic() - self._last_promote < self.poll_seconds:
+                return  # Another worker promoted while this one waited.
+            self._last_promote = time.monotonic()
+            try:
+                await self.store.promote_due()
+            except Exception:
+                # Failed maintenance must be retried on the next tick rather than
+                # silently skipped for a whole interval.
+                self._last_promote = 0.0
+                raise
+
+    async def _run(self, worker_id: int) -> None:
+        while not self._stop.is_set():
+            try:
+                if not self.worker_can_claim(worker_id):
+                    await self._wait_for_work()
+                    continue
+                await self._promote_if_due()
+                task = await self.store.claim_next()
+                if task is not None:
+                    log.debug("worker %s claimed task %s", worker_id, task.id)
+                    await self._execute(task)
+                    self._wake.set()
+                    continue
+                await self._wait_for_work()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("task worker %s failed", worker_id)
+                await asyncio.sleep(min(self.poll_seconds, 5.0))
+
+    async def _execute(self, task: QueuedTask) -> None:
+        worker = task.lease_owner or 'legacy-worker'
+        task = await self.store.mark_running(task.id, worker)
+        if task is None:
+            return
+        heartbeat = asyncio.create_task(self._heartbeat(task.id, worker))
+        try:
+            await self.executor(task)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.exception("task %s failed", task.id)
+            current = await self.store.get(task.id)
+            if current and current.status == "running":
+                await self.store.finish(task.id, success=False, error=type(exc).__name__)
+        else:
+            current = await self.store.get(task.id)
+            if current and current.status == "running":
+                await self.store.finish(task.id, success=True)
+        finally:
+            heartbeat.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat
+
+    async def _heartbeat(self, task_id: int, worker: str) -> None:
+        while True:
+            await asyncio.sleep(30.0)
+            if not await self.store.heartbeat(task_id, worker):
+                return

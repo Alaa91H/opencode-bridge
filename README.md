@@ -1,0 +1,203 @@
+<div align="center">
+
+# OpenCode Bridge
+
+### Arabic Telegram control plane for a locally hosted OpenCode development agent
+
+<img src="https://img.shields.io/badge/Python-3.x-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
+<img src="https://img.shields.io/badge/OpenCode-Agent%20Bridge-111827?style=for-the-badge" alt="OpenCode" />
+<img src="https://img.shields.io/badge/Interface-Telegram-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram" />
+<img src="https://img.shields.io/badge/Deployment-systemd-FCC624?style=for-the-badge&logo=linux&logoColor=111111" alt="systemd" />
+
+</div>
+
+---
+
+## Overview
+
+**OpenCode Bridge** connects an Arabic Telegram interface to a locally hosted **OpenCode** agent and turns it into a controlled development and operations workflow for Git/GitHub repositories.
+
+The project is built around persistent sessions, queued development tasks, guarded shell access, adaptive resource management, model selection, progress reporting, and auditable server-side operation.
+
+It is intentionally designed so the production server acts as an **agent execution environment**, not a build machine.
+
+## Core Capabilities
+
+- Arabic Telegram interface for interacting with OpenCode.
+- Persistent OpenCode conversations and task state.
+- Durable task queue backed by local storage.
+- Persistent named scheduled jobs with create/edit/append/rename/reschedule/run/pause/resume/delete controls and restart-safe storage.
+- Multi-repository Git/GitHub development workflows.
+- Instruction-bound Telegram attachment tasks for images, video, audio and arbitrary documents, with persistent staging, album grouping, bounded storage and secure output delivery.
+- Single-message Telegram task lifecycle: one status message is created after the instruction, edited live during execution, then replaced in place by the final answer.
+- Live task progress and persisted activity reporting.
+- Research-oriented commands for search, deep research, comparison, verification and source inspection.
+- Dynamic model catalog reconciliation.
+- Automated free-model scouting with guarded selection rules.
+- Adaptive task-worker concurrency based on live host pressure.
+- Boot-persistent ZRAM sized by default to 50% of physical RAM, with safe resize/defer behavior.
+- Host health scoring and resource diagnostics.
+- Watchdog and maintenance reporting.
+- Daily guarded system/package cleanup and upgrades.
+- Validated fast-forward self-update from `Alaa91H/opencode-bridge` with pre-deployment tests.
+- Daily autonomous post-maintenance agent audit and strongest-free model selection.
+- Structured, redacted audit logging.
+- GitHub CI integration for verification and release workflows.
+- systemd-based deployment for long-running services.
+
+## Attachment & Media Tasks
+
+Telegram attachments are first-class queued tasks:
+
+- A photo, video, audio item or document with a caption is queued together with that caption as one instruction-bound task.
+- Files sent without a caption are persisted temporarily; the next ordinary text message in the same chat becomes the instruction for the whole pending batch.
+- Telegram media groups are debounced and combined into a single task instead of spawning one task per image/video.
+- Multiple separately sent files can be staged before the instruction, subject to per-file, per-task count, and aggregate-size limits.
+- Pending files survive a bridge process restart and expire automatically if no instruction arrives; `/discard` removes them immediately.
+- Every downloaded input receives a SHA-256 digest and is revalidated for path, size and content integrity immediately before execution.
+- Attachment content is treated as untrusted data. Embedded instructions, scripts, macros and binaries are never executed merely because they arrived in a file.
+- OpenCode-visible text and supported image formats are attached directly to the model. PDF, audio, video and other binary formats are processed from their validated local paths with already-installed server tools when the requested task requires it.
+- Attachments the model cannot read are also summarised locally: PDF text is extracted with an already-installed `pdftotext` off the event loop under a hard 45-second deadline, and everything else is summarised with no new dependency and no subprocess: text-like files that are hidden from the model or too large to inline get a bounded excerpt (query-relevant chunks, kept in document order, capped per file and per task), and ZIP archives get a validated manifest with entry count and uncompressed size. A represented file is not uploaded as a raw part — the excerpt replaces it while its local path stays listed, so the agent can still open the original. Extracted text is labelled untrusted data.
+- Intermediate conversions are restricted to a per-task scratch directory that is deleted at task completion. Only files written to the managed output directory are returned to Telegram.
+- Original incoming files are deleted after a non-recurring task reaches its terminal execution path; daily maintenance remains a fallback for interrupted-process cleanup.
+
+The bridge never installs a parser or codec on demand. If an appropriate read-only server tool is unavailable, the agent must report that limitation rather than execute unknown content or fabricate an analysis. See the current [OpenCode attachment documentation](https://opencode.ai/v2/docs/attachments) for model-visible formats.
+
+The defaults are 20 MiB per incoming file, 10 attachments per task, 50 MiB aggregate size, and a 10-minute pending-instruction window. They are configurable with `TELEGRAM_ATTACHMENT_MAX_BYTES`, `TELEGRAM_ATTACHMENT_MAX_COUNT`, `TELEGRAM_ATTACHMENT_MAX_TOTAL_BYTES`, and `TELEGRAM_ATTACHMENT_PENDING_SECONDS`.
+
+- Host operations are serialized: update, reboot, service restart and cleanup run one at a time, and a second request while one runs returns an explanation instead of starting a duplicate operation.
+
+## Telegram Conversation Experience
+
+- A normal request uses **one editable status message**, replaced by the final answer. OpenCode prompts, tool inputs, raw search results, error dumps and reasoning are not posted into the chat.
+- `/metrics` reports live operational numbers on demand: queue depth (ready vs deferred), running tasks against the current worker ceiling, outcomes inside a window (finished/succeeded/failed, average and longest execution time), provider deferral reasons, and host memory/CPU/free disk. `/metrics 72` widens the window from the default 24 hours. Nothing is sampled on a timer, so an idle bridge spends no CPU or I/O on metrics, and the queue figures come from SQLite plus the existing audit log, so they survive restarts instead of resetting.
+- `AGENT_LIVE_OUTPUT=0` is the recommended default. Setting it to `1` enables an optional *assistant-text-only* preview in that **same message**, not a stream of tool-log messages. Missing author metadata is rejected rather than guessed.
+- `TELEGRAM_STREAM_DRAFTS=0` is experimental and off by default. Setting it to `1` streams that same preview as an animated draft (Bot API 9.3+ / PTB 22.7+, private chats only); any failure falls back to editing the status message, so groups and older Bot API servers keep the default behaviour. Malformed values in either flag are logged once and fall back to the default instead of failing tasks.
+- Brief currency-rate questions use focused verification and concise answers, distinguishing official and parallel rates, buying and selling, old and new Syrian pounds, and source timestamps when available. Explicit deep-research requests retain the full protocol.
+- Detailed operational status remains accessible through the existing task-progress interfaces without exposing raw tool payloads.
+
+## Persistent Scheduled Jobs
+
+Scheduled work is stored separately from individual executions, so definitions remain durable across bridge restarts and can be edited without losing their identity or history.
+
+Telegram commands use the schedule name as the user-facing identifier; internal numeric task IDs remain hidden:
+
+- `/schedule name | YYYY-MM-DD HH:MM | command` creates a one-time schedule.
+- `/repeat name | 1d | command` creates a recurring schedule.
+- `/schedules` or `/tasks` lists saved schedules with state and next execution time.
+- `/schedrename`, `/schededit`, `/schedtime` and `/schedinterval` modify the name, command, next run or recurrence.
+- `/schedappend name | text` appends additional command chunks, allowing prompts far larger than one Telegram message to be assembled safely in SQLite.
+- `/schedrun` runs a saved schedule immediately without deleting or consuming its persistent definition.
+- `/schedpause` and `/schedresume` disable or re-enable future executions.
+- `/scheddelete` permanently removes the saved schedule.
+- `/schedinterval name | once` converts a recurring schedule back to one-time behavior.
+
+Recurring executions never overlap for the same owner because they enter the existing serialized task queue. If a recurring schedule becomes due while its previous execution is still active, the bridge skips overlap and advances to the next interval.
+
+Schedule timestamps are currently entered and displayed in UTC.
+
+## Safety & Execution Guardrails
+
+The checked-in OpenCode policy blocks high-risk or inappropriate server-side operations, including:
+
+- package installation and dependency bootstrap commands;
+- local application build/compile commands;
+- destructive Git cleanup/reset operations;
+- force pushes;
+- repository deletion and direct PR merge commands;
+- shutdown, reboot, halt and poweroff commands;
+- access to common secret-bearing files such as `.env`, private keys and PEM files.
+
+OpenCode is configured to bind to **localhost** and authentication secrets are expected to remain in a local `.env` file rather than the repository.
+
+## Adaptive Resource Control
+
+The bridge continuously evaluates host pressure before admitting new queued work.
+
+Signals include:
+
+- available memory;
+- Linux memory PSI;
+- normalized CPU load;
+- swap pressure;
+- free disk capacity.
+
+Concurrency can contract under pressure and recover gradually using stabilization and cooldown logic. Running tasks are not cancelled merely because the worker limit is reduced.
+
+The project also maintains a shadow recommendation path so alternative worker policies can be evaluated before they are allowed to affect production behavior.
+
+## Model Management
+
+The bridge includes a persistent model manager and agent scout that can:
+
+- inspect the live OpenCode agent/model catalog;
+- research the strongest currently zero-cost OpenCode Zen model every day for agentic software development;
+- apply the highest known reasoning variant announced by the selected model's live catalog metadata;
+- keep Muse Spark 1.3 Contributor Free as a safe configured fallback instead of a permanent pin;
+- reject stale, unavailable, or newly paid selections before applying them;
+- persist validated decisions across restarts;
+- fall back deterministically when external research is unavailable.
+
+## Architecture
+
+| Component | Responsibility |
+| --- | --- |
+| `bot.py` | Telegram application, commands and orchestration |
+| `opencode_client.py` | OpenCode server communication |
+| `task_service.py` / `task_queue.py` | Queued task execution and persistence |
+| `session_store.py` | Persistent conversation/session state |
+| `model_manager.py` | Live model reconciliation and defaults |
+| `agent_scout.py` | Periodic free-model research and validation |
+| `adaptive_workers.py` | Resource-aware worker admission |
+| `progress*.py` | Live and persisted progress reporting |
+| `attachments.py` | Managed intake, integrity checks, binary-media routing, scratch workspaces and output collection |
+| `audit_log.py` | Structured audit trail |
+| `github_ci.py` / `ci_plugin.py` | GitHub CI workflow integration |
+| `deploy/` | systemd service definitions and deployment assets |
+
+## Configuration
+
+Copy the example environment file and keep the real `.env` only on the server.
+
+Important settings include Telegram credentials/allow-lists, OpenCode host/authentication, model defaults, worker limits, attachment limits, and optional Telegram proxy configuration.
+
+See:
+
+- [`.env.example`](.env.example)
+- [`opencode.json`](opencode.json)
+- [Arabic deployment guide](DEPLOYMENT_AR.md)
+- [Release process](RELEASE_PROCESS_AR.md)
+- [Changelog](CHANGELOG.md)
+
+## Deployment
+
+The intended deployment model keeps OpenCode bound to `127.0.0.1`, runs the bridge under user-level systemd services, and stores runtime credentials locally with restricted permissions.
+
+The server should receive already-prepared source/configuration changes; builds and dependency installation are deliberately blocked by policy.
+
+For the current deployment procedure, read **[DEPLOYMENT_AR.md](DEPLOYMENT_AR.md)**.
+
+## Verification
+
+GitHub Actions is used as the source of truth for repository verification, including syntax/tests, OpenCode configuration checks, semantic-version validation and release publication where configured.
+
+## Language
+
+The operator-facing Telegram workflow and deployment documentation are primarily **Arabic**, while code and technical identifiers remain structured for maintainability.
+
+---
+
+<div align="center">
+
+**A guarded bridge between conversational development and a real OpenCode execution environment.**
+
+</div>
+
+## Latest security review (2026-10-12)
+
+The 2026 security hardening pass adds regression tests for download redirects,
+ZIP extraction, workspaces, subprocess output limits and atomic deployment.
+For verified results and **remaining production blockers**, see
+[the Arabic security review](docs/security-review-2026-10-12-ar.md).
+This is not a release certification; run the full CI and staging verification
+before deploying these changes.

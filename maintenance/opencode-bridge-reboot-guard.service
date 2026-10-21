@@ -1,0 +1,18 @@
+[Unit]
+Description=OpenCode Bridge Deferred Reboot Guard
+Documentation=file:/home/ubuntu/opencode-bridge/DEPLOYMENT_AR.md
+Wants=network-online.target
+After=network-online.target opencode-bridge-maintenance.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/sbin/opencode-bridge-reboot-guard
+TimeoutStartSec=8min
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/opencode-bridge/runtime
