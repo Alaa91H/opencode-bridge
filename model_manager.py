@@ -208,7 +208,23 @@ class ModelManager:
         preferred = self._preferred_model
         if preferred and preferred in ranked and preferred not in excluded:
             return preferred
-        return best_zen_general_model_id(providers, excluded_ids=excluded)
+        best = best_zen_general_model_id(providers, excluded_ids=excluded)
+        if best is not None:
+            return best
+        # Fallback to known free Zen models when the live catalog is empty
+        # (e.g. OpenCode desktop server does not expose models via local API).
+        fallback_models = (
+            "opencode/nemotron-3.5-super-vl-free",
+            "opencode/deepseek-v4.1-flash-free",
+            "opencode/beam-free",
+            "opencode/space-bunny-free",
+            "opencode/glm-5.3-flash-free",
+        )
+        for model in fallback_models:
+            if model not in excluded:
+                log.info("Live catalog empty; using fallback free model %s", model)
+                return model
+        return None
 
     async def owner_pinned_model(self, owner_id: str | None) -> str | None:
         """Return the owner-pinned model, or None when the owner chose automatic."""

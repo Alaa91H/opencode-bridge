@@ -43,7 +43,7 @@ def is_zero_cost_model(model: dict[str, Any]) -> bool:
 
 def free_model_ids(provider_data: dict[str, Any] | list[dict[str, Any]]) -> list[str]:
     """List available zero-cost provider/model IDs in deterministic order."""
-    providers: Any = provider_data.get("all", []) if isinstance(provider_data, dict) else provider_data
+    providers: Any = _extract_providers(provider_data)
     if not isinstance(providers, list):
         return []
     results: set[str] = set()
@@ -60,8 +60,25 @@ def free_model_ids(provider_data: dict[str, Any] | list[dict[str, Any]]) -> list
     return sorted(results, key=str.casefold)
 
 
+def _extract_providers(provider_data: dict[str, Any] | list[dict[str, Any]]) -> Any:
+    """Extract the providers list from OpenCode API response.
+
+    OpenCode API v2 wraps results under ``data`` key:
+    {"location": {...}, "data": [{"id": "...", "models": {...}}]}
+    Older responses may use ``all`` key directly.
+    """
+    if isinstance(provider_data, list):
+        return provider_data
+    if isinstance(provider_data, dict):
+        if isinstance(provider_data.get("all"), list):
+            return provider_data["all"]
+        if isinstance(provider_data.get("data"), list):
+            return provider_data["data"]
+    return []
+
+
 def _zen_free_models(provider_data: dict[str, Any] | list[dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
-    providers: Any = provider_data.get("all", []) if isinstance(provider_data, dict) else provider_data
+    providers: Any = _extract_providers(provider_data)
     if not isinstance(providers, list):
         return []
     for provider in providers:
