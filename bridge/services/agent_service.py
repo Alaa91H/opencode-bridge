@@ -91,7 +91,12 @@ class AgentService:
 
     @staticmethod
     def extract_session_id(session: dict) -> str:
-        session_id = session.get("id") or session.get("sessionId") or session.get("session", {}).get("id")
+        session_id = (
+            session.get("id")
+            or session.get("sessionId")
+            or session.get("session", {}).get("id")
+            or session.get("data", {}).get("id")  # OpenCode API wraps result under "data"
+        )
         if not isinstance(session_id, str) or not session_id:
             raise RuntimeError("استجاب الوكيل دون معرّف جلسة صالح")
         return session_id
