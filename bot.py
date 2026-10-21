@@ -58,6 +58,7 @@ from block_patterns import check_build, check_hardline
 from bridge.config import get_settings
 from bridge.config.runtime_flags import enabled as runtime_flag_enabled
 from bridge.domain.policies import RequestGuard
+from bridge.domain.sessions.session_store import SessionStore
 from bridge.infrastructure.database.draft_store import DraftStore
 from bridge.infrastructure.database.user_settings_store import UserSettingsStore
 from bridge.infrastructure.opencode.credential_pool import CredentialPool, parse_credential_pool
@@ -66,6 +67,7 @@ from bridge.services.agent_service import AgentService
 from bridge.services.config_service import ConfigurationService
 from bridge.services.download_service import DownloadService
 from bridge.services.draft_service import DraftService
+from bridge.services.github.commands import GitHubCommandHandler
 from bridge.services.host_control import HostControl
 from bridge.services.host_credentials import HostCredentialManager
 from bridge.services.maintenance_service import MaintenanceReportService
@@ -102,6 +104,7 @@ from bridge.telegram.commands.tasks import TaskCommands
 from bridge.telegram.control_ui import ControlUI
 from bridge.telegram.draft_intake import DraftIntakeAdapter
 from bridge.telegram.execution import TelegramExecutionDelivery
+from bridge.telegram.helpers import parse_utc_datetime, task_status_text
 from bridge.telegram.interactions import InteractionRegistry
 from bridge.telegram.middleware import TelegramAccessController
 from bridge.telegram.panels import (
@@ -110,7 +113,6 @@ from bridge.telegram.panels import (
     PanelRouter,
     build_panels,
 )
-from bridge.telegram.helpers import parse_utc_datetime, task_status_text
 from bridge.telegram.role_policy import resolve_owner_id
 from formatter import MAX_MESSAGE_LENGTH
 from messages import (
@@ -125,7 +127,6 @@ from progress import ProgressStore
 from progress_reporter import DisplayPreferences, LiveProgressReporter, register_interaction_sink
 from prompt_enhancer import ResearchMode
 from reboot_state import decision_path, read_state, request_path, write_state
-from bridge.domain.sessions.session_store import SessionStore
 from task_queue import QueuedTask, TaskQueueStore
 from task_service import TaskService
 
@@ -204,6 +205,7 @@ progress_store = ProgressStore()
 live_reporters: dict[int, LiveProgressReporter] = {}
 task_service: TaskService | None = None
 model_manager: ModelManager | None = None
+github_handler: GitHubCommandHandler | None = None
 pending_cleanup_task: asyncio.Task[None] | None = None
 _media_adapter_instance: TelegramMediaAdapter | None = None
 _task_commands_instance: TaskCommands | None = None
@@ -1389,6 +1391,21 @@ async def post_init(app: Application) -> None:
         "مفعّل" if TELEGRAM_PROXY_URL else "غير مفعّل",
     )
 
+    # Initialize GitHub command handler if token is configured
+    global github_handler
+    if SETTINGS.github.token and github_handler is None:
+        try:
+            github_handler = GitHubCommandHandler(
+                github_token=SETTINGS.github.token,
+                workspace_root=BRIDGE_DIR / "github-workspaces",
+            )
+            await github_handler._ensure_client()
+            github_handler.register_handlers(app)
+            log.info("تم تسجيل أوامر GitHub (ghrepos, ghcreate, ghclone, ghstatus, ghpr, ghissue, ghrelease, ghbranch, ghsecret, ghhelp)")
+        except Exception as exc:
+            log.warning("تعذر تهيئة معالج أوامر GitHub: %s", exc)
+            github_handler = None
+
 
 async def post_shutdown(app: Application) -> None:
     global task_service, model_manager, pending_cleanup_task, skill_sync_task
@@ -1417,6 +1434,11 @@ async def post_shutdown(app: Application) -> None:
     await client.close()
     await task_store.close()
     await store.close()
+    # Close GitHub API client
+    global github_handler
+    if github_handler is not None:
+        await github_handler.close()
+        github_handler = None
     log.info("أُغلقت اتصالات البوت بأمان.")
 
 
