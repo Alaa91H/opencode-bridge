@@ -377,7 +377,12 @@ class OpenCodeClient:
             return {}
         response = await self._client.patch(f"/session/{session_id}", json=body)
         response.raise_for_status()
-        return response.json()
+        try:
+            payload = response.json()
+        except Exception:
+            # Empty or non-JSON body still means the update succeeded.
+            return {"id": session_id, "status": "ok"}
+        return payload if isinstance(payload, dict) else {}
 
     async def list_providers(self) -> dict[str, Any] | list[dict[str, Any]]:
         response = await self._client.get("/provider")
