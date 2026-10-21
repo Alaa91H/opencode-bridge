@@ -32,7 +32,7 @@ class OpenCodeClientPromptTests(unittest.IsolatedAsyncioTestCase):
             await client.send_prompt(
                 "ses_test",
                 "Improve the project",
-                model="opencode/muse-spark-1.3-contributor-free",
+                model="opencode/auto-selected",
                 agent="development-agent",
                 variant="xhigh",
             )
@@ -40,7 +40,7 @@ class OpenCodeClientPromptTests(unittest.IsolatedAsyncioTestCase):
             await client.close()
 
         self.assertEqual(captured["variant"], "xhigh")
-        self.assertEqual(captured["model"], {"providerID": "opencode", "modelID": "muse-spark-1.3-contributor-free"})
+        self.assertEqual(captured["model"], {"providerID": "opencode", "modelID": "auto-selected"})
         self.assertEqual(captured["agent"], "development-agent")
 
     async def test_production_client_fails_over_invalid_credential(self) -> None:

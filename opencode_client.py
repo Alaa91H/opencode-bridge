@@ -71,7 +71,7 @@ class OpenCodeClient:
         credential_pool: Any | None = None,
         credential_state_path: Any | None = None,
     ) -> None:
-        self.base_url = f"http://{host}:{port}"
+        self.base_url = f"http://{host}:{port}/api"
         self.timeout = max(1.0, min(60.0, timeout))
         self.credential_pool = credential_pool
         self.credential_state_path = credential_state_path
@@ -136,10 +136,13 @@ class OpenCodeClient:
         return await self._client.request(method, path, **kwargs)
 
     async def health(self) -> dict[str, Any]:
-        response = await self._client.get("/global/health")
+        # Use the sessions list endpoint as a health check with basic auth.
+        # /api/session returns 200 with JSON when the server is up and authenticated.
+        response = await self._client.get("/session")
+        if response.is_success:
+            return {"healthy": True, "status": "ok"}
         response.raise_for_status()
-        payload = response.json()
-        return payload if isinstance(payload, dict) else {}
+        return {"healthy": True, "status": "ok"}
 
     async def health_check(self) -> bool:
         try:

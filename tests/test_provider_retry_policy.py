@@ -18,7 +18,7 @@ class ProviderRetryPolicyTests(unittest.TestCase):
 
         decision = classify_retry(
             error,
-            model_id="opencode/muse-spark-1.3-contributor-free",
+            model_id="opencode/auto-selected",
             now=now,
         )
 
@@ -29,7 +29,7 @@ class ProviderRetryPolicyTests(unittest.TestCase):
 
     def test_zen_free_quota_requires_explicit_free_model_error(self):
         error = ProviderTaskError({"data": {"statusCode": 429, "message": "rate limit"}})
-        decision = classify_retry(error, model_id="opencode/muse-spark-1.3-contributor-free")
+        decision = classify_retry(error, model_id="opencode/auto-selected")
         self.assertNotEqual(decision.category, "zen_free_quota")
 
     def test_noon_matching_retry_after_counts_without_model_suffix(self):

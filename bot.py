@@ -1383,7 +1383,7 @@ async def post_init(app: Application) -> None:
     _interaction_callbacks().attach_bot(app.bot)
     log.info(
         "تم تسجيل أوامر البوت. النموذج: %s، الاستدلال: %s، الوكيل: %s، وكيل تيليغرام: %s",
-        DEFAULT_MODEL,
+        DEFAULT_MODEL or "تلقائي (أفضل مجاني متاح)",
         DEFAULT_MODEL_VARIANT or "default",
         DEFAULT_AGENT,
         "مفعّل" if TELEGRAM_PROXY_URL else "غير مفعّل",
@@ -1481,7 +1481,7 @@ async def main() -> None:
 
     await app.start()
     await app.updater.start_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=DROP_PENDING_UPDATES)
-    log.info("البوت يعمل. النموذج: %s، الاستدلال: %s، الوكيل: %s", DEFAULT_MODEL, DEFAULT_MODEL_VARIANT or "default", DEFAULT_AGENT)
+    log.info("البوت يعمل. النموذج: %s، الاستدلال: %s، الوكيل: %s", DEFAULT_MODEL or "تلقائي (أفضل مجاني متاح)", DEFAULT_MODEL_VARIANT or "default", DEFAULT_AGENT)
     await stop_event.wait()
     await app.updater.stop()
     await app.stop()

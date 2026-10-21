@@ -79,7 +79,7 @@ class DurableTaskResumeTests(unittest.IsolatedAsyncioTestCase):
             client = object()
 
             async def current_model(self, owner_id):
-                return "saved-session", "opencode/muse-spark-1.3-contributor-free"
+                return "saved-session", "opencode/auto-selected"
 
             async def send_prompt_with_fallback(self, *args, **kwargs):
                 raise AssertionError("a quota-paused model must not receive a request")
@@ -106,7 +106,7 @@ class DurableTaskResumeTests(unittest.IsolatedAsyncioTestCase):
             client = object()
 
             async def current_model(self, owner_id):
-                return "saved-session", "opencode/muse-spark-1.3-contributor-free"
+                return "saved-session", "opencode/auto-selected"
 
             async def send_prompt_with_fallback(self, *args, **kwargs):
                 response = httpx.Response(

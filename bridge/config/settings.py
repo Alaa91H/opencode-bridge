@@ -270,9 +270,9 @@ class OpenCodeSettings:
     password: str | None = None
     server_username: str = "opencode"
     server_password: str | None = None
-    default_model: str = "opencode/muse-spark-1.3-contributor-free"
-    model_variant: str | None = "xhigh"
-    variant_model: str = "opencode/muse-spark-1.3-contributor-free"
+    default_model: str = ""
+    model_variant: str | None = None
+    variant_model: str = ""
     pin_default_model: bool = False
     agent: str = "telegram-operator"
     model_sync_seconds: int = 900
@@ -500,7 +500,7 @@ class BridgeSettings:
             model_variant=(
                 str(_source_value(
                     merged_env, config, "OPENCODE_MODEL_VARIANT",
-                    "opencode.model_variant", "xhigh"
+                    "opencode.model_variant", ""
                 )).strip()
                 or None
             ),
@@ -739,8 +739,6 @@ class BridgeSettings:
     def validate(self) -> None:
         if not self.opencode.host:
             raise SettingsError("OPENCODE_HOST must not be empty")
-        if not self.opencode.default_model:
-            raise SettingsError("OPENCODE_DEFAULT_MODEL must not be empty")
         if self.telegram.attachment_max_total_bytes < self.telegram.attachment_max_bytes:
             raise SettingsError(
                 "TELEGRAM_ATTACHMENT_MAX_TOTAL_BYTES must be >= "
