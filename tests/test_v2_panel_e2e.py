@@ -33,7 +33,7 @@ from bridge.telegram.panels import (
     build_panels,
 )
 from opencode_client import OpenCodeClient
-from session_store import SessionStore
+from bridge.domain.sessions.session_store import SessionStore
 from task_queue import TaskQueueStore
 
 OWNER = "424242"

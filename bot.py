@@ -98,7 +98,7 @@ from progress import ProgressStore
 from progress_reporter import DisplayPreferences, LiveProgressReporter, register_interaction_sink
 from prompt_enhancer import ResearchMode
 from reboot_state import decision_path, read_state, request_path, write_state
-from session_store import SessionStore
+from bridge.domain.sessions.session_store import SessionStore
 from task_queue import QueuedTask, TaskQueueStore
 from task_service import TaskService
 
