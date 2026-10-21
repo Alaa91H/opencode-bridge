@@ -1,3 +1,75 @@
+## [3.59.0] - 2026-10-21
+
+### Architectural consolidation (T02/T46): domain layer now owns sessions
+
+`SessionStore` moved from the root (`session_store.py`) into the framework-independent
+domain layer at `bridge/domain/sessions/session_store.py`. The root module remains
+as a backward-compatible re-export shim so existing importers (`bot.py`,
+`maintenance/daily_agent_maintenance.py`, tests) keep working unchanged.
+`bridge/domain/sessions/` is no longer an empty boundary — it now holds the
+canonical session implementation.
+
+### Architectural documentation: three-tier task architecture
+
+The three `task_service` layers are now explicitly documented so maintainers know
+which is the source of truth:
+
+1. `task_service_v3.py` (`TaskServiceV3`) — foundation layer: bounded worker pool,
+   durable queue claiming, execution, heartbeats, task finishing.
+2. `task_service.py` (root, `TaskService` subclasses `TaskServiceV3`) — middle layer:
+   stabilized host-pressure-aware concurrency (`StabilizedWorkerLimit`),
+   audited shadow policy (`AuditedShadowPolicy`), and atomic `WorkerCapacity`
+   ceiling (1 or 2).
+3. `bridge/services/task_service.py` (`TaskApplicationService`) — application-service
+   layer: enqueue/cancel/retry/checkpoint use cases that depend on protocol ports,
+   not concrete classes.
+
+Same treatment for the OpenCode client and attachment layers: `OpenCodeClient`
+(root, production) vs `OpenCodeClientV2` (`bridge/infrastructure/opencode/client_v2.py`,
+modern typed client with retries, correlation IDs, credential-pool failover), and
+`AttachmentStore` (root, production) vs the bridge attachment services
+(intelligence router, media pipeline, storage service). Each layer documents its
+role and the consolidation path tracked under T46.
+
+### Entrypoints and configuration documentation
+
+- README now documents the two entrypoints: `python -m run_v3` is the production
+  entrypoint (used by systemd units via `ExecStart=... -m run_v3`); `python -m bot`
+  via `start.sh` is manual/local only.
+- The difference between `.env.example` (agent: `telegram-operator`) and
+  `.env.v3.example` (agent: `development-agent`, plus GitHub workspace/CI variables)
+  is documented.
+- New `bridge.toml.example` provides an optional central TOML config file supported
+  by `BridgeSettings`; environment variables always override file values.
+
+### bot.py refactor: pure helpers extracted
+
+`task_status_text()` and `parse_utc_datetime()` moved from `bot.py` into the new
+`bridge/telegram/helpers.py`, a module of pure, testable utilities. `bot.py` keeps
+compatibility wrappers that delegate to the helpers, reducing its surface and
+keeping it focused on wiring and lifecycle.
+
+### Test coverage expansion
+
+- `tests/test_bridge_domain_sessions.py`: CRUD tests for the consolidated
+  `SessionStore` (create, get, update, delete, list, idempotent init).
+- `tests/test_bridge_telegram_helpers.py`: tests for `task_status_text`,
+  `parse_utc_datetime`, `utc_now`.
+- `tests/test_block_patterns.py`: security tests for `BUILD_PATTERNS` (npm/pip/
+  cargo/go/make/cmake/docker/gradle/maven builds) and `HARDLINE_PATTERNS` (rm on
+  system paths, shutdown/reboot, mkfs, dd, fork bomb), covering the `check_command`
+  API (hardline = blocked+dangerous, build = blocked-only).
+- `tests/test_worker_capacity.py`: atomic persisted concurrency ceiling (1 or 2),
+  set/get, invalid values, garbage-file fallback, no leftover temp files.
+- `tests/test_adaptive_workers.py`: `StabilizedWorkerLimit` fast decrease, slow
+  increase, transition audit callback, clamp to configured ceiling; plus a
+  `HostResourcePolicy` smoke test.
+
+### Upgrade notes
+
+- No dependency changes, no migrations. Source release only.
+- Backward compatible: all root imports continue to work via re-export shims.
+
 ## [3.58.0] - 2026-10-18
 
 ### The agent could not see 81 of the 84 skills in its own repository
