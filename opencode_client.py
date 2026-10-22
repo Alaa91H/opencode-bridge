@@ -311,6 +311,8 @@ class OpenCodeClient:
             body["messageID"] = message_id
             return await self._send_resumable(session_id, message_id, body, should_continue)
         model_id = model if isinstance(model, str) else None
+        if not self.circuit_breaker.can_proceed():
+            raise CircuitBreakerOpenError("OpenCode circuit breaker is open")
         response = await self._credential_request(
             "POST", f"/session/{session_id}/message", json=body, model_id=model_id,
             correlation_id=correlation_id,

@@ -21,7 +21,7 @@ from bridge.domain.tasks.retry_policy import (
 from bridge.services.attachment_context_service import AttachmentContextService
 from bridge.services.media_analysis_service import MediaAnalysisService
 from messages import empty_response_message
-from opencode_client import extract_file_response, extract_text_response
+from opencode_client import CircuitBreakerOpenError, extract_file_response, extract_text_response
 from prompt_enhancer import ResearchMode, enhance_prompt
 
 
@@ -104,7 +104,12 @@ class TaskExecutionService:
             # Backwards-compatible fakes in older tests ignore max_bytes.
             return self.attachment_store.collect_task_outputs(task_id)
 
-    async def execute(self, task: Any, delivery: ExecutionDeliveryPort) -> None:
+    async def execute(
+        self,
+        task: Any,
+        delivery: ExecutionDeliveryPort,
+        correlation_id: str | None = None,
+    ) -> None:
         current = await self.repository.get(task.id)
         if current is None or current.status == "cancelled":
             return
@@ -353,33 +358,7 @@ class TaskExecutionService:
                 "الوكيل استلم المهمة وعم يعالجها.",
             )
 
-            response, selected_model = (
-                await self.agent_service.send_prompt_with_fallback(
-                    task.owner_id,
-                    session_id,
-                    prompt,
-                    message_parts,
-                    selected_model,
-                    audit_write=self.audit_write,
-                    task_id=task.id,
-                    message_id=checkpoint["message_id"],
-                    should_continue=should_continue,
-                )
-            )
-            if response.get("info", {}).get("error"):
-                raise ProviderTaskError(response["info"]["error"])
-            reply_text = extract_text_response(response)
-            output_files = self._collect_outputs(task.id)
-
-            if not reply_text and not output_files:
-                checkpoint["message_id"] = "msg_" + uuid.uuid4().hex
-                await self.repository.save_checkpoint(task.id, checkpoint)
-                await reporter.record(
-                    "retry",
-                    "ما وصل ناتج واضح؛ عم نجرب مرة أخيرة.",
-                    "warning",
-                    force=True,
-                )
+            try:
                 response, selected_model = (
                     await self.agent_service.send_prompt_with_fallback(
                         task.owner_id,
@@ -391,12 +370,66 @@ class TaskExecutionService:
                         task_id=task.id,
                         message_id=checkpoint["message_id"],
                         should_continue=should_continue,
+                    correlation_id=correlation_id,
                     )
                 )
                 if response.get("info", {}).get("error"):
                     raise ProviderTaskError(response["info"]["error"])
                 reply_text = extract_text_response(response)
                 output_files = self._collect_outputs(task.id)
+
+                if not reply_text and not output_files:
+                    checkpoint["message_id"] = "msg_" + uuid.uuid4().hex
+                    await self.repository.save_checkpoint(task.id, checkpoint)
+                    await reporter.record(
+                        "retry",
+                        "ما وصل ناتج واضح؛ عم نجرب مرة أخيرة.",
+                        "warning",
+                        force=True,
+                    )
+                    response, selected_model = (
+                        await self.agent_service.send_prompt_with_fallback(
+                            task.owner_id,
+                            session_id,
+                            prompt,
+                            message_parts,
+                            selected_model,
+                            audit_write=self.audit_write,
+                            task_id=task.id,
+                            message_id=checkpoint["message_id"],
+                            should_continue=should_continue,
+                    correlation_id=correlation_id,
+                        )
+                    )
+                    if response.get("info", {}).get("error"):
+                        raise ProviderTaskError(response["info"]["error"])
+                    reply_text = extract_text_response(response)
+                    output_files = self._collect_outputs(task.id)
+            except CircuitBreakerOpenError as exc:
+                self.audit_write(
+                    "circuit_breaker_open",
+                    "deferred",
+                    actor_id=task.owner_id,
+                    details={
+                        "task_id": task.id,
+                        "reason": str(exc),
+                    },
+                )
+                await reporter.record(
+                    "deferred",
+                    "الخدمة غير متاحة مؤقتًا، деمل 구する",
+                    "warning",
+                    force=True,
+                )
+                await self.repository.retry_or_dead_letter(
+                    task.id,
+                    "bridge_circuit_open",
+                    retryable=True,
+                    max_attempts=None,
+                    retry_after=60.0,
+                    checkpoint={"circuit_open": True, "retry_at": datetime.now(UTC).isoformat()},
+                )
+                return
 
             elapsed = time.monotonic() - started_at
             current = await self.repository.get(task.id)
