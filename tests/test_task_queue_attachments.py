@@ -119,6 +119,29 @@ class TaskQueueAttachmentTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(restored.activity[0]["message"], "بدأت المهمة")
             await store.close()
 
+    async def test_claim_next_priorities_higher_priority_first(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = TaskQueueStore(Path(temp) / "queue.db")
+            await store.init()
+            # Enqueue in reverse priority order across different owners; claim should
+            # return highest priority first regardless of insertion order.
+            await store.enqueue("owner-low", 1, "low", priority=0)
+            await store.enqueue("owner-med", 1, "medium", priority=5)
+            await store.enqueue("owner-high", 1, "high", priority=10)
+            first = await store.claim_next("worker-1")
+            assert first is not None
+            self.assertEqual(first.prompt, "high")
+            self.assertEqual(first.priority, 10)
+            second = await store.claim_next("worker-1")
+            assert second is not None
+            self.assertEqual(second.prompt, "medium")
+            self.assertEqual(second.priority, 5)
+            third = await store.claim_next("worker-1")
+            assert third is not None
+            self.assertEqual(third.prompt, "low")
+            self.assertEqual(third.priority, 0)
+            await store.close()
+
 
 if __name__ == "__main__":
     unittest.main()
