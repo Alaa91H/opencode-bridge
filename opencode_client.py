@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
 
@@ -38,6 +40,94 @@ DEFAULT_PORT = 4096
 TIMEOUT = 60.0
 # The three answers an agent permission request accepts.
 PERMISSION_DECISIONS = frozenset({"once", "always", "reject"})
+
+
+class CircuitBreakerOpenError(Exception):
+    """Raised when the circuit breaker is open and requests are rejected."""
+
+# Circuit breaker thresholds
+CIRCUIT_FAILURE_THRESHOLD = 5
+CIRCUIT_RECOVERY_TIMEOUT = 30.0  # seconds before attempting half-open
+
+
+@dataclass(frozen=True)
+class CircuitState:
+    failures: int = 0
+    last_failure_time: float | None = None
+    state: str = "closed"  # closed, open, half_open
+
+
+class CircuitBreaker:
+    """Circuit breaker for OpenCode API calls.
+
+    Prevents cascading failures when OpenCode server is down by tracking
+    consecutive failures and tripping open after a threshold. After the
+    recovery timeout, allows one trial request (half-open) to test recovery.
+    """
+
+    def __init__(self, failure_threshold: int = CIRCUIT_FAILURE_THRESHOLD,
+                 recovery_timeout: float = CIRCUIT_RECOVERY_TIMEOUT,
+                 clock: Callable[[], float] = time.monotonic) -> None:
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.clock = clock
+        self.state = CircuitState()
+
+    def record_success(self) -> None:
+        """Record a successful call, closing the circuit if half-open."""
+        self.state = CircuitState(failures=0, state="closed")
+
+    def record_failure(self) -> None:
+        """Record a failed call, opening the circuit if threshold exceeded."""
+        now = self.clock()
+        state = self.state
+        if state.state == "open":
+            # Already open; just track the failure time
+            self.state = CircuitState(
+                failures=state.failures + 1,
+                last_failure_time=now,
+                state="open",
+            )
+            return
+        new_failures = state.failures + 1
+        if new_failures >= self.failure_threshold:
+            self.state = CircuitState(
+                failures=new_failures,
+                last_failure_time=now,
+                state="open",
+            )
+        else:
+            self.state = CircuitState(
+                failures=new_failures,
+                last_failure_time=state.last_failure_time,
+                state="closed",
+            )
+
+    def can_proceed(self) -> bool:
+        """Check if a request is allowed through the circuit breaker."""
+        state = self.state
+        if state.state == "closed":
+            return True
+        if state.state == "open":
+            now = self.clock()
+            if state.last_failure_time is not None and now - state.last_failure_time >= self.recovery_timeout:
+                # Half-open: allow one trial request
+                self.state = CircuitState(
+                    failures=state.failures,
+                    last_failure_time=state.last_failure_time,
+                    state="half_open",
+                )
+                return True
+            return False
+        # Half-open: allow the trial request
+        return True
+
+    def record_outcome(self, success: bool) -> None:
+        """Record the outcome of a request."""
+        if success:
+            self.record_success()
+        else:
+            self.record_failure()
 
 
 def message_model_reference(model: dict[str, str] | str) -> dict[str, str]:
@@ -70,11 +160,13 @@ class OpenCodeClient:
         timeout: float = TIMEOUT,
         credential_pool: Any | None = None,
         credential_state_path: Any | None = None,
+        circuit_breaker: CircuitBreaker | None = None,
     ) -> None:
         self.base_url = f"http://{host}:{port}/api"
         self.timeout = max(1.0, min(60.0, timeout))
         self.credential_pool = credential_pool
         self.credential_state_path = credential_state_path
+        self.circuit_breaker = circuit_breaker or CircuitBreaker()
         auth = ("opencode", password) if password else None
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
@@ -138,9 +230,17 @@ class OpenCodeClient:
     async def health(self) -> dict[str, Any]:
         # Use the sessions list endpoint as a health check with basic auth.
         # /api/session returns 200 with JSON when the server is up and authenticated.
-        response = await self._client.get("/session")
+        if not self.circuit_breaker.can_proceed():
+            raise CircuitBreakerOpenError("OpenCode circuit breaker is open")
+        try:
+            response = await self._client.get("/session")
+        except httpx.HTTPError:
+            self.circuit_breaker.record_outcome(False)
+            raise
         if response.is_success:
+            self.circuit_breaker.record_outcome(True)
             return {"healthy": True, "status": "ok"}
+        self.circuit_breaker.record_outcome(False)
         response.raise_for_status()
         return {"healthy": True, "status": "ok"}
 
