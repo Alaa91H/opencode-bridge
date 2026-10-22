@@ -37,6 +37,7 @@ class TaskRepository(Protocol):
         attachments: list[dict] | None = None,
         execution_mode: str | None = None,
         status_message_id: int | None = None,
+        priority: int = 0,
     ) -> tuple[Any, int]: ...
     async def enqueue_once(
         self, scope: str, idempotency_key: str, owner_id: str, chat_id: int, prompt: str, **kwargs: Any
@@ -62,6 +63,7 @@ class QueuedRequest:
     task: Any
     queue_position: int
     enhanced: Any
+    priority: int = 0
 
 
 @dataclass(frozen=True)
@@ -106,6 +108,7 @@ class TaskApplicationService:
         daily_continuation: bool = False,
         idempotency_scope: str | None = None,
         idempotency_key: str | None = None,
+        priority: int = 0,
     ) -> QueuedRequest:
         """Validate the user instruction while allowing trusted bridge context in storage.
 
@@ -119,6 +122,7 @@ class TaskApplicationService:
         enqueue_kwargs = {
             "execution_mode": execution_mode.value if execution_mode is not None else None,
             "status_message_id": status_message_id,
+            "priority": priority,
         }
         stored = stored_prompt if stored_prompt is not None else prompt
         if idempotency_scope and idempotency_key:
@@ -136,7 +140,7 @@ class TaskApplicationService:
                     "daily_continuation": bool(daily_continuation),
                 },
             )
-        return QueuedRequest(task=task, queue_position=position, enhanced=enhanced)
+        return QueuedRequest(task=task, queue_position=position, enhanced=enhanced, priority=priority)
 
     async def save_checkpoint(self, task: Any, updates: dict[str, Any]) -> None:
         """Merge ``updates`` into a queued task checkpoint through the repository port.
