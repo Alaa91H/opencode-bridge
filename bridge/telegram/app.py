@@ -109,6 +109,8 @@ def core_commands() -> list[BotCommand]:
         BotCommand("ghbranch", "إدارة فروع GitHub (Branches)"),
         BotCommand("ghsecret", "إدارة أسرار GitHub (Secrets)"),
         BotCommand("ghhelp", "مساعدة أوامر GitHub"),
+        BotCommand("keyboard", "إظهار لوحة المفاتيح الثابتة"),
+        BotCommand("hidekeyboard", "إخفاء لوحة المفاتيح الثابتة"),
     ]
 
 
@@ -161,6 +163,8 @@ def register_core_handlers(
         )
     app.add_handler(CallbackQueryHandler(handlers.handle_control_callback, pattern=r"^ux:"))
     app.add_handler(CommandHandler("menu", handlers.cmd_menu))
+    app.add_handler(CommandHandler("keyboard", handlers.cmd_keyboard))
+    app.add_handler(CommandHandler("hidekeyboard", handlers.cmd_hide_keyboard))
     app.add_handler(CommandHandler("download", handlers.cmd_download))
     app.add_handler(CommandHandler("deletefile", handlers.cmd_deletefile))
     app.add_handler(CommandHandler("mirror", handlers.cmd_mirror))

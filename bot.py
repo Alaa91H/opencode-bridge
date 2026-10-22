@@ -43,7 +43,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar
 
-from telegram import Update
+from telegram import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.ext import Application, ContextTypes
 from telegram.request import HTTPXRequest
 
@@ -1020,6 +1020,80 @@ async def _safe_html_reply(message, html: str, plain: str) -> None:
         await _safe_reply(message, plain)
 
 
+# ═════════════════════════════════════════════════════════════════════
+# لوحة المفاتيح الثابتة (Reply Keyboard) - أزرار مرئية أسفل المحادثة
+# ═════════════════════════════════════════════════════════════════════
+
+
+def get_main_keyboard() -> ReplyKeyboardMarkup:
+    """لوحة المفاتيح الثابتة مع الأوامر الرئيسية"""
+    keyboard = [
+        [
+            KeyboardButton("🚀 بدء جلسة جديدة"),    # /start
+            KeyboardButton("⏹️ إيقاف التنفيذ"),      # /abort
+        ],
+        [
+            KeyboardButton("📋 مهامي"),              # /tasks
+            KeyboardButton("✅ مهامي المكتملة"),      # /failed
+        ],
+        [
+            KeyboardButton("📊 تقاريري"),            # /progress
+            KeyboardButton("📈 مقاييسي"),           # /metrics
+        ],
+        [
+            KeyboardButton("🗓️ جدولي"),             # /schedules
+            KeyboardButton("📝 مسوداتي"),           # /drafts
+        ],
+        [
+            KeyboardButton("🔍 البحث"),             # /search
+            KeyboardButton("🤖 النموذج"),           # /model
+        ],
+        [
+            KeyboardButton("❓ المساعدة"),          # /help
+            KeyboardButton("📋 القائمة"),           # /menu
+        ],
+        [
+            KeyboardButton("⌨️ إخفاء لوحة المفاتيح"), # /hidekeyboard
+        ],
+    ]
+    return ReplyKeyboardMarkup(
+        keyboard,
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        input_field_placeholder="اختر أمراً من القائمة أو اكتب طلبك...",
+    )
+
+
+def get_hide_keyboard() -> ReplyKeyboardRemove:
+    """إخفاء لوحة المفاتيح"""
+    return ReplyKeyboardRemove()
+
+
+async def _send_main_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """إرسال لوحة المفاتيح الثابتة للمستخدم"""
+    await update.message.reply_text(
+        "⌨️ **لوحة المفاتيح الرئيسية**\n\n"
+        "اختر أمراً من الأزرار أدناه، أو اكتب طلبك مباشرة:\n\n"
+        "💡 يمكنك إخفاء اللوحة باستخدام زر \"⌨️ إخفاء لوحة المفاتيح\"",
+        reply_markup=get_main_keyboard(),
+        parse_mode="Markdown",
+    )
+
+
+async def cmd_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """إظهار لوحة المفاتيح الثابتة"""
+    await _send_main_keyboard(update, context)
+
+
+async def cmd_hide_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """إخفاء لوحة المفاتيح الثابتة"""
+    await update.message.reply_text(
+        "⌨️ تم إخفاء لوحة المفاتيح.\n"
+        "يمكنك استعادتها باستخدام أمر /keyboard.",
+        reply_markup=get_hide_keyboard(),
+    )
+
+
 async def _create_task_status_message(bot, chat_id: int, text: str = "جاري تجهيز الطلب…") -> int | None:
     """Create the single user-facing message that will be edited until completion."""
     try:
@@ -1092,6 +1166,8 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
 @authorized
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _agent_command_adapter().start(update, context)
+    # إرسال لوحة المفاتيح الثابتة بعد بدء الجلسة
+    await _send_main_keyboard(update, context)
 
 @authorized
 async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1308,6 +1384,7 @@ async def cmd_maintenance(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 @authorized
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _system_command_adapter().help(update, context)
+
 
 @authorized
 async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
