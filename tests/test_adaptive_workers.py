@@ -67,6 +67,49 @@ class StabilizedWorkerLimitTests(unittest.TestCase):
         limit()  # start at 5 (already max)
         self.assertEqual(limit(), 5)
 
+    def test_slow_increase_after_decrease(self) -> None:
+        """Recovery is gradual: one worker per recovery interval, not instant."""
+        policy = StubPolicy(allowed=5)
+        now = [0.0]
+
+        def clock() -> float:
+            return now[0]
+
+        limit = StabilizedWorkerLimit(
+            configured_workers=5,
+            policy=policy,
+            recovery_seconds=100.0,
+            clock=clock,
+        )
+        result = limit()
+        if hasattr(result, '__await__'):
+            import asyncio
+            result = asyncio.run(result)
+        self.assertEqual(result, 5)
+
+        policy.allowed = 1
+        result = limit()
+        if hasattr(result, '__await__'):
+            import asyncio
+            result = asyncio.run(result)
+        self.assertEqual(result, 1)
+
+        now[0] += 100.0
+        policy.allowed = 5
+        result = limit()
+        if hasattr(result, '__await__'):
+            import asyncio
+            result = asyncio.run(result)
+        self.assertEqual(result, 2)
+
+        now[0] += 100.0
+        policy.allowed = 5
+        result = limit()
+        if hasattr(result, '__await__'):
+            import asyncio
+            result = asyncio.run(result)
+        self.assertEqual(result, 3)
+
     def test_transition_audit_callback(self) -> None:
         policy = StubPolicy(allowed=3)
         transitions: list[WorkerLimitTransition] = []
