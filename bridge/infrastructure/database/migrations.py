@@ -206,6 +206,10 @@ MIGRATIONS = (
         "CREATE INDEX IF NOT EXISTS idx_agent_tasks_owner_status_updated "
         "ON agent_tasks(owner_id, status, updated_at DESC, id DESC)",
     )),
+    Migration(10, "task_type_column", (
+        "ALTER TABLE agent_tasks ADD COLUMN task_type TEXT",
+        "CREATE INDEX IF NOT EXISTS idx_agent_tasks_type_status ON agent_tasks(task_type, status, created_at)",
+    )),
 )
 
 

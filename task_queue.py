@@ -83,6 +83,7 @@ class QueuedTask:
     heartbeat_at: datetime | None = None
     attempt: int = 0
     priority: int = 0
+    task_type: str | None = None
     checkpoint: dict[str, Any] | None = None
     next_attempt_at: datetime | None = None
 
@@ -170,6 +171,7 @@ class TaskQueueStore:
             heartbeat_at=decode_time(row["heartbeat_at"]) if "heartbeat_at" in row.keys() else None,
             attempt=int(row["attempt"]) if "attempt" in row.keys() else 0,
             priority=int(row["priority"]) if "priority" in row.keys() else 0,
+            task_type=str(row["task_type"]) if "task_type" in row.keys() and row["task_type"] else None,
             checkpoint=(json.loads(row["checkpoint_json"]) if "checkpoint_json" in row.keys() and row["checkpoint_json"] else {}),
             next_attempt_at=decode_time(row["next_attempt_at"]) if "next_attempt_at" in row.keys() else None,
             schedule_job_id=(
@@ -794,6 +796,7 @@ class TaskQueueStore:
         status_message_id: int | None = None,
         idempotency_key: str | None = None,
         priority: int = 0,
+        task_type: str | None = None,
     ) -> tuple[QueuedTask, int]:
         now = encode_time(created_at or utc_now())
         db = await self._get_db()
@@ -808,8 +811,8 @@ class TaskQueueStore:
                 """
                 INSERT INTO agent_tasks
                 (owner_id, chat_id, prompt, status, created_at, updated_at, sequence, attachments_json,
-                 execution_mode, status_message_id, public_id, idempotency_key, priority)
-                VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 execution_mode, status_message_id, public_id, idempotency_key, priority, task_type)
+                VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     owner_id,
@@ -824,6 +827,7 @@ class TaskQueueStore:
                     str(uuid.uuid4()),
                     idempotency_key,
                     int(priority),
+                    task_type,
                 ),
             )
             task_id = int(cursor.lastrowid)
