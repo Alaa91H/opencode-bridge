@@ -77,8 +77,6 @@ class HostResourcePolicy:
         self._comparison_disagreements = 0
         self._comparison_cumulative_abs_delta = 0
         self._comparison_max_abs_delta = 0
-        self._last_pressure: str = "normal"
-        self._pressure_change_count = 0
 
     def snapshot(self, force: bool = False) -> ResourceSnapshot:
         now = time.monotonic()
@@ -86,9 +84,7 @@ class HostResourcePolicy:
             return self._cached_snapshot
 
         mem = self._read_meminfo()
-        total_mem = int(mem.get("MemTotal", 0)) // 1024
-        avail_mem = int(mem.get("MemAvailable", mem.get("MemFree", 0))) // 1024
-        if total_mem <= 0 or ("MemAvailable" not in mem and "MemFree" not in mem):
+        if mem.get("MemTotal", 0) <= 0 or not ("MemAvailable" in mem or "MemFree" in mem):
             raise RuntimeError("host memory sample unavailable")
         load1 = self._read_load1()
         if not math.isfinite(load1) or load1 < 0:
@@ -102,10 +98,10 @@ class HostResourcePolicy:
         disk_free_percent = (disk_free * 100.0 / disk_total) if disk_total else 0.0
 
         snapshot = ResourceSnapshot(
-            total_memory_mib=total_mem,
-            available_memory_mib=avail_mem,
-            swap_total_mib=int(mem.get("SwapTotal", 0)) // 1024,
-            swap_free_mib=int(mem.get("SwapFree", 0)) // 1024,
+            total_memory_mib=mem.get("MemTotal", 0) // 1024,
+            available_memory_mib=mem.get("MemAvailable", mem.get("MemFree", 0)) // 1024,
+            swap_total_mib=mem.get("SwapTotal", 0) // 1024,
+            swap_free_mib=mem.get("SwapFree", 0) // 1024,
             cpu_count=cpu_count,
             load1=load1,
             disk_free_percent=disk_free_percent,

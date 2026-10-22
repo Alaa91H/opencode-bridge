@@ -280,6 +280,7 @@ class AgentService:
         task_id: int | None = None,
         message_id: str | None = None,
         should_continue: Callable[[], Awaitable[bool]] | None = None,
+        correlation_id: str | None = None,
     ) -> tuple[dict, str | None]:
         """Send through OpenCode with variant, file-transport, and model fallback."""
 
@@ -306,6 +307,7 @@ class AgentService:
                     agent=agent_name,
                     parts=parts,
                     variant=variant,
+                    correlation_id=correlation_id,
                     **resume_options,
                 )
             except httpx.HTTPStatusError as exc:

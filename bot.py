@@ -1150,6 +1150,7 @@ def _variant_for_model(model_id: str | None) -> str | None:
 
 async def _execute_agent_task(task: QueuedTask, bot) -> None:
     """Compatibility wrapper around the T02 execution service."""
+    correlation_id = f"task:{task.id}"
     delivery = TelegramExecutionDelivery(
         bot,
         task_store,
@@ -1160,7 +1161,7 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
         error_message=user_error,
         logger=log,
     )
-    await _task_execution_service.execute(task, delivery)
+    await _task_execution_service.execute(task, delivery, correlation_id=correlation_id)
 
 
 @authorized

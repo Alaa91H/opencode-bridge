@@ -193,6 +193,7 @@ class OpenCodeClient:
         variant: str | None = None,
         message_id: str | None = None,
         should_continue: Callable[[], Awaitable[bool]] | None = None,
+        correlation_id: str | None = None,
     ) -> dict[str, Any]:
         message_parts = list(parts or [])
         if text:
@@ -210,8 +211,10 @@ class OpenCodeClient:
             body["messageID"] = message_id
             return await self._send_resumable(session_id, message_id, body, should_continue)
         model_id = model if isinstance(model, str) else None
-        response = await self._credential_request("POST", f"/session/{session_id}/message", json=body, model_id=model_id)
-        response.raise_for_status()
+        response = await self._credential_request(
+            "POST", f"/session/{session_id}/message", json=body, model_id=model_id,
+            correlation_id=correlation_id,
+        )
         payload = response.json()
         if not isinstance(payload, dict):
             payload = {}
