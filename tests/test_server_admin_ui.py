@@ -87,6 +87,7 @@ class AdminUIIntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_backup_create_send_delete(self):
         await self.press(callback("backupcreate"))
         items = self.backups.list()
+        self.assertTrue(self.bot.send_document.await_args.kwargs["filename"].endswith(".zip"))
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["includes_keys"], False)
         await self.press(callback("backupsend", 0))

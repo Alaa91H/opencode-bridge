@@ -218,6 +218,12 @@ cleanup_managed_attachments() {
   ATTACHMENT_CLEANUP_SUMMARY="${stale_files} ملف (${stale_bytes}B)"
 }
 
+prune_expired_backups() {
+  # The bridge deletes snapshots and release archives older than three days,
+  # together with their metadata.  This runs even when no new backup was made.
+  run_as_bridge_user "$PYTHON_BIN" -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); from bridge.services.admin_backups import AdminBackups; print(AdminBackups(Path(sys.argv[1])).prune_older_than(3))' "${BRIDGE_DIR}"
+}
+
 # Privileged host updates require explicit consent; missing, invalid and
 # symlinked switches are never permission to modify the operating system.
 if [[ -f "${RUNTIME_DIR}/host-auto-update-enabled" ]] &&
@@ -234,10 +240,11 @@ record_step "تنظيف الملفات المؤقتة وفق سياسة النظ
 record_step "الاحتفاظ بسجل النظام لآخر 14 يومًا" cleanup_journal
 record_step "حذف مرفقات البوت المدارة وفق مدة الاحتفاظ المختارة" cleanup_managed_attachments
 record_step "فحص GitHub وتطبيق تحديث OpenCode Bridge الموثق" bridge_self_update
+record_step "حذف النسخ الاحتياطية الأقدم من 3 أيام" prune_expired_backups
 if [[ "$BRIDGE_UPDATE_STATUS" == "updated" && -f "$RUNTIME_DIR/purge-backups-after-update" ]] &&
    [[ "$(cat "$RUNTIME_DIR/purge-backups-after-update")" == "1" ]]; then
   record_step "حذف النسخ الاحتياطية بعد نجاح التحديث والتحقق" \
-    run_as_bridge_user "$PYTHON_BIN" -c 'from pathlib import Path; from bridge.services.admin_backups import AdminBackups; print(AdminBackups(Path("/home/ubuntu/opencode-bridge")).purge_after_verified_update())'
+    run_as_bridge_user "$PYTHON_BIN" -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); from bridge.services.admin_backups import AdminBackups; print(AdminBackups(Path(sys.argv[1])).purge_after_verified_update())' "${BRIDGE_DIR}"
 fi
 record_step "مزامنة ملفات systemd والصيانة من النسخة الحالية" refresh_deployment_assets
 record_step "إعادة تشغيل OpenCode بعد تحديث الكود فقط" restart_opencode_after_update

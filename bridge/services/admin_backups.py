@@ -12,17 +12,27 @@ import subprocess
 import tarfile
 import tempfile
 import uuid
+import zipfile
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from bridge.services.host_credentials import secure_write
 
 
 class AdminBackups:
+    RETENTION_DAYS = 3
+
     def __init__(self, project: Path, release_root: Path | None = None):
         self.project = Path(project)
-        self.release_root = release_root or Path("/home/ubuntu/opencode-backups/releases")
+        # Derive the default from the project so tests and alternate installs
+        # never read or prune the live host's release archives.  For the real
+        # checkout this is exactly /home/ubuntu/opencode-backups/releases.
+        self.release_root = (
+            Path(release_root)
+            if release_root is not None
+            else self.project.parent / "opencode-backups" / "releases"
+        )
         self.root = self.project / "runtime" / "admin-backups"
         self.lock = asyncio.Lock()
 
@@ -55,7 +65,9 @@ class AdminBackups:
 
     async def create(self) -> dict:
         async with self.lock:
-            return await asyncio.to_thread(self._create_sync)
+            created = await asyncio.to_thread(self._create_sync)
+            await asyncio.to_thread(self.prune_older_than)
+            return created
 
     def _create_sync(self) -> dict:
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -119,7 +131,9 @@ class AdminBackups:
     async def create_encrypted(self) -> dict:
         """Secret-inclusive backup is never sent or stored unencrypted."""
         async with self.lock:
-            return await asyncio.to_thread(self._encrypted_snapshot)
+            created = await asyncio.to_thread(self._encrypted_snapshot)
+            await asyncio.to_thread(self.prune_older_than)
+            return created
 
     def _encrypted_snapshot(self) -> dict:
         recipient = self.project / "runtime" / "backup-age-recipient"
@@ -221,6 +235,121 @@ class AdminBackups:
                 return db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         except (OSError, sqlite3.Error, ValueError, TypeError, KeyError):
             return False
+
+    @staticmethod
+    def _metadata_path(path: Path) -> Path:
+        return path.with_name(path.name + ".json") if path.suffix == ".age" else path.with_suffix(".json")
+
+    @staticmethod
+    def _parse_created(value: object) -> datetime | None:
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+
+    def _backup_created_at(self, path: Path) -> datetime:
+        metadata = self._metadata_path(path)
+        try:
+            info = json.loads(metadata.read_text(encoding="utf-8"))
+            created = self._parse_created(info.get("created_utc"))
+            if created is not None:
+                return created
+        except (OSError, ValueError, TypeError):
+            pass
+        return datetime.fromtimestamp(path.stat().st_mtime, UTC)
+
+    def prune_older_than(self, days: int = RETENTION_DAYS) -> int:
+        """Permanently delete backup files and their metadata older than ``days``.
+
+        The cutoff is wall-clock UTC.  Metadata timestamps are authoritative
+        when readable; the file mtime is the fallback so an orphaned or
+        corrupted metadata file cannot make an old snapshot immortal.
+        """
+        if type(days) is not int or days < 1:
+            raise ValueError("Retention must be a positive number of days")
+        cutoff = datetime.now(UTC) - timedelta(days=days)
+        removed = 0
+        try:
+            backup_paths = list(self.root.glob("backup-*"))
+        except OSError:
+            backup_paths = []
+        candidates: list[tuple[datetime, Path]] = []
+        for path in backup_paths:
+            if path.suffix not in {".db", ".age"} or path.is_symlink() or not path.is_file():
+                continue
+            try:
+                candidates.append((self._backup_created_at(path), path))
+            except OSError:
+                continue
+        # Never let retention leave a category with zero recovery points.  The
+        # newest snapshot per category survives even when it is older than the
+        # cutoff; once a newer snapshot exists, every expired older one goes.
+        newest: dict[str, Path] = {}
+        for created, path in candidates:
+            group = "encrypted" if path.suffix == ".age" else "database"
+            previous = newest.get(group)
+            if previous is None:
+                newest[group] = path
+                continue
+            try:
+                previous_created = self._backup_created_at(previous)
+            except OSError:
+                previous_created = created - timedelta(seconds=1)
+            if created > previous_created:
+                newest[group] = path
+        for created, path in candidates:
+            group = "encrypted" if path.suffix == ".age" else "database"
+            if path == newest.get(group) or created >= cutoff:
+                continue
+            try:
+                self.delete(path.name)
+                removed += 1
+            except (OSError, ValueError):
+                continue
+        if self.release_root.is_dir():
+            import re
+            pattern = re.compile(r"opencode-bridge-[0-9a-f]{12}-[0-9]{8}T[0-9]{6}Z\.tar\.gz")
+            for path in self.release_root.iterdir():
+                if not pattern.fullmatch(path.name) or path.is_symlink() or not path.is_file():
+                    continue
+                try:
+                    created = datetime.fromtimestamp(path.stat().st_mtime, UTC)
+                except OSError:
+                    continue
+                if created < cutoff:
+                    try:
+                        self.delete(path.name)
+                        removed += 1
+                    except (OSError, ValueError):
+                        continue
+        return removed
+
+    def zip_for_delivery(self, name: str) -> tuple[Path, str]:
+        """Build a temporary zip containing the snapshot and its metadata."""
+        source = self.get(name)
+        metadata = self._metadata_path(source)
+        fd, temporary = tempfile.mkstemp(prefix=".delivery-", suffix=".zip", dir=self.root)
+        os.close(fd)
+        archive = Path(temporary)
+        try:
+            os.chmod(archive, 0o600)
+            with zipfile.ZipFile(
+                archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6
+            ) as bundle:
+                bundle.write(source, arcname=source.name)
+                if metadata.is_file() and not metadata.is_symlink():
+                    bundle.write(metadata, arcname=metadata.name)
+            if archive.stat().st_size == 0:
+                raise ValueError("Backup zip is empty")
+            return archive, source.name + ".zip"
+        except BaseException:
+            archive.unlink(missing_ok=True)
+            raise
 
     def purge_after_verified_update(self) -> int:
         """Prune only after preserving two verified backups per category.

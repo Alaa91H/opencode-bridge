@@ -1,3 +1,21 @@
+## [3.62.0] - 2026-10-23
+
+### Backups now expire after three days and arrive zipped
+
+The control panel could create SQLite and encrypted snapshots, but every one of them stayed on disk forever, and the owner had to open the server or the panel again to retrieve a copy. Release archives from older deployments accumulated beside them with no retention rule.
+
+- **Three-day retention** — `AdminBackups.prune_older_than()` permanently removes plain and encrypted snapshots, their JSON metadata, and matching release archives once they are older than three days. It runs automatically after every new backup and from the daily host-maintenance job at 08:30 UTC, so expiry does not depend on the owner opening the panel.
+- **Recovery floor** — the newest plain-database snapshot and the newest encrypted snapshot are always kept, even when both are older than the cutoff; older expired snapshots in each category are removed. Release archives have no floor and are deleted strictly by age. This prevents a quiet host from reaching zero recovery points while still preventing indefinite growth.
+- **Zip delivery** — every backup created from the control panel is packaged with its metadata (creation time, encryption flag and SHA-256) and sent to the owner's private Telegram chat as a zip. The temporary archive is mode `0600`, is deleted after delivery, and a delivery failure leaves the original backup intact and reports a localized error. Encrypted backups stay encrypted.
+- **Test isolation and maintenance path** — the default release root is derived from the project directory instead of a hardcoded host path, so tests and alternate installs never inspect or prune the live host's archives; the production path is unchanged. The daily-maintenance Python commands now insert the bridge directory on `sys.path`, so pruning and post-update purge work regardless of the root service's working directory.
+- **Tests** — five new `AdminBackupTests` cases cover the project-scoped root, three-day pruning of snapshots and release checksums, the newest-snapshot recovery floor, automatic pruning on creation, and zip contents; the control-panel integration test asserts the automatically sent `.zip` filename.
+
+### Upgrade notes
+
+- No dependency changes and no database migration. Source release only.
+- On the first backup after deployment, or at the next 08:30 UTC maintenance run, snapshots and release archives older than three days are removed. The newest plain and encrypted snapshots survive as recovery points.
+- Unencrypted database snapshots can contain sensitive task text; their zip is sent only to the authenticated private owner chat.
+
 ## [3.61.0] - 2026-10-23
 
 ### The queue could execute commands in order, but the owner could not see or manage it

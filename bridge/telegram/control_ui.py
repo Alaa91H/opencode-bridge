@@ -12,6 +12,7 @@ import asyncio
 import html
 import logging
 import sqlite3
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -70,6 +71,8 @@ WORDS = {
         "backups": "🗄 النسخ الاحتياطية", "backup_create": "➕ نسخة جديدة",
         "backup_send": "📤 إرسال", "backup_delete": "🗑 حذف نسخة",
         "backup_warning": "نسخ قاعدة البيانات غير المشفرة قد تحتوي نصوص مهام حساسة. إرسال المفاتيح مسموح فقط في نسخة مشفرة.",
+        "backup_retention": "تُحذف النسخ الأقدم من 3 أيام تلقائيًا مع بياناتها الوصفية، مع الاحتفاظ بأحدث نسخة للطوارئ، ويُرسل zip بعد كل إنشاء.",
+        "backup_zip_failed": "أُنشئت النسخة لكن تعذر إرسال ملف zip إلى تيليغرام.",
         "backup_keys": "🔒 مع المفاتيح (مشفرة فقط)", "backup_recipient": "🔐 مفتاح تشفير النسخ الاحتياطية",
         "mirrors": "☁️ مرايا مجانية", "mirror_url": "🔗 نسخ رابط إلى مرآة",
         "mirror_input": "أرسل رابطًا عامًا لمشاركة نسخه عبر المزود الخارجي.",
@@ -150,6 +153,8 @@ WORDS = {
         "backups": "🗄 Backups", "backup_create": "➕ Create backup",
         "backup_send": "📤 Send", "backup_delete": "🗑 Delete backup",
         "backup_warning": "Unencrypted DB snapshots may include sensitive task text. Secret-inclusive backups are encrypted only.",
+        "backup_retention": "Copies older than 3 days are deleted automatically with their metadata, keeping the newest copy for recovery; a zip is sent after every creation.",
+        "backup_zip_failed": "The backup was created but its zip could not be sent to Telegram.",
         "backup_keys": "🔒 With keys (encrypted only)", "backup_recipient": "🔐 Backup encryption public key",
         "mirrors": "☁️ Free mirrors", "mirror_url": "🔗 Mirror a URL",
         "mirror_input": "Send a public URL to copy to an external host.",
@@ -346,6 +351,25 @@ class ControlUI:
                                    resize_keyboard=True, is_persistent=True,
                                    input_field_placeholder=t["input"][:64])
 
+    async def _send_backup_zip(self, context: Any, update: Any, name: str, words: dict) -> None:
+        """Send the new snapshot as a zip; failure never invalidates the backup."""
+        archive: Path | None = None
+        try:
+            archive, filename = await asyncio.to_thread(self.backups.zip_for_delivery, name)
+            record = SimpleNamespace(
+                path=str(archive), size_bytes=archive.stat().st_size,
+                filename=filename, direct_send_limit=49 * 1024 * 1024)
+            await deliver_download(context.bot, update.effective_chat.id, record)
+        except Exception:
+            log.exception("backup zip delivery failed")
+            try:
+                await update.effective_message.reply_text(words["backup_zip_failed"])
+            except Exception:
+                pass
+        finally:
+            if archive is not None:
+                archive.unlink(missing_ok=True)
+
     async def show(self, update: Any, context: Any, screen: str = "home",
                    *, persistent: bool = False) -> None:
         if not self.allowed(update) or update.effective_user is None:
@@ -507,7 +531,7 @@ class ControlUI:
                 rows.append([button("☁ Catbox", "mirrorfile", "catbox", i),
                              button("☁ gofile", "mirrorfile", "gofile", i)])
         elif screen == "backups":
-            text = t["backups"] + "\n" + t["backup_warning"]
+            text = t["backups"] + "\n" + t["backup_warning"] + "\n" + t["backup_retention"]
             entries = self.backups.list() if self.backups else []
             if not entries:
                 text += "\n" + t["empty"]
@@ -1101,6 +1125,7 @@ class ControlUI:
                 created = await self.backups.create()
                 await update.effective_message.reply_text(
                     t["success"] + "\n" + safe(created["name"]))
+                await self._send_backup_zip(context, update, created["name"], t)
                 screen = "backups"
             elif action == "backupsend":
                 entries = self.backups.list()
@@ -1118,6 +1143,7 @@ class ControlUI:
                 created = await self.backups.create_encrypted()
                 await update.effective_message.reply_text(
                     t["success"] + "\n" + safe(created["name"]))
+                await self._send_backup_zip(context, update, created["name"], t)
                 screen = "backups"
             elif action == "mirrorurl":
                 from bridge.services.mirrors import PROVIDERS

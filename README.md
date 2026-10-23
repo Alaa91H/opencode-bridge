@@ -107,6 +107,12 @@ Commands sent while a task is running wait automatically and execute one at a ti
 
 Terminal one-off tasks leave no queue record once they finish, and claiming a task removes it from the waiting list before execution starts.
 
+## Backup Retention & Delivery
+
+Database backups created from the private control panel are packaged as a zip and sent to the owner's Telegram chat immediately. The zip contains the snapshot plus its JSON metadata (creation time, encryption flag and SHA-256), so the downloaded copy can be verified later.
+
+Backups older than three days are removed automatically, together with their metadata (and `.sha256` files for release archives). Cleanup runs after every new backup and in the daily host-maintenance job. The newest snapshot in each category — plain database and encrypted — is always retained as a recovery floor, even when it is older than the cutoff; release archives have no such floor. Encrypted backups stay encrypted inside the zip; unencrypted snapshots may include sensitive task text and are only sent to the authenticated private chat.
+
 ## Safety & Execution Guardrails
 
 The checked-in OpenCode policy blocks high-risk or inappropriate server-side operations, including:

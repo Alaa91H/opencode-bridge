@@ -7,6 +7,8 @@ import os
 import sqlite3
 import tempfile
 import unittest
+import zipfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from bridge.services.admin_backups import AdminBackups
@@ -179,6 +181,84 @@ class AdminBackupTests(unittest.IsolatedAsyncioTestCase):
     async def test_export_with_keys_requires_age_recipient(self):
         with self.assertRaises(ValueError):
             await self.backups.create_encrypted()
+
+    async def test_default_release_root_is_project_scoped(self):
+        manager = AdminBackups(self.root)
+        self.assertEqual(
+            manager.release_root,
+            self.root.parent / "opencode-backups" / "releases",
+        )
+
+    async def test_prunes_backups_and_release_archives_older_than_three_days(self):
+        releases = self.root / "releases"
+        releases.mkdir()
+        manager = AdminBackups(self.root, release_root=releases)
+        names = [(await manager.create())["name"] for _ in range(3)]
+        old_stamp = (datetime.now(UTC) - timedelta(days=4)).isoformat()
+        for name in names[:2]:
+            metadata = manager.get(name).with_suffix(".json")
+            payload = json.loads(metadata.read_text(encoding="utf-8"))
+            payload["created_utc"] = old_stamp
+            metadata.write_text(json.dumps(payload), encoding="utf-8")
+        archive = releases / "opencode-bridge-abcdef123456-20261018T000000Z.tar.gz"
+        checksum = archive.with_name(archive.name + ".sha256")
+        archive.write_bytes(b"old release archive")
+        checksum.write_text("0" * 64 + "  " + archive.name + "\n", encoding="utf-8")
+        old_epoch = (datetime.now(UTC) - timedelta(days=4)).timestamp()
+        os.utime(archive, (old_epoch, old_epoch))
+        os.utime(checksum, (old_epoch, old_epoch))
+
+        self.assertEqual(manager.prune_older_than(3), 3)
+        survivors = {item["name"] for item in manager.list()}
+        self.assertEqual(survivors, {names[2]})
+        for name in names[:2]:
+            self.assertFalse((self.backups.root / name).exists())
+            self.assertFalse((self.backups.root / (name[:-3] + ".json")).exists())
+        self.assertFalse(archive.exists())
+        self.assertFalse(checksum.exists())
+
+    async def test_prune_keeps_the_newest_expired_backup_as_recovery_floor(self):
+        only = await self.backups.create()
+        metadata = self.backups.get(only["name"]).with_suffix(".json")
+        payload = json.loads(metadata.read_text(encoding="utf-8"))
+        payload["created_utc"] = (datetime.now(UTC) - timedelta(days=4)).isoformat()
+        metadata.write_text(json.dumps(payload), encoding="utf-8")
+
+        self.assertEqual(self.backups.prune_older_than(3), 0)
+        self.assertTrue((self.backups.root / only["name"]).exists())
+
+        fresh = await self.backups.create()
+        self.assertFalse((self.backups.root / only["name"]).exists())
+        self.assertTrue((self.backups.root / fresh["name"]).exists())
+
+    async def test_create_prunes_expired_backups_automatically(self):
+        old = await self.backups.create()
+        metadata = self.backups.get(old["name"]).with_suffix(".json")
+        payload = json.loads(metadata.read_text(encoding="utf-8"))
+        payload["created_utc"] = (datetime.now(UTC) - timedelta(days=4)).isoformat()
+        metadata.write_text(json.dumps(payload), encoding="utf-8")
+
+        fresh = await self.backups.create()
+        names = {item["name"] for item in self.backups.list()}
+        self.assertEqual(names, {fresh["name"]})
+        self.assertFalse((self.backups.root / old["name"]).exists())
+
+    async def test_zip_for_delivery_contains_snapshot_and_metadata(self):
+        created = await self.backups.create()
+        archive, filename = self.backups.zip_for_delivery(created["name"])
+        try:
+            self.assertEqual(filename, created["name"] + ".zip")
+            with zipfile.ZipFile(archive) as bundle:
+                self.assertEqual(
+                    set(bundle.namelist()),
+                    {created["name"], created["name"][:-3] + ".json"},
+                )
+                self.assertEqual(
+                    hashlib.sha256(bundle.read(created["name"])).hexdigest(),
+                    created["sha256"],
+                )
+        finally:
+            archive.unlink(missing_ok=True)
 
     async def test_auto_purge_preserves_two_recovery_candidates(self):
         names = [(await self.backups.create())["name"] for _ in range(5)]
