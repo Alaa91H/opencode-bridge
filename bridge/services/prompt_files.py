@@ -15,8 +15,9 @@ import mimetypes
 from pathlib import Path
 
 PROMPT_EXTENSIONS = frozenset({
-    ".md", ".markdown", ".mdown", ".txt", ".json", ".yaml", ".yml",
-    ".toml", ".ini", ".cfg", ".prompt",
+    ".md", ".markdown", ".mdown", ".txt", ".text", ".json", ".yaml", ".yml",
+    ".toml", ".ini", ".cfg", ".prompt", ".rst", ".adoc", ".org", ".log",
+    ".csv", ".tsv", ".xml", ".sql",
 })
 PROMPT_MIMES = frozenset({
     "text/markdown", "text/x-markdown", "text/plain",
@@ -27,15 +28,46 @@ MAX_INLINE_CHARS = 120_000
 MAX_INLINE_BYTES = 512 * 1024
 
 
-def is_prompt_filename(filename: str, mime: str = "") -> bool:
+def looks_like_text(path: Path, *, sample_bytes: int = 16384) -> bool:
+    """Content sniff for prompt files with an unknown or missing extension.
+
+    The owner asked for "txt, md, or any format": a readable text file is a
+    prompt regardless of its suffix. Binary attachments keep their old role, so
+    a photo, archive or PDF is never inlined as instructions.
+    """
+    try:
+        with Path(path).open("rb") as handle:
+            raw = handle.read(sample_bytes)
+    except OSError:
+        return False
+    if not raw:
+        return True
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return True
+    if b"\x00" in raw:
+        return False
+    for encoding in ("utf-8", "cp1256", "cp1252"):
+        try:
+            text = raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        controls = sum(1 for ch in text if ord(ch) < 32 and ch not in "\n\r\t")
+        return controls <= max(2, len(text) // 20)
+    return False
+
+
+def is_prompt_filename(filename: str, mime: str = "", path: Path | None = None) -> bool:
     suffix = Path(filename or "").suffix.lower()
     if suffix in PROMPT_EXTENSIONS:
         return True
     normalized = (mime or "").split(";")[0].strip().lower()
-    if normalized in PROMPT_MIMES:
+    if normalized in PROMPT_MIMES or normalized.startswith("text/"):
         return True
     guessed, _ = mimetypes.guess_type(filename or "")
-    return bool(guessed and guessed.split(";")[0].strip().lower() in PROMPT_MIMES)
+    guessed = (guessed or "").split(";")[0].strip().lower()
+    if guessed in PROMPT_MIMES or guessed.startswith("text/"):
+        return True
+    return path is not None and looks_like_text(path)
 
 
 def load_prompt_text(path: Path, *, max_chars: int = MAX_INLINE_CHARS) -> tuple[str, bool]:
@@ -43,8 +75,22 @@ def load_prompt_text(path: Path, *, max_chars: int = MAX_INLINE_CHARS) -> tuple[
     raw = Path(path).read_bytes()
     if len(raw) > MAX_INLINE_BYTES * 4:
         raw = raw[: MAX_INLINE_BYTES * 4]
-    # Strip UTF-8 BOM, decode leniently, normalise line endings.
-    text = raw.decode("utf-8-sig", errors="replace").replace("\r\n", "\n").strip()
+    # Honour UTF-16 BOMs, then UTF-8, then Arabic Windows (cp1256) and the
+    # Western fallback, so a prompt written in any common editor is readable.
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        decoded = raw.decode("utf-16", errors="replace")
+    else:
+        decoded = ""
+        for encoding in ("utf-8-sig", "cp1256", "cp1252"):
+            try:
+                decoded = raw.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        if not decoded:
+            decoded = raw.decode("utf-8", errors="replace")
+    # Normalise line endings and strip a leading BOM if one survived.
+    text = decoded.replace("\r\n", "\n").replace("\ufeff", "").strip()
     # Remove NULs and lone control chars that break Telegram / the model.
     text = "".join(ch for ch in text if ch == "\n" or ch == "\t" or ord(ch) >= 32)
     if len(text) > max_chars:

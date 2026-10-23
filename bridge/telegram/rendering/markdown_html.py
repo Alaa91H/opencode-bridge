@@ -46,6 +46,7 @@ _CITATION_RE = re.compile(r"[ \t]*\[\d{1,3}\]")
 _GLUED_COLON_RE = re.compile(r"(?<=[\"»”)\]]):(?=\S)")
 _SENTENCE_RE = re.compile(r"(?<=[.!؟?!…؛;])\s+(?=[^\s])")
 _FIELD_HEAD_RE = re.compile(r"^\*\*[^*\n]{1,40}?\s*[:：]\s*\*\*")
+_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?[\s:|-]*-[\s:|-]*\|?[\s:|-]*$")
 
 _PARAGRAPH = "paragraph"
 _LIST = "list"
@@ -251,6 +252,98 @@ def _bullet_block(line: str) -> _Block | None:
     return None
 
 
+def _table_cells(line: str) -> list[str]:
+    body = line.strip()
+    if body.startswith("|"):
+        body = body[1:]
+    if body.endswith("|"):
+        body = body[:-1]
+    return [cell.strip() for cell in body.split("|")]
+
+
+def _table_start(lines: list[str], index: int) -> bool:
+    if index + 1 >= len(lines):
+        return False
+    head = lines[index]
+    separator = lines[index + 1]
+    if "|" not in head or "|" not in separator:
+        return False
+    if not _TABLE_SEPARATOR_RE.match(separator.strip()):
+        return False
+    return bool(_table_cells(head))
+
+
+def _table_block(header: list[str], rows: list[list[str]]) -> _Block:
+    """Render a pipe table as a readable Telegram card instead of raw pipes.
+
+    Telegram HTML has no table element, so a 5-column Markdown table used to
+    arrive as a wall of ``| a | b |`` characters. The header becomes one bold
+    line and every row one bullet, with empty cells skipped; long cells are
+    bounded so a single value cannot flood a page.
+    """
+    def clean(value: str) -> str:
+        text = " ".join((value or "").split())
+        return text if len(text) <= 90 else text[:90].rstrip() + "…"
+
+    headers = [clean(cell) for cell in header]
+    html_lines = [f"<b>{' · '.join(_inline(cell) for cell in headers if cell)}</b>"]
+    plain_lines = [" · ".join(cell for cell in headers if cell)]
+    for row in rows[:12]:
+        cells = [clean(cell) for cell in row]
+        pairs = [
+            (headers[i] if i < len(headers) else "", cell)
+            for i, cell in enumerate(cells)
+            if cell
+        ]
+        if not pairs:
+            continue
+        if len(pairs) == 1:
+            html_lines.append(f"• {_inline(pairs[0][1])}")
+            plain_lines.append(f"• {pairs[0][1]}")
+            continue
+        fitted: list[str] = []
+        plain_fitted: list[str] = []
+        for label, cell in pairs:
+            plain_fitted.append(f"{label}: {cell}" if label else cell)
+            if label:
+                fitted.append(f"<b>{_escape(label)}:</b> {_inline(cell)}")
+            else:
+                fitted.append(_inline(cell))
+        html_lines.append("• " + " — ".join(fitted))
+        plain_lines.append("• " + " — ".join(plain_fitted))
+    if len(rows) > 12:
+        note = f"… و{len(rows) - 12} صفًا إضافيًا"
+        html_lines.append(note)
+        plain_lines.append(note)
+    return _Block("\n".join(html_lines), "\n".join(plain_lines), _LIST)
+
+
+def _find_tables(lines: list[str]) -> dict[int, tuple[_Block, int]]:
+    tables: dict[int, tuple[_Block, int]] = {}
+    index = 0
+    in_fence = False
+    while index < len(lines):
+        if _FENCE_RE.match(lines[index]):
+            in_fence = not in_fence
+            index += 1
+            continue
+        if not in_fence and _table_start(lines, index):
+            header = _table_cells(lines[index])
+            rows: list[list[str]] = []
+            cursor = index + 2
+            while cursor < len(lines):
+                candidate = lines[cursor]
+                if not candidate.strip() or "|" not in candidate:
+                    break
+                rows.append(_table_cells(candidate))
+                cursor += 1
+            tables[index] = (_table_block(header, rows), cursor)
+            index = cursor
+            continue
+        index += 1
+    return tables
+
+
 def _heading_block(line: str) -> _Block | None:
     match = _HEADING_RE.match(line)
     if match is None:
@@ -318,7 +411,18 @@ def build_blocks(text: str, *, strip_citations: bool | None = None) -> list[_Blo
             return
         add(_Block(f"<pre>{_escape(code)}</pre>", code, _CODE))
 
-    for raw in (text or "").splitlines():
+    lines = (text or "").splitlines()
+    tables = _find_tables(lines)
+    skip_until = 0
+    for index, raw in enumerate(lines):
+        if index < skip_until and not in_fence:
+            continue
+        table = tables.get(index)
+        if table is not None and not in_fence:
+            flush_quote()
+            block, skip_until = table
+            add(block)
+            continue
         line = raw.rstrip()
         if in_fence:
             if _FENCE_RE.match(line):

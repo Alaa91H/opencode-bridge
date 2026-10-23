@@ -31,7 +31,10 @@ class GitWorkspaceManager:
 
     def __init__(self, root: Path, allowed_repos: Iterable[str], git_timeout: float = 120.0) -> None:
         self.root = root.expanduser().resolve()
-        self.allowed_repos = tuple(x.strip().removesuffix(".git") for x in allowed_repos if x.strip())
+        self._configured_repos = tuple(
+            x.strip().removesuffix(".git") for x in allowed_repos if x.strip()
+        )
+        self.allowed_repos = self._configured_repos
         self.git_timeout = git_timeout
         self._locks: dict[str, asyncio.Lock] = {}
 
@@ -73,7 +76,35 @@ class GitWorkspaceManager:
         return path
 
     def configured_repos(self) -> tuple[str, ...]:
-        return self.allowed_repos
+        return self._configured_repos
+
+    def allow(self, value: str) -> str:
+        """Add a repository to the runtime allow-list (already-normalised input)."""
+        slug = self.normalize_slug(value)
+        if not any(
+            fnmatch.fnmatchcase(slug.casefold(), pattern.casefold())
+            for pattern in self.allowed_repos
+        ):
+            self.allowed_repos = (*self.allowed_repos, slug)
+        return slug
+
+    def disallow(self, value: str) -> None:
+        """Remove an exact repository from the runtime allow-list.
+
+        Wildcard patterns from the static configuration are never removed: they
+        are the deployment owner's floor, not a Telegram-managed entry.
+        """
+        slug = self.normalize_slug(value)
+        if any(
+            pattern.casefold() == slug.casefold()
+            for pattern in self._configured_repos
+        ):
+            return
+        self.allowed_repos = tuple(
+            pattern
+            for pattern in self.allowed_repos
+            if pattern.casefold() != slug.casefold()
+        )
 
     def local_repos(self) -> list[str]:
         repos: list[str] = []

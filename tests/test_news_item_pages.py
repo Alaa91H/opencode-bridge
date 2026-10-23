@@ -48,6 +48,16 @@ class NewsItemPageTests(unittest.TestCase):
         self.assertIn("<b>ما حدث:</b>", first_item.html)
         self.assertIn("<b>تحليل:</b>", first_item.html)
 
+    def test_bare_image_url_travels_with_its_item(self) -> None:
+        digest = DIGEST.replace(
+            " ![لقطة](https://example.com/motw.png)",
+            "\nhttps://example.com/motw.png",
+        )
+        pages = delivery_pages(digest)
+        page = next(page for page in pages if "CVE-2026-96951" in page.plain)
+        self.assertEqual(page.images, (("motw", "https://example.com/motw.png"),))
+        self.assertNotIn("https://example.com/motw.png", page.plain)
+
     def test_each_item_keeps_only_its_own_source_link(self) -> None:
         pages = delivery_pages(DIGEST)
         by_item = {

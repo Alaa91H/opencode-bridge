@@ -35,6 +35,27 @@ class WorkspaceManagerTests(unittest.TestCase):
         with self.assertRaises(WorkspaceError):
             self.manager.require_allowed("other/project")
 
+    def test_runtime_allow_and_disallow_extend_configuration(self) -> None:
+        added = self.manager.allow("Alaa91H/new-repo")
+        self.assertEqual(added, "Alaa91H/new-repo")
+        self.assertEqual(
+            self.manager.require_allowed("alaa91h/new-repo"), "alaa91h/new-repo"
+        )
+        self.manager.disallow("alaa91h/new-repo")
+        with self.assertRaises(WorkspaceError):
+            self.manager.require_allowed("Alaa91H/new-repo")
+
+    def test_disallow_never_removes_configured_repository(self) -> None:
+        self.manager.disallow("Alaa91H/opencode-bridge")
+        self.assertEqual(
+            self.manager.require_allowed("Alaa91H/opencode-bridge"),
+            "Alaa91H/opencode-bridge",
+        )
+        self.assertEqual(
+            self.manager.configured_repos(),
+            ("Alaa91H/opencode-bridge", "Alaa91H/QuranLiveStream"),
+        )
+
     def test_repo_path_stays_under_workspace_root(self) -> None:
         path = self.manager.repo_path("Alaa91H/opencode-bridge")
         path.relative_to(self.root.resolve())

@@ -1,3 +1,17 @@
+## [3.60.0] - 2026-10-23
+
+### GitHub administration, any-format prompts and cleaner delivered answers
+
+The bridge could already develop one allow-listed repository and publish it, but taking over a repository, opening a pull request, filing an issue, publishing a release or creating a repository from the chat still meant typing shell commands through the agent. Prompt files were recognised only by a short extension allow-list, Markdown tables arrived as a wall of pipe characters, and a bare image URL was not delivered as a photo.
+
+- **`/gh` administration surface** — one command family for the owner: `status`, `repos`, `repo`, `managed`, `add`, `remove`, `create`, `use`, `sync`, `push`, `prs`, `pr`, `prnew`, `merge`, `issues`, `issue`, `comment`, `branches`, `releases` and `relnew`. Every operation is a thin adapter over the authenticated `gh` CLI through an argument list, never a shell string.
+- **Repository takeover from the chat** — `add` verifies access to the repository and records it in the new `managed_repos` table; the workspace manager receives it at once, so `/use owner/repo` works without editing `GITHUB_ALLOWED_REPOS` or restarting the service. Entries from that configuration stay a floor Telegram cannot remove. `remove` only drops the bridge's management entry and never touches GitHub itself. `create` creates the repository on the account, records it and returns its card.
+- **The no-build constraint is explicit** — the new service only reads metadata, edits/pushes files and calls the GitHub API. It never builds, installs dependencies or runs project tests; GitHub Actions remains the build authority, as documented in `/gh` help and enforced by the workspace prompt that already forbids local builds.
+- **Safe push** — `push` commits every change and pushes the current branch after refusing: a detached HEAD, an empty commit message, staged `.env`/key/credential files, or a diff containing a private key or GitHub token. It reports the branch and short commit hash; a clean tree is a no-op.
+- **Any text prompt format** — prompt files with an unknown or missing extension are now recognised by content (`looks_like_text`) instead of being silently treated as data; binary attachments keep their old role. Recognition also covers wider text extensions (`.rst`, `.adoc`, `.org`, `.log`, `.csv`, `.tsv`, `.xml`, `.sql`, `.text`) and `text/*` MIME types, and `load_prompt_text` decodes UTF-16 BOM files and Arabic Windows (`cp1256`) text, not only UTF-8.
+- **Readable tables and photos** — Markdown pipe tables become a bold header line plus one bullet per row (Telegram HTML has no table element), with long cells bounded and an overflow count beyond twelve rows; a standalone image URL on its own line is now sent as a photo in addition to Markdown images, up to the existing ten-photo cap.
+- **Tests** — new `tests/test_github_admin.py` (service parsing, allow-list persistence, push guards, `/gh` dispatch), plus new prompt-format, table-rendering and standalone-image cases in the existing suites.
+
 ## [3.59.0] - 2026-10-22
 
 ### One-off prompts no longer leave terminal records in the queue

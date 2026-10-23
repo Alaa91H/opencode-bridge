@@ -933,7 +933,11 @@ class ControlUI:
                     bodies = []
                     for record in pending:
                         filename = str(record.get("filename", ""))
-                        if is_prompt_filename(filename, str(record.get("mime", ""))):
+                        if is_prompt_filename(
+                            filename,
+                            str(record.get("mime", "")),
+                            _Path(str(record.get("path", ""))),
+                        ):
                             try:
                                 body, truncated = load_prompt_text(_Path(str(record.get("path", ""))))
                                 bodies.append((filename, body, truncated))

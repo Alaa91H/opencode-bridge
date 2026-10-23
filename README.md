@@ -153,6 +153,9 @@ The bridge includes a persistent model manager and agent scout that can:
 | `attachments.py` | Managed intake, integrity checks, binary-media routing, scratch workspaces and output collection |
 | `audit_log.py` | Structured audit trail |
 | `github_ci.py` / `ci_plugin.py` | GitHub CI workflow integration |
+| `bridge/services/github_admin_service.py` / `gh_plugin.py` | `/gh` repository and account administration (managed allow-list, PRs, issues, releases, guarded push) |
+| `bridge/services/prompt_files.py` | Prompt-file intake for `.md`/`.txt` and any readable text format, including UTF-16 and cp1256 |
+| `bridge/telegram/rendering/` | Markdown-to-Telegram HTML pages, news item pages and long-answer delivery |
 | `deploy/` | systemd service definitions and deployment assets |
 
 ## Configuration

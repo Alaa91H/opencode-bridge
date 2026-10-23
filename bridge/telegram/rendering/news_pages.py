@@ -27,6 +27,10 @@ from bridge.telegram.rendering.markdown_html import (
 )
 
 _IMAGE_RE = re.compile(r"!\[(?P<alt>[^\]]{0,200})\]\((?P<url>https?://[^\s)]+)\)")
+_STANDALONE_IMAGE_RE = re.compile(
+    r"^[ \t]*(?P<url>https?://[^\s<>()]+\.(?:jpe?g|png|webp|gif)(?:\?[^\s<>()]*)?)[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 _SECTION_RE = re.compile(r"^#{1,6}\s+(?P<title>.+?)\s*#*\s*$")
 _ITEM_HEAD_RE = re.compile(r"^\*\*(?P<headline>[^*]{6,220})\*\*(?P<tail>.*)$")
 _TAIL_RE = re.compile(r"^[—–-]\s")
@@ -51,6 +55,15 @@ def _images(text: str) -> tuple[tuple[str, str], ...]:
             continue
         seen.add(url)
         found.append((match.group("alt").strip() or "صورة", url))
+        if len(found) >= MAX_ITEM_IMAGES:
+            break
+    for match in _STANDALONE_IMAGE_RE.finditer(text or ""):
+        url = match.group("url").strip()
+        if url in seen:
+            continue
+        seen.add(url)
+        stem = url.rsplit("/", 1)[-1].split("?", 1)[0].rsplit(".", 1)[0]
+        found.append((stem[:200] or "صورة", url))
         if len(found) >= MAX_ITEM_IMAGES:
             break
     return tuple(found)
@@ -153,7 +166,8 @@ def build_news_pages(text: str, *, max_len: int = MAX_PAGE_CHARS) -> list[Page]:
     strip_citations = bool(extract_links(text or ""))
     pages: list[Page] = []
     for chunk in _chunks(text):
-        source = "\n".join(chunk.lines)
+        raw_source = "\n".join(chunk.lines)
+        source = _STANDALONE_IMAGE_RE.sub("", raw_source)
         produced = build_pages(source, max_len=max_len, strip_citations=strip_citations)
         if not produced:
             continue
@@ -168,7 +182,7 @@ def build_news_pages(text: str, *, max_len: int = MAX_PAGE_CHARS) -> list[Page]:
         if not rendered:
             continue
         first = rendered[0]
-        images = _images(source)
+        images = _images(raw_source)
         pages.append(Page(first.html, first.plain, first.links, images))
         pages.extend(rendered[1:])
     return pages

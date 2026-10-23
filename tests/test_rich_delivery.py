@@ -31,10 +31,19 @@ class ImageExtractionTests(unittest.TestCase):
     def test_plain_links_are_not_images(self) -> None:
         self.assertEqual(extract_images("[مصدر](https://example.com/x)"), [])
 
+    def test_standalone_image_url_on_its_own_line_is_a_photo(self) -> None:
+        images = extract_images("نص الخبر\nhttps://example.com/cover.webp?w=800\nبقية النص")
+        self.assertEqual(images, [("cover", "https://example.com/cover.webp?w=800")])
+
     def test_image_markup_is_stripped_from_text_chunks(self) -> None:
         stripped = strip_image_markup("خبر ![الغلاف](https://example.com/c.jpg) مهم")
         self.assertNotIn("!(", stripped)
         self.assertIn("الغلاف", stripped)
+
+    def test_standalone_image_url_is_stripped_from_text(self) -> None:
+        stripped = strip_image_markup("خبر\nhttps://example.com/c.jpg\nنهاية")
+        self.assertNotIn("https://example.com/c.jpg", stripped)
+        self.assertIn("نهاية", stripped)
 
 
 class LinkExtractionTests(unittest.TestCase):

@@ -64,6 +64,24 @@ class InlineRenderingTests(unittest.TestCase):
         self.assertIn("<pre>def f():\n    return 1</pre>", html)
 
 
+class TableRenderingTests(unittest.TestCase):
+    def test_pipe_table_becomes_a_readable_card(self) -> None:
+        text = "## جدول\n\n| الاسم | القيمة |\n| --- | --- |\n| ألف | 1 |\n| باء | 2 |"
+        pages = build_pages(text)
+        html = pages[0].html
+        self.assertIn("الاسم", html)
+        self.assertIn("القيمة", html)
+        self.assertNotIn("| --- |", html)
+        self.assertIn("ألف", html)
+        self.assertIn("1", html)
+        self.assertEqual(html.count("---"), 0)
+
+    def test_table_inside_code_fence_stays_verbatim(self) -> None:
+        text = "```\n| a | b |\n| --- | --- |\n```"
+        html = build_pages(text)[0].html
+        self.assertIn("| a | b |", html)
+
+
 class PagingTests(unittest.TestCase):
     def test_document_title_stays_with_its_first_section(self) -> None:
         # A lonely "# title" page wastes a message and looks broken.

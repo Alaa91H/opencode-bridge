@@ -157,6 +157,8 @@ class TaskExecutionService:
             # behaves exactly like a pasted /direct prompt.
             prompt_file_texts: list[tuple[str, str, bool]] = []
             try:
+                from pathlib import Path as _Path
+
                 from bridge.services.prompt_files import (
                     build_instruction_body,
                     is_prompt_filename,
@@ -164,10 +166,10 @@ class TaskExecutionService:
                 )
 
                 for attachment in attachments:
-                    if is_prompt_filename(attachment.filename, attachment.mime):
+                    if is_prompt_filename(
+                        attachment.filename, attachment.mime, _Path(attachment.path)
+                    ):
                         try:
-                            from pathlib import Path as _Path
-
                             body, truncated = load_prompt_text(_Path(attachment.path))
                             prompt_file_texts.append((attachment.filename, body, truncated))
                         except Exception as inline_exc:

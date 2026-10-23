@@ -32,6 +32,39 @@ class PromptFilenameTests(unittest.TestCase):
         self.assertFalse(is_prompt_filename("data", "application/octet-stream"))
 
 
+class AnyTextFormatTests(unittest.TestCase):
+    def test_unknown_extension_text_file_is_a_prompt_by_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "brief.custom"
+            path.write_text("نفّذ المهمة التالية بالكامل", encoding="utf-8")
+            self.assertTrue(
+                is_prompt_filename("brief.custom", "application/octet-stream", path)
+            )
+
+    def test_binary_unknown_file_is_not_a_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "blob.dat"
+            path.write_bytes(b"\x00\x01\x02\xff\xfe\x00binary")
+            self.assertFalse(
+                is_prompt_filename("blob.dat", "application/octet-stream", path)
+            )
+
+    def test_windows_arabic_encoding_is_decoded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "brief.txt"
+            path.write_bytes("مهمة عربية بترميز ويندوز".encode("cp1256"))
+            text, truncated = load_prompt_text(path)
+            self.assertFalse(truncated)
+            self.assertIn("مهمة عربية", text)
+
+    def test_utf16_prompt_is_decoded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "brief.md"
+            path.write_bytes("برومبت UTF-16".encode("utf-16"))
+            text, _ = load_prompt_text(path)
+            self.assertEqual(text, "برومبت UTF-16")
+
+
 class LoadPromptTextTests(unittest.TestCase):
     def test_bom_crlf_and_nul_are_normalised(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -28,6 +28,10 @@ from formatter import chunk_message
 logger = logging.getLogger(__name__)
 
 _IMAGE_RE = re.compile(r"!\[(?P<alt>[^\]]{0,200})\]\((?P<url>https?://[^\s)]+)\)")
+_STANDALONE_IMAGE_RE = re.compile(
+    r"^\s*(?P<url>https?://[^\s<>()]+\.(?:jpe?g|png|webp|gif)(?:\?[^\s<>()]*)?)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 MAX_FOLLOWUPS = 39
 MAX_PHOTOS = 10
@@ -46,6 +50,17 @@ def extract_images(text: str) -> list[tuple[str, str]]:
         found.append((match.group("alt").strip() or "صورة", url))
         if len(found) >= MAX_PHOTOS:
             break
+    # Models often drop a bare image URL on its own line instead of Markdown;
+    # a line that is exactly an image URL is just as intentional.
+    for match in _STANDALONE_IMAGE_RE.finditer(text or ""):
+        url = match.group("url").strip()
+        if url in seen:
+            continue
+        seen.add(url)
+        stem = url.rsplit("/", 1)[-1].split("?", 1)[0].rsplit(".", 1)[0]
+        found.append((stem[:200] or "صورة", url))
+        if len(found) >= MAX_PHOTOS:
+            break
     return found
 
 
@@ -55,7 +70,8 @@ def extract_links(text: str) -> list[tuple[str, str]]:
 
 
 def strip_image_markup(text: str) -> str:
-    return _IMAGE_RE.sub(r"[صورة: \g<alt>]", text or "")
+    body = _IMAGE_RE.sub(r"[صورة: \g<alt>]", text or "")
+    return _STANDALONE_IMAGE_RE.sub("", body)
 
 
 def chunk_rich_text(text: str, *, max_len: int = MAX_CHUNK) -> list[str]:
