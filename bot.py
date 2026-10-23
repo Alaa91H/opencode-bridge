@@ -148,7 +148,11 @@ from progress_reporter import DisplayPreferences, LiveProgressReporter, register
 from prompt_enhancer import ResearchMode
 from reboot_state import decision_path, read_state, request_path, write_state
 from task_queue import QueuedTask, TaskQueueStore
-from task_service import TaskService# Early command definitions for handler registration (before main)
+from task_service import (
+    TaskService,  # Early command definitions for handler registration (before main)
+)
+
+
 def cmd_remind(update, context): return None  # real def later
 def cmd_reminders(update, context): return None
 
@@ -1696,6 +1700,7 @@ async def main() -> None:
         pass
     except Exception:
         pass
+    sys.modules[__name__].cmd_settings = lambda *a, **k: getattr(sys.modules[__name__], "cmd_settings", lambda *a, **k: None)(*a, **k)
     register_core_handlers(
         app,
         sys.modules[__name__],
@@ -1802,4 +1807,4 @@ async def cmd_reminders(update: Any, context: Any) -> None:
         status_icon = "✅" if r.status == "sent" else ("⏳" if r.status == "pending" else "❌")
         lines.append(f"{status_icon} #{r.id}: {r.message} @ {r.remind_at:%Y-%m-%d %H:%M}")
     await update.message.reply_text("\n".join(lines[:20]))
-sys.modules[__name__].cmd_settings = cmd_settings
+sys.modules[__name__].cmd_settings = lambda *a, **k: getattr(sys.modules[__name__], "cmd_settings", lambda *a, **k: None)(*a, **k)
