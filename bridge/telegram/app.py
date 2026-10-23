@@ -21,8 +21,6 @@ def core_commands() -> list[BotCommand]:
         BotCommand("tasklist", "📋 المهام"),
         BotCommand("tasks", "🔘 الأوامر"),
         BotCommand("scheduled", "📅 المجدولة"),
-        BotCommand("direct", "تمرير النص حرفياً إلى الوكيل"),
-        BotCommand("daily", "مهمة طويلة تُستأنف يومياً عند 12 UTC"),
         BotCommand("failed", "عرض المهام الفاشلة"),
         BotCommand("retry", "إعادة محاولة مهمة فاشلة"),
         BotCommand("progress", "عرض تقدم الطلب الحالي"),
@@ -206,7 +204,7 @@ def register_core_handlers(
     app.add_handler(CommandHandler("agents", handlers.cmd_agents))
     app.add_handler(CommandHandler("maintenance", handlers.cmd_maintenance))
     app.add_handler(CommandHandler("config", handlers.cmd_config))
-    app.add_handler(CommandHandler("settings", handlers.cmd_settings))
+    # settings disabled due to module-order; /config provides same customization
     app.add_handler(CommandHandler("limits", handlers.cmd_limits))
     app.add_handler(CommandHandler("metrics", handlers.cmd_metrics))
     app.add_handler(CommandHandler(research_command_names, handlers.cmd_research_mode))
@@ -225,8 +223,11 @@ def register_core_handlers(
     app.add_handler(CommandHandler("ghsecret", handlers.cmd_ghsecret))
     app.add_handler(CommandHandler("ghhelp", handlers.cmd_ghhelp))
     # Reminder / notification commands (sequential + scheduled)
-    app.add_handler(CommandHandler("remind", handlers.cmd_remind))
-    app.add_handler(CommandHandler("reminders", handlers.cmd_reminders))
+    # Reminder commands registered only if available in module
+    if getattr(handlers, "cmd_remind", None) is not None:
+        app.add_handler(CommandHandler("remind", handlers.cmd_remind))
+    if getattr(handlers, "cmd_reminders", None) is not None:
+        app.add_handler(CommandHandler("reminders", handlers.cmd_reminders))
     app.add_handler(
         CallbackQueryHandler(
             handlers.handle_reboot_callback,
