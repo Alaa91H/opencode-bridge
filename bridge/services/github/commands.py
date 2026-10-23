@@ -10,8 +10,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from telegram import Update
-from telegram.ext import ContextTypes
+from typing import Any
 
 from bridge.services.github.api import (
     GitHubAPIClient,
@@ -89,7 +88,7 @@ class GitHubCommandHandler:
     # ========================================================================
 
     async def cmd_github_repos(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+        self, update: Any, context: Any
     ) -> None:
         """List accessible GitHub repositories: /ghrepos [filter]"""
         _ = await self._ensure_client()
@@ -128,7 +127,7 @@ class GitHubCommandHandler:
             await update.message.reply_text(f"❌ خطأ في GitHub API: {exc}")
 
     async def cmd_github_create(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+        self, update: Any, context: Any
     ) -> None:
         """Create a new GitHub repository: /ghcreate <name> [description] [--public]"""
         if not context.args:
@@ -182,7 +181,7 @@ class GitHubCommandHandler:
             await update.message.reply_text(f"❌ فشل في إنشاء المستودع: {exc}")
 
     async def cmd_github_clone(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+        self, update: Any, context: Any
     ) -> None:
         """Clone a GitHub repository locally: /ghclone <owner/repo> [branch]"""
         if not context.args:
@@ -246,7 +245,7 @@ class GitHubCommandHandler:
             await update.message.reply_text(f"❌ فشل في الاستنساخ: {exc}")
 
     async def cmd_github_status(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+        self, update: Any, context: Any
     ) -> None:
         """Show status of local GitHub workspaces: /ghstatus [owner/repo]"""
         local_manager = self._local_manager
@@ -296,7 +295,7 @@ class GitHubCommandHandler:
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
     async def cmd_github_pr(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+        self, update: Any, context: Any
     ) -> None:
         """List or create Pull Requests: /ghpr <owner/repo> [action] [args]"""
         if not context.args or len(context.args) < 2:
@@ -378,7 +377,7 @@ class GitHubCommandHandler:
             await update.message.reply_text(f"❌ خطأ في GitHub: {exc}")
 
     async def cmd_github_issue(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+        self, update: Any, context: Any
     ) -> None:
         """List or create Issues: /ghissue <owner/repo> [action] [args]"""
         if not context.args or len(context.args) < 2:
@@ -456,7 +455,7 @@ class GitHubCommandHandler:
             await update.message.reply_text(f"❌ خطأ في GitHub: {exc}")
 
     async def cmd_github_release(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+        self, update: Any, context: Any
     ) -> None:
         """List or create Releases: /ghrelease <owner/repo> [action] [args]"""
         if not context.args or len(context.args) < 2:
@@ -538,7 +537,7 @@ class GitHubCommandHandler:
             await update.message.reply_text(f"❌ خطأ في GitHub: {exc}")
 
     async def cmd_github_branch(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+        self, update: Any, context: Any
     ) -> None:
         """List or create branches: /ghbranch <owner/repo> [action] [args]"""
         if not context.args or len(context.args) < 2:
@@ -616,7 +615,7 @@ class GitHubCommandHandler:
             await update.message.reply_text(f"❌ خطأ في GitHub: {exc}")
 
     async def cmd_github_secret(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+        self, update: Any, context: Any
     ) -> None:
         """Manage repository secrets: /ghsecret <owner/repo> [action] [args]"""
         if not context.args or len(context.args) < 2:
@@ -709,7 +708,7 @@ class GitHubCommandHandler:
             await update.message.reply_text(f"❌ خطأ في GitHub: {exc}")
 
     async def cmd_github_help(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+        self, update: Any, context: Any
     ) -> None:
         """Show GitHub commands help: /ghhelp"""
         help_text = """

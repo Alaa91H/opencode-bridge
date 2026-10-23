@@ -122,8 +122,9 @@ class TaskApplicationService:
         enqueue_kwargs = {
             "execution_mode": execution_mode.value if execution_mode is not None else None,
             "status_message_id": status_message_id,
-            "priority": priority,
         }
+        if priority:
+            enqueue_kwargs["priority"] = priority
         stored = stored_prompt if stored_prompt is not None else prompt
         if idempotency_scope and idempotency_key:
             task, position, _created = await self.repository.enqueue_once(

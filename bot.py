@@ -1081,19 +1081,9 @@ async def _send_main_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def cmd_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """إظهار لوحة المفاتيح الثابتة"""
     await _send_main_keyboard(update, context)
-
-
 async def cmd_hide_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """إخفاء لوحة المفاتيح الثابتة"""
-    await update.message.reply_text(
-        "⌨️ تم إخفاء لوحة المفاتيح.\n"
-        "يمكنك استعادتها باستخدام أمر /keyboard.",
-        reply_markup=get_hide_keyboard(),
-    )
-
-
+    await message.reply_text("⌨️ تم إخفاء لوحة المفاتيح. يمكنك استعادتها باستخدام أمر /keyboard.", reply_markup=get_hide_keyboard())
 async def _create_task_status_message(bot, chat_id: int, text: str = "جاري تجهيز الطلب…") -> int | None:
     """Create the single user-facing message that will be edited until completion."""
     try:
@@ -1167,8 +1157,6 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
 @authorized
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _agent_command_adapter().start(update, context)
-    # إرسال لوحة المفاتيح الثابتة بعد بدء الجلسة
-    await _send_main_keyboard(update, context)
 
 @authorized
 async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
