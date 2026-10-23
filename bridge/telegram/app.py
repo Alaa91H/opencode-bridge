@@ -206,6 +206,7 @@ def register_core_handlers(
     app.add_handler(CommandHandler("agents", handlers.cmd_agents))
     app.add_handler(CommandHandler("maintenance", handlers.cmd_maintenance))
     app.add_handler(CommandHandler("config", handlers.cmd_config))
+    app.add_handler(CommandHandler("settings", handlers.cmd_settings))
     app.add_handler(CommandHandler("limits", handlers.cmd_limits))
     app.add_handler(CommandHandler("metrics", handlers.cmd_metrics))
     app.add_handler(CommandHandler(research_command_names, handlers.cmd_research_mode))
