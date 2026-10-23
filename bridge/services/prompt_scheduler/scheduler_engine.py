@@ -11,7 +11,7 @@ import heapq
 import inspect
 import logging
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
@@ -211,31 +211,98 @@ class PriorityTaskQueue:
         self._counter = 0  # لكسر التعادل في الأولوية نفسها
         self._lock = asyncio.Lock()
         self._task_map: dict[str, ScheduledPrompt] = {}  # id -> task للبحث السريع
+        self._wake = asyncio.Event()
 
-    async def enqueue(self, task: ScheduledPrompt) -> str:
-        """إضافة مهمة إلى قائمة الانتظار."""
+    async def enqueue(self, task: ScheduledPrompt, *, wake: bool = True) -> str:
+        """إضافة مهمة إلى قائمة الانتظار.
+
+        ``wake=False`` is used when the scheduler re-queues a task whose
+        dependencies or conditions are not met yet: waking itself immediately
+        would turn an idle scheduler into a busy loop.
+        """
         async with self._lock:
             self._counter += 1
             # دفع task مع الكاونتر لكسر التعادل
             heapq.heappush(self._heap, task)
             self._task_map[task.id] = task
+            if wake:
+                self._wake.set()
             log.debug("تمت إضافة المهمة %s إلى قائمة الانتظار (الأولوية: %s)", task.id, task.priority.name)
             return task.id
 
     async def dequeue(self) -> ScheduledPrompt | None:
-        """إرجاع أعلى مهمة أولوية وجاهزة للتنفيذ."""
+        """Return the highest-priority due task without ever waiting.
+
+        A queue whose head is scheduled for the future must return ``None``
+        immediately. The previous implementation popped and re-pushed that head
+        in a 0.1s loop while holding the queue lock, so one future task pinned a
+        CPU core and blocked every enqueue for as long as its delay lasted.
+        """
+        deferred: list[ScheduledPrompt] = []
+        due: list[ScheduledPrompt] = []
         async with self._lock:
             while self._heap:
                 task = heapq.heappop(self._heap)
-                if task.is_due():
-                    # إزالة من الخريطة
+                if task.status != "pending":
+                    # Cancelled or already executed: drop it for good.
                     self._task_map.pop(task.id, None)
-                    return task
+                elif task.is_due():
+                    due.append(task)
                 else:
-                    # إعادة دفع المهمة إذا لم يحن وقتها بعد
-                    heapq.heappush(self._heap, task)
-                    await asyncio.sleep(0.1)  # تجنب الدوران السريع
-            return None
+                    deferred.append(task)
+            for task in deferred:
+                heapq.heappush(self._heap, task)
+            if not due:
+                return None
+            chosen = due[0]  # heap order already picked the best due task
+            for task in due[1:]:
+                heapq.heappush(self._heap, task)
+            self._task_map.pop(chosen.id, None)
+            return chosen
+
+    async def next_due_in(self, now: datetime | None = None) -> float | None:
+        """Seconds until the next pending task becomes due, or None if none is pending."""
+        current = now or datetime.now(UTC)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=UTC)
+        async with self._lock:
+            delay: float | None = None
+            for task in self._heap:
+                if task.status != "pending":
+                    continue
+                moments = [
+                    moment
+                    for moment in (task.execute_at, task.next_execution)
+                    if moment is not None
+                ]
+                if not moments:
+                    return 0.0
+                ready_at = max(moments)
+                if ready_at.tzinfo is None:
+                    ready_at = ready_at.replace(tzinfo=UTC)
+                remaining = (ready_at - current).total_seconds()
+                if remaining <= 0:
+                    return 0.0
+                delay = remaining if delay is None else min(delay, remaining)
+            return delay
+
+    async def wait_for_work(self, timeout: float, *, clear: bool = True) -> bool:
+        """Sleep until an enqueue wakes the queue or ``timeout`` elapses."""
+        if clear:
+            self._wake.clear()
+        try:
+            await asyncio.wait_for(self._wake.wait(), timeout=max(0.01, float(timeout)))
+        except TimeoutError:
+            return False
+        return True
+
+    def reset_wakeup(self) -> None:
+        """Clear a pending wake-up before a scheduler scans for work."""
+        self._wake.clear()
+
+    def wake(self) -> None:
+        """Wake a scheduler waiting in :meth:`wait_for_work`."""
+        self._wake.set()
 
     async def peek(self) -> ScheduledPrompt | None:
         """عرض أعلى مهمة دون إزالتها من القائمة."""
@@ -313,13 +380,21 @@ class SmartPromptScheduler:
         self,
         max_concurrent_tasks: int = 5,
         task_timeout_seconds: int = 3600,
+        idle_wait_seconds: float = 30.0,
     ) -> None:
         self.max_concurrent_tasks = max_concurrent_tasks
         self.task_timeout_seconds = task_timeout_seconds
+        # An idle scheduler has nothing to do until a task is enqueued or the
+        # nearest scheduled task becomes due; checking once a second forever is
+        # wasted wakeups on a small host.
+        self.idle_wait_seconds = max(0.25, min(float(idle_wait_seconds), 300.0))
         self.queue = PriorityTaskQueue()
         self.condition_engine = ConditionEngine()
         self._running_tasks: dict[str, asyncio.Task] = {}
+        self._running_prompts: dict[str, ScheduledPrompt] = {}
+        self._finished_tasks: dict[str, ScheduledPrompt] = {}
         self._task_results: dict[str, str] = {}
+        self._executor: Any = None
         self._scheduler_running = False
         self._scheduler_task: asyncio.Task | None = None
 
@@ -377,7 +452,11 @@ class SmartPromptScheduler:
 
     async def get_task_status(self, task_id: str) -> dict[str, Any] | None:
         """الحصول على حالة مهمة."""
-        task = await self.queue.get_task(task_id)
+        task = (
+            await self.queue.get_task(task_id)
+            or self._running_prompts.get(task_id)
+            or self._finished_tasks.get(task_id)
+        )
         if task is None:
             return None
 
@@ -398,7 +477,15 @@ class SmartPromptScheduler:
         return result
 
     async def cancel_task(self, task_id: str) -> bool:
-        """إلغاء مهمة مجدولة."""
+        """إلغاء مهمة مجدولة أو جارية."""
+        running = self._running_prompts.pop(task_id, None)
+        if running is not None:
+            running.status = "cancelled"
+            runner = self._running_tasks.pop(task_id, None)
+            if runner is not None:
+                runner.cancel()
+                await asyncio.gather(runner, return_exceptions=True)
+            return True
         return await self.queue.cancel_task(task_id)
 
     async def get_queue_status(self) -> dict[str, Any]:
@@ -419,20 +506,30 @@ class SmartPromptScheduler:
         log.info("تم بدء المجدول الذكي")
 
     async def stop_scheduler(self) -> None:
-        """إيقاف المجدول."""
+        """إيقاف المجدول وإنهاء المهام الجارية التي أطلقها."""
         self._scheduler_running = False
+        self.queue.wake()
         if self._scheduler_task:
             self._scheduler_task.cancel()
             try:
                 await self._scheduler_task
             except asyncio.CancelledError:
                 pass
+            self._scheduler_task = None
+        running, self._running_tasks = self._running_tasks, {}
+        self._running_prompts.clear()
+        for task in running.values():
+            task.cancel()
+        if running:
+            await asyncio.gather(*running.values(), return_exceptions=True)
         log.info("تم إيقاف المجدول الذكي")
 
     async def _scheduler_loop(self) -> None:
         """حلقة الجدولة الرئيسية."""
         while self._scheduler_running:
             try:
+                blocked = False
+                self.queue.reset_wakeup()
                 # التحقق من المهام الجارية وإزالة المنتهية
                 await self._check_running_tasks()
 
@@ -447,15 +544,30 @@ class SmartPromptScheduler:
                             if await self.condition_engine.evaluate_all_conditions(
                                 task.conditions, context
                             ):
-                                await self._execute_task(task)
+                                self._launch_task(task)
                             else:
                                 # إعادة المهمة إلى القائمة إذا لم تتحقق الظروف
-                                await self.queue.enqueue(task)
+                                blocked = True
+                                await self.queue.enqueue(task, wake=False)
                         else:
                             # إعادة المهمة إذا لم تكتمل الاعتمادات
-                            await self.queue.enqueue(task)
+                            blocked = True
+                            await self.queue.enqueue(task, wake=False)
 
-                await asyncio.sleep(1)  # فحص كل ثانية
+                delay = await self.queue.next_due_in()
+                if len(self._running_tasks) >= self.max_concurrent_tasks:
+                    # Due work is waiting but every slot is busy; completion
+                    # wakes this loop through the done callback.
+                    wait = self.idle_wait_seconds
+                elif blocked:
+                    # A deferred task stays due, so waiting on its due time would
+                    # spin. One second preserves the previous retry cadence.
+                    wait = 1.0
+                elif delay is None:
+                    wait = self.idle_wait_seconds
+                else:
+                    wait = min(max(0.05, delay), self.idle_wait_seconds)
+                await self.queue.wait_for_work(wait, clear=False)
 
             except asyncio.CancelledError:
                 break
@@ -463,61 +575,95 @@ class SmartPromptScheduler:
                 log.error("خطأ في حلقة الجدولة: %s", exc)
                 await asyncio.sleep(5)
 
+    def _launch_task(self, task: ScheduledPrompt) -> None:
+        """Run one due task concurrently without blocking the scheduler loop."""
+        runner = asyncio.create_task(self._run_with_timeout(task))
+        self._running_tasks[task.id] = runner
+        self._running_prompts[task.id] = task
+        # The loop must wake as soon as a task finishes so it can re-check
+        # capacity and requeue recurring work without polling.
+        runner.add_done_callback(lambda _: self.queue.wake())
+
+    async def _run_with_timeout(self, task: ScheduledPrompt) -> str:
+        """Apply ``task_timeout_seconds`` to the configured executor."""
+        return await asyncio.wait_for(
+            self._execute_task(task), timeout=self.task_timeout_seconds
+        )
+
     async def _check_running_tasks(self) -> None:
         """فحص المهام الجارية وتحديث حالاتها."""
-        done_tasks = []
-        for task_id, task in self._running_tasks.items():
-            if task.done():
-                done_tasks.append(task_id)
+        done_tasks = [
+            task_id
+            for task_id, runner in self._running_tasks.items()
+            if runner.done()
+        ]
 
         for task_id in done_tasks:
-            task = self._running_tasks.pop(task_id)
+            runner = self._running_tasks.pop(task_id)
+            task = self._running_prompts.pop(task_id, None)
             try:
-                result = await task
-                self._task_results[task_id] = result
-                # تحديث حالة المهمة في القائمة
-                queue_task = await self.queue.get_task(task_id)
-                if queue_task:
-                    queue_task.status = "completed"
-                    queue_task.result = result
-                    queue_task.execution_count += 1
+                result = await runner
+                self._remember_result(task_id, result)
+                if task is not None:
+                    task.status = "completed"
+                    task.result = result
+                    self._remember_finished(task)
 
                     # إذا كانت متكررة، جدولة المرة التالية
-                    if queue_task.should_recur():
-                        next_exec = queue_task.calculate_next_execution()
+                    if task.should_recur():
+                        next_exec = task.calculate_next_execution()
                         if next_exec:
-                            queue_task.next_execution = next_exec
-                            queue_task.status = "pending"
-                            await self.queue.enqueue(queue_task)
+                            task.next_execution = next_exec
+                            task.status = "pending"
+                            await self.queue.enqueue(task)
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:
-                self._task_results[task_id] = str(exc)
-                queue_task = await self.queue.get_task(task_id)
-                if queue_task:
-                    queue_task.status = "failed"
-                    queue_task.error = str(exc)
+                message = str(exc) or type(exc).__name__
+                self._remember_result(task_id, message)
+                if task is not None:
+                    task.status = "failed"
+                    task.error = message
+                    self._remember_finished(task)
+
+    def _remember_finished(self, task: ScheduledPrompt) -> None:
+        """Keep a bounded completion history for dependency checks and status."""
+        self._finished_tasks[task.id] = replace(task)
+        while len(self._finished_tasks) > 500:
+            self._finished_tasks.pop(next(iter(self._finished_tasks)), None)
+
+    def _remember_result(self, task_id: str, result: str) -> None:
+        """Keep recent results bounded; the scheduler may run for months."""
+        self._task_results[task_id] = result
+        while len(self._task_results) > 500:
+            self._task_results.pop(next(iter(self._task_results)), None)
 
     async def _check_dependencies(self, task: ScheduledPrompt) -> bool:
         """التحقق من اكتمال الاعتمادات."""
         for dep_id in task.dependencies:
-            dep_status = await self.queue.get_task(dep_id)
-            if dep_status is None or dep_status.status != "completed":
+            dep = self._finished_tasks.get(dep_id) or await self.queue.get_task(dep_id)
+            if dep is None or dep.status != "completed":
                 return False
         return True
 
     async def _execute_task(self, task: ScheduledPrompt) -> str:
-        """تنفيذ مهمة واحدة (يتم overriding من قبل המערכת الخارجية)."""
-        # هذه الدالة يتم overriding من قبل النظام الذي يستخدم المجدول
-        # لتنفيذ المهمة فعلياً. هنا فقط نسجل البداية والنهاية.
+        """Execute one task through the registered executor or the demo path."""
         task.status = "running"
         task.execution_count += 1
 
-        # محاكاة التنفيذ (في النظام الحقيقي، يتم استدعاء الوكيل هنا)
-        await asyncio.sleep(0.1)  # محاكاة وقت التنفيذ
+        executor = self._executor
+        if executor is None:
+            # No executor configured: keep the historical simulated behaviour.
+            await asyncio.sleep(0.1)
+            result = f"تم تنفيذ المهمة {task.id} بنجاح (النوع: {task.schedule_type.value})"
+        else:
+            outcome = executor(task)
+            if inspect.isawaitable(outcome):
+                outcome = await outcome
+            result = str(outcome)
 
-        result = f"تم تنفيذ المهمة {task.id} بنجاح (النوع: {task.schedule_type.value})"
         task.status = "completed"
         task.result = result
-
         return result
 
     def register_executor(self, executor: Any) -> None:

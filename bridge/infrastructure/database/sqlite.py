@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -14,9 +15,18 @@ import aiosqlite
 class BridgeDatabase:
     """Own one configured SQLite connection and serialize its transactions."""
 
-    def __init__(self, path: Path, *, busy_timeout_ms: int = 5000) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        busy_timeout_ms: int = 5000,
+        cache_size_kib: int = 16000,
+    ) -> None:
         self.path = Path(path)
         self.busy_timeout_ms = max(1, int(busy_timeout_ms))
+        # 16 MiB is ample for a bot database that is normally below a few
+        # megabytes and leaves the rest of a 1 GiB host to the runtime.
+        self.cache_size_kib = max(512, min(int(cache_size_kib), 262144))
         self._connection: aiosqlite.Connection | None = None
         self._connect_lock = asyncio.Lock()
         self.transaction_lock = asyncio.Lock()
@@ -35,12 +45,24 @@ class BridgeDatabase:
                     await db.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
                     # Read-path pragmas for a ~1GB host: bounded page cache,
                     # in-memory temp tables, conservative mmap, capped WAL file.
-                    await db.execute("PRAGMA cache_size=-64000")
+                    await db.execute(f"PRAGMA cache_size=-{self.cache_size_kib}")
                     await db.execute("PRAGMA temp_store=MEMORY")
                     await db.execute("PRAGMA mmap_size=67108864")
                     await db.execute("PRAGMA journal_size_limit=6144000")
                     self._connection = db
         return self._connection
+
+    async def optimize(self) -> None:
+        """Refresh query-planner statistics with bounded work.
+
+        ``analysis_limit`` keeps this cheap enough to run at shutdown instead of
+        letting stale statistics accumulate over months of queue history.
+        """
+        db = await self.connect()
+        async with self.transaction_lock:
+            await db.execute("PRAGMA analysis_limit=400")
+            await db.execute("PRAGMA optimize")
+            await db.commit()
 
     @asynccontextmanager
     async def transaction(self, *, immediate: bool = False) -> AsyncIterator[aiosqlite.Connection]:
@@ -83,5 +105,9 @@ class BridgeDatabase:
     async def close(self) -> None:
         async with self._connect_lock:
             if self._connection is not None:
+                # Best-effort statistics maintenance; a shutdown must never fail
+                # because the planner could not run ANALYZE.
+                with contextlib.suppress(Exception):
+                    await self.optimize()
                 await self._connection.close()
                 self._connection = None

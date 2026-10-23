@@ -12,7 +12,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Mess
 
 
 def core_commands() -> list[BotCommand]:
-    return [
+    commands = [
         BotCommand("start", "بدء جلسة جديدة"),
         BotCommand("new", "إنشاء جلسة جديدة"),
         BotCommand("reset", "إعادة ضبط الجلسة"),
@@ -112,6 +112,17 @@ def core_commands() -> list[BotCommand]:
         BotCommand("keyboard", "إظهار لوحة المفاتيح الثابتة"),
         BotCommand("hidekeyboard", "إخفاء لوحة المفاتيح الثابتة"),
     ]
+    # The registry grew by appending blocks over time, so several entries were
+    # listed twice. Telegram renders duplicates in the command menu and the
+    # payload is sent on every startup; keep the first description only.
+    unique: list[BotCommand] = []
+    seen: set[str] = set()
+    for command in commands:
+        if command.command in seen:
+            continue
+        seen.add(command.command)
+        unique.append(command)
+    return unique
 
 
 def register_core_handlers(

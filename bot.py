@@ -41,7 +41,7 @@ import sys
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from telegram import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.ext import Application, ContextTypes
@@ -62,18 +62,13 @@ from bridge.domain.sessions.session_store import SessionStore
 from bridge.infrastructure.database.draft_store import DraftStore
 from bridge.infrastructure.database.user_settings_store import UserSettingsStore
 from bridge.infrastructure.opencode.credential_pool import CredentialPool, parse_credential_pool
-from bridge.services.admin_backups import AdminBackups
 from bridge.services.agent_service import AgentService
 from bridge.services.config_service import ConfigurationService
-from bridge.services.download_service import DownloadService
 from bridge.services.draft_service import DraftService
-from bridge.services.github.commands import GitHubCommandHandler
-from bridge.services.host_control import HostControl
 from bridge.services.host_credentials import HostCredentialManager
 from bridge.services.maintenance_service import MaintenanceReportService
 from bridge.services.media_service import MediaTaskService
 from bridge.services.metrics_service import BridgeMetricsService
-from bridge.services.mirrors import MirrorService
 from bridge.services.model_selection_service import ModelSelectionService
 from bridge.services.provider_keys import ProviderKeyManager
 from bridge.services.runtime_controls import RuntimeControls
@@ -129,6 +124,13 @@ from prompt_enhancer import ResearchMode
 from reboot_state import decision_path, read_state, request_path, write_state
 from task_queue import QueuedTask, TaskQueueStore
 from task_service import TaskService
+
+if TYPE_CHECKING:
+    from bridge.services.admin_backups import AdminBackups
+    from bridge.services.download_service import DownloadService
+    from bridge.services.github.commands import GitHubCommandHandler
+    from bridge.services.host_control import HostControl
+    from bridge.services.mirrors import MirrorService
 
 REBOOT_REQUEST_PATH = request_path(BRIDGE_DIR / "runtime")
 REBOOT_DECISION_PATH = decision_path(BRIDGE_DIR / "runtime")
@@ -214,6 +216,8 @@ _agent_commands_instance: AgentCommands | None = None
 _system_commands_instance: SystemCommands | None = None
 _config_commands_instance: ConfigCommands | None = None
 _metrics_commands_instance: MetricsCommands | None = None
+_admin_backups_instance: AdminBackups | None = None
+_host_control_instance: HostControl | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -501,6 +505,10 @@ def _interaction_registry() -> InteractionRegistry:
 def _downloads() -> DownloadService:
     global _download_service
     if _download_service is None:
+        # Imported lazily: this module costs ~150 ms at startup and most
+        # launches never open a download command before the first restart.
+        from bridge.services.download_service import DownloadService
+
         _download_service = DownloadService(
             BRIDGE_DIR / "runtime" / "downloads",
             max_file_bytes=SETTINGS.downloads.max_file_bytes,
@@ -527,6 +535,8 @@ def _download_command_adapter() -> DownloadCommands:
 def _mirrors() -> MirrorService:
     global _mirror_service_instance
     if _mirror_service_instance is None:
+        from bridge.services.mirrors import MirrorService
+
         _mirror_service_instance = MirrorService(
             BRIDGE_DIR / "runtime" / "downloads",
             extra_roots=(ATTACHMENT_ROOT / "outgoing",),
@@ -794,6 +804,26 @@ async def _dispatch_advanced_button(name: str, update: Update, context: ContextT
         context.args = previous
 
 
+def _admin_backups() -> AdminBackups:
+    """Construct the backup service only when the control panel needs it."""
+    global _admin_backups_instance
+    if _admin_backups_instance is None:
+        from bridge.services.admin_backups import AdminBackups
+
+        _admin_backups_instance = AdminBackups(BRIDGE_DIR)
+    return _admin_backups_instance
+
+
+def _host_control() -> HostControl:
+    """Construct host controls lazily; importing them costs startup time."""
+    global _host_control_instance
+    if _host_control_instance is None:
+        from bridge.services.host_control import HostControl
+
+        _host_control_instance = HostControl(BRIDGE_DIR)
+    return _host_control_instance
+
+
 def _control_ui() -> ControlUI:
     global _control_ui_instance
     if _control_ui_instance is None:
@@ -811,13 +841,13 @@ def _control_ui() -> ControlUI:
             provider_keys=provider_keys,
             runtime_controls=RuntimeControls(BRIDGE_DIR / "runtime"),
             host_credentials=HostCredentialManager(BRIDGE_DIR),
-            backups=AdminBackups(BRIDGE_DIR),
+            backups=_admin_backups(),
             mirrors=_mirrors(),
             project=BRIDGE_DIR,
             admin_allowed=_is_control_owner,
             legacy_dispatch=_dispatch_advanced_button,
             research_modes=RESEARCH_COMMAND_MODES,
-            host_control=HostControl(BRIDGE_DIR),
+            host_control=_host_control(),
             audit=audit.write,
         )
     return _control_ui_instance
@@ -1521,6 +1551,8 @@ async def post_init(app: Application) -> None:
     global github_handler
     if SETTINGS.github.token and github_handler is None:
         try:
+            from bridge.services.github.commands import GitHubCommandHandler
+
             github_handler = GitHubCommandHandler(
                 github_token=SETTINGS.github.token,
                 workspace_root=BRIDGE_DIR / "github-workspaces",

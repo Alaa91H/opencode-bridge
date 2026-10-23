@@ -952,6 +952,50 @@ class TaskQueueStore:
                 rows = await cursor.fetchall()
         return {str(row["status"]): int(row["task_count"]) for row in rows}
 
+    async def queue_wait_seconds(
+        self,
+        *,
+        limit: int = 200,
+        since: datetime | None = None,
+    ) -> tuple[float, ...]:
+        """Return recent enqueue-to-claim latencies in seconds.
+
+        The sample is intentionally taken from the durable task rows instead of
+        an in-memory counter: it survives restarts and reflects the real wait a
+        user experienced, including downtime and worker saturation. Newest rows
+        are read first, so the query stays bounded by ``limit`` even after a long
+        queue history accumulates.
+        """
+        db = await self._get_db()
+        capped = max(1, min(int(limit), 1000))
+        if since is not None:
+            query = (
+                "SELECT created_at, started_at FROM agent_tasks "
+                "WHERE started_at IS NOT NULL AND created_at >= ? "
+                "ORDER BY id DESC LIMIT ?"
+            )
+            params: list[Any] = [encode_time(since), capped]
+        else:
+            query = (
+                "SELECT created_at, started_at FROM agent_tasks "
+                "WHERE started_at IS NOT NULL ORDER BY id DESC LIMIT ?"
+            )
+            params = [capped]
+        async with self._lock:
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+        samples: list[float] = []
+        for row in rows:
+            try:
+                created = decode_time(row["created_at"])
+                started = decode_time(row["started_at"])
+            except ValueError:
+                continue
+            if created is None or started is None:
+                continue
+            samples.append(max(0.0, (started - created).total_seconds()))
+        return tuple(samples)
+
     async def list_active(self, owner_id: str, limit: int = 20) -> list[QueuedTask]:
         db = await self._get_db()
         async with self._lock:

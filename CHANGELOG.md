@@ -1,3 +1,26 @@
+## [Unreleased]
+
+### Performance and resource use
+
+- The prompt scheduler no longer busy-waits when the highest-priority task is
+  scheduled for the future. Dequeue is now a single non-blocking heap pass, idle
+  wake-ups drop from once per second to once per 30 seconds (configurable), and
+  enqueue/completion events wake the loop immediately.
+- Registered scheduler executors now actually run, execute concurrently up to
+  `max_concurrent_tasks`, honour `task_timeout_seconds`, and requeue recurring
+  tasks after completion. Dependencies resolve against a bounded completion
+  history, and running tasks can be cancelled.
+- The agent-integration event loop is event-driven instead of polling every two
+  seconds, bounds acknowledged event history, and prunes scheduler result caches
+  so long-running processes cannot leak memory.
+- SQLite page cache is capped at 16 MiB (configurable), and query-planner
+  statistics are refreshed with bounded `PRAGMA optimize` at shutdown.
+- `/metrics` reports queue wait latency (p50/p95) from durable task timestamps.
+- Startup imports the download, GitHub, mirror, backup and host-control services
+  lazily, removing roughly 250 ms of unnecessary import work per restart.
+- Telegram command registration is deduplicated before `setMyCommands`, so the
+  menu no longer receives repeated entries.
+
 ## [3.59.0] - 2026-10-21
 
 ### Architectural consolidation (T02/T46): domain layer now owns sessions

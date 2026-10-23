@@ -34,6 +34,12 @@ def _legacy_allowlist() -> list[str]:
 
 
 class CommandCoverageTests(unittest.TestCase):
+    def test_core_commands_are_unique(self) -> None:
+        from bridge.telegram.app import core_commands
+
+        names = [command.command for command in core_commands()]
+        self.assertEqual(len(names), len(set(names)))
+
     def test_every_core_command_has_a_handler(self) -> None:
         names = _core_commands()
         self.assertGreater(len(names), 40)

@@ -84,6 +84,8 @@ class AgentSystemIntegration:
         intent_analyzer: IntentAnalyzer | None = None,
         execution_planner: SmartExecutionPlanner | None = None,
         prompt_scheduler: SmartPromptScheduler | None = None,
+        event_poll_seconds: float = 30.0,
+        event_history_limit: int = 500,
     ) -> None:
         self.intent_analyzer = intent_analyzer or IntentAnalyzer()
         self.execution_planner = execution_planner or SmartExecutionPlanner()
@@ -100,6 +102,11 @@ class AgentSystemIntegration:
         # مؤشرات التشغيل
         self._integration_running = False
         self._event_processor_task: asyncio.Task | None = None
+        # An idle integration engine has nothing to poll for: new events wake
+        # the loop directly, and the timeout is only a safety net.
+        self.event_poll_seconds = max(0.1, min(float(event_poll_seconds), 300.0))
+        self.event_history_limit = max(1, int(event_history_limit))
+        self._event_wakeup = asyncio.Event()
 
     # ========================================================================
     # تحليل البرومبت وإنشاء خطة تنفيذ
@@ -340,12 +347,32 @@ class AgentSystemIntegration:
             data=data,
         )
         self._system_events.append(event)
+        self._prune_event_history()
+        self._event_wakeup.set()
         log.info(
             "تم إطلاق حدث نظام %s: %s",
             event.id,
             event_type,
         )
         return event.id
+
+    def _prune_event_history(self) -> None:
+        """Keep acknowledged events bounded so a long-running bridge cannot leak.
+
+        Unacknowledged events are never dropped. Acknowledged ones are history
+        only, so retaining ``event_history_limit`` of them is enough for recent
+        diagnostics.
+        """
+        surplus = len(self._system_events) - self.event_history_limit
+        if surplus <= 0:
+            return
+        kept: list[SystemEvent] = []
+        for event in self._system_events:
+            if surplus > 0 and event.acknowledged:
+                surplus -= 1
+                continue
+            kept.append(event)
+        self._system_events = kept
 
     async def get_unacknowledged_events(
         self,
@@ -464,12 +491,14 @@ class AgentSystemIntegration:
             return
 
         self._integration_running = True
+        self._event_wakeup.clear()
         self._event_processor_task = asyncio.create_task(self._event_processor_loop())
         log.info("تم بدء محرك التكامل بين الوكيل والنظام")
 
     async def stop(self) -> None:
         """إيقاف محرك التكامل."""
         self._integration_running = False
+        self._event_wakeup.set()
         if self._event_processor_task:
             self._event_processor_task.cancel()
             try:
@@ -479,17 +508,24 @@ class AgentSystemIntegration:
         log.info("تم إيقاف محرك التكامل بين الوكيل والنظام")
 
     async def _event_processor_loop(self) -> None:
-        """حلقة معالجة الأحداث."""
+        """حلقة معالجة الأحداث، مدفوعة بالإشعارات بدل الاستطلاع المستمر."""
         while self._integration_running:
             try:
-                # معالجة الأحداث غير المؤكدة
+                self._event_wakeup.clear()
                 unacknowledged = await self.get_unacknowledged_events()
                 for event in unacknowledged:
                     log.debug("معالجة حدث نظام: %s (%s)", event.id, event.event_type)
                     # في النظام الحقيقي، يمكن إرسال الحدث للوكيل هنا
                     await self.acknowledge_event(event.id)
+                if unacknowledged:
+                    self._prune_event_history()
 
-                await asyncio.sleep(2)  # فحص كل ثانيتين
+                try:
+                    await asyncio.wait_for(
+                        self._event_wakeup.wait(), timeout=self.event_poll_seconds
+                    )
+                except TimeoutError:
+                    pass
 
             except asyncio.CancelledError:
                 break
