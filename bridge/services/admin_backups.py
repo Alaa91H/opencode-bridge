@@ -264,11 +264,13 @@ class AdminBackups:
         return datetime.fromtimestamp(path.stat().st_mtime, UTC)
 
     def prune_older_than(self, days: int = RETENTION_DAYS) -> int:
-        """Permanently delete backup files and their metadata older than ``days``.
+        """Permanently delete every backup file older than ``days``.
 
         The cutoff is wall-clock UTC.  Metadata timestamps are authoritative
         when readable; the file mtime is the fallback so an orphaned or
-        corrupted metadata file cannot make an old snapshot immortal.
+        corrupted metadata file cannot make an old snapshot immortal.  No
+        snapshot is exempt: the zip already sent to Telegram is the off-host
+        copy once the local retention window closes.
         """
         if type(days) is not int or days < 1:
             raise ValueError("Retention must be a positive number of days")
@@ -286,25 +288,8 @@ class AdminBackups:
                 candidates.append((self._backup_created_at(path), path))
             except OSError:
                 continue
-        # Never let retention leave a category with zero recovery points.  The
-        # newest snapshot per category survives even when it is older than the
-        # cutoff; once a newer snapshot exists, every expired older one goes.
-        newest: dict[str, Path] = {}
         for created, path in candidates:
-            group = "encrypted" if path.suffix == ".age" else "database"
-            previous = newest.get(group)
-            if previous is None:
-                newest[group] = path
-                continue
-            try:
-                previous_created = self._backup_created_at(previous)
-            except OSError:
-                previous_created = created - timedelta(seconds=1)
-            if created > previous_created:
-                newest[group] = path
-        for created, path in candidates:
-            group = "encrypted" if path.suffix == ".age" else "database"
-            if path == newest.get(group) or created >= cutoff:
+            if created >= cutoff:
                 continue
             try:
                 self.delete(path.name)

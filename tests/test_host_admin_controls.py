@@ -217,19 +217,17 @@ class AdminBackupTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(archive.exists())
         self.assertFalse(checksum.exists())
 
-    async def test_prune_keeps_the_newest_expired_backup_as_recovery_floor(self):
+    async def test_prune_removes_every_expired_backup(self):
         only = await self.backups.create()
         metadata = self.backups.get(only["name"]).with_suffix(".json")
         payload = json.loads(metadata.read_text(encoding="utf-8"))
         payload["created_utc"] = (datetime.now(UTC) - timedelta(days=4)).isoformat()
         metadata.write_text(json.dumps(payload), encoding="utf-8")
 
-        self.assertEqual(self.backups.prune_older_than(3), 0)
-        self.assertTrue((self.backups.root / only["name"]).exists())
-
-        fresh = await self.backups.create()
+        self.assertEqual(self.backups.prune_older_than(3), 1)
         self.assertFalse((self.backups.root / only["name"]).exists())
-        self.assertTrue((self.backups.root / fresh["name"]).exists())
+        self.assertFalse(metadata.exists())
+        self.assertEqual(self.backups.list(), [])
 
     async def test_create_prunes_expired_backups_automatically(self):
         old = await self.backups.create()

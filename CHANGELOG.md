@@ -1,3 +1,19 @@
+## [3.62.1] - 2026-10-23
+
+### Three-day retention now deletes every expired backup
+
+The 3.62.0 release kept the newest plain and encrypted snapshots as a recovery floor even after they passed the three-day cutoff. That made retention incomplete: an old snapshot could stay on disk indefinitely when no newer backup of its category existed.
+
+- `AdminBackups.prune_older_than()` now deletes every plain and encrypted snapshot older than three days, with its JSON metadata, and every matching release archive older than three days. No category is exempt.
+- The zip sent to the owner's Telegram chat after each backup is the off-host copy once the local retention window closes.
+- The control-panel retention note and README now describe complete deletion, and the recovery-floor test is replaced with one asserting that an expired snapshot and its metadata are both removed.
+- Automatic cleanup still runs after every new backup and from the daily host-maintenance job at 08:30 UTC.
+
+### Upgrade notes
+
+- No dependency changes and no database migration. Source release only.
+- The first backup after deployment, or the next 08:30 UTC maintenance run, removes all snapshots and release archives older than three days. Make sure the Telegram zip copy is retained if an old backup must be recoverable.
+
 ## [3.62.0] - 2026-10-23
 
 ### Backups now expire after three days and arrive zipped
