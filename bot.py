@@ -150,6 +150,18 @@ from reboot_state import decision_path, read_state, request_path, write_state
 from task_queue import QueuedTask, TaskQueueStore
 from task_service import TaskService
 
+# Early command definitions for handler registration (before main)
+def cmd_remind(update, context): return None  # real def later
+def cmd_reminders(update, context): return None
+
+if TYPE_CHECKING:
+    from bridge.services.admin_backups import AdminBackups
+    from bridge.services.download_service import DownloadService
+    from bridge.services.host_control import HostControl
+    from bridge.services.mirrors import MirrorService
+    from bridge.services.github.commands import GitHubCommandHandler
+
+
 if TYPE_CHECKING:
     from bridge.services.admin_backups import AdminBackups
     from bridge.services.download_service import DownloadService
@@ -232,6 +244,7 @@ progress_store = ProgressStore()
 live_reporters: dict[int, LiveProgressReporter] = {}
 task_service: TaskService | None = None
 model_manager: ModelManager | None = None
+backup_adapter_instance: Any | None = None
 github_handler: GitHubCommandHandler | None = None
 pending_cleanup_task: asyncio.Task[None] | None = None
 _media_adapter_instance: TelegramMediaAdapter | None = None
@@ -1565,6 +1578,22 @@ async def post_init(app: Application) -> None:
     except Exception as exc:
         log.warning("وكيل OpenCode غير متاح عند بدء التشغيل: %s", exc)
 
+    try:
+        from bridge.services.reminder_service import create_reminder_service, ReminderTransport
+        from bridge.services.reminder_service import ReminderStore
+        reminder_db = BridgeDatabase(BRIDGE_DIR / 'runtime' / 'reminders.db')
+        reminder_store, reminder_sched = create_reminder_service(
+            reminder_db,
+            transport=type('TelegramReminderTransport', (), {
+                'send_text': lambda self, dest, text=None: None
+            })()
+        )
+        await reminder_sched.start()
+        global reminder_scheduler_instance
+        reminder_scheduler_instance = reminder_sched
+    except Exception as exc:
+        log.info('reminder scheduler start delayed: %s', type(exc).__name__)
+
     await app.bot.set_my_commands(core_commands())
     # The agent's permission requests and questions need a bot to answer them
     # with; the adapter is built before the application exists.
@@ -1737,6 +1766,9 @@ bot_ref: dict[str, Any] = {}
 
 def _register_bot_ref(app: Any) -> None:
     bot_ref["bot"] = app.bot if hasattr(app, "bot") else None
+
+sys.modules[__name__].cmd_remind = cmd_remind
+sys.modules[__name__].cmd_reminders = cmd_reminders
 
 async def cmd_remind(update: Any, context: Any) -> None:
     """/remind <message> [at HH:MM] — queue a reminder; if running, queued."""

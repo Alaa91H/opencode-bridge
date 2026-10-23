@@ -11,7 +11,6 @@ from telegram.ext import ContextTypes
 
 from bridge.domain.policies import RequestRejected
 from bridge.services.task_service import TaskApplicationService
-from bridge.telegram.rendering.tasks import render_active_tasks_and_schedules
 from progress import render_persisted_activity, render_progress
 from prompt_enhancer import ResearchMode
 
@@ -105,15 +104,31 @@ class TaskCommands:
 
     async def tasks(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user_id = self._owner(update)
+        # Professional combined view: sequential queue + active tasks + scheduled
+        from bridge.telegram.rendering.task_list_display import format_task_list
+        sequential = []
+        active = []
+        scheduled = []
+        counts: dict[str, int] = {}
+        try:
+            # Access sequential queue via store (requires database connection)
+            store = getattr(self.task_service, "repository", None)
+            if store is not None and hasattr(store, "list_queue"):
+                sequential = await store.list_queue()
+            if store is not None and hasattr(store, "queue_counts"):
+                counts = await store.queue_counts()
+        except Exception:
+            pass
         tasks = await self.task_service.active(user_id)
+        # Add sequential commands as first section if any
+        active = tasks
         jobs = await self.schedule_service.list(user_id)
+        scheduled = jobs or []
+        # Merge sequential items as "current commands" for display
         await self.reply(
             update.message,
-            render_active_tasks_and_schedules(
-                tasks,
-                jobs,
-                max_length=self.max_message_length,
-            ),
+            format_task_list(sequential or [], active or [], scheduled or [], counts or {}),
+            parse_mode="Markdown",
         )
 
     async def failed(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

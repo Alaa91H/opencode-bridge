@@ -18,7 +18,8 @@ def core_commands() -> list[BotCommand]:
         BotCommand("reset", "إعادة ضبط الجلسة"),
         BotCommand("abort", "إيقاف الطلب الجاري"),
         BotCommand("stop", "إيقاف الطلب الجاري"),
-        BotCommand("tasks", "عرض الطلبات الحالية"),
+        BotCommand("tasks", "عرض المهام الحالية (الأوامر المتسلسلة + المهام النشطة)"),
+        BotCommand("schedshow", "عرض المهام المجدولة (يومي + تاريخ)"),
         BotCommand("direct", "تمرير النص حرفياً إلى الوكيل"),
         BotCommand("daily", "مهمة طويلة تُستأنف يومياً عند 12 UTC"),
         BotCommand("failed", "عرض المهام الفاشلة"),
@@ -138,6 +139,8 @@ def register_core_handlers(
     app.add_handler(CommandHandler("abort", handlers.cmd_abort))
     app.add_handler(CommandHandler("stop", handlers.cmd_abort))
     app.add_handler(CommandHandler("tasks", handlers.cmd_tasks))
+    # Two professional buttons for combined task list: current + scheduled
+    app.add_handler(CommandHandler("tasklist", handlers.cmd_tasks))
     app.add_handler(CommandHandler("direct", handlers.cmd_direct))
     app.add_handler(CommandHandler("daily", handlers.cmd_daily))
     app.add_handler(CommandHandler("failed", handlers.cmd_failed))
