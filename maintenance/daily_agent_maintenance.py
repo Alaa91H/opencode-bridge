@@ -18,9 +18,9 @@ sys.path.insert(0, str(BRIDGE_DIR))
 
 from audit_log import AuditLogger
 from bridge.config import get_settings
+from bridge.domain.sessions.session_store import SessionStore
 from model_manager import ModelManager
 from opencode_client import OpenCodeClient, extract_text_response
-from bridge.domain.sessions.session_store import SessionStore
 
 RUNTIME_DIR = BRIDGE_DIR / "runtime"
 REPORT_PATH = RUNTIME_DIR / "agent-maintenance-latest.md"

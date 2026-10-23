@@ -210,6 +210,16 @@ MIGRATIONS = (
         "ALTER TABLE agent_tasks ADD COLUMN task_type TEXT",
         "CREATE INDEX IF NOT EXISTS idx_agent_tasks_type_status ON agent_tasks(task_type, status, created_at)",
     )),
+    Migration(11, "sessions_table", (
+        """CREATE TABLE IF NOT EXISTS sessions (
+            telegram_user_id TEXT PRIMARY KEY,
+            opencode_session_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            model TEXT,
+            title TEXT
+        )""",
+    )),
 )
 
 

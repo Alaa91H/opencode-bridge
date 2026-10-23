@@ -190,6 +190,19 @@ def register_core_handlers(
     app.add_handler(CommandHandler("metrics", handlers.cmd_metrics))
     app.add_handler(CommandHandler(research_command_names, handlers.cmd_research_mode))
     app.add_handler(CommandHandler("help", handlers.cmd_help))
+    # GitHub project-management commands: implemented by ``GitHubCommandHandler`` and
+    # exposed through the ``cmd_gh*`` shims on the bot module so they stay aligned
+    # with ``core_commands()``.
+    app.add_handler(CommandHandler("ghrepos", handlers.cmd_ghrepos))
+    app.add_handler(CommandHandler("ghcreate", handlers.cmd_ghcreate))
+    app.add_handler(CommandHandler("ghclone", handlers.cmd_ghclone))
+    app.add_handler(CommandHandler("ghstatus", handlers.cmd_ghstatus))
+    app.add_handler(CommandHandler("ghpr", handlers.cmd_ghpr))
+    app.add_handler(CommandHandler("ghissue", handlers.cmd_ghissue))
+    app.add_handler(CommandHandler("ghrelease", handlers.cmd_ghrelease))
+    app.add_handler(CommandHandler("ghbranch", handlers.cmd_ghbranch))
+    app.add_handler(CommandHandler("ghsecret", handlers.cmd_ghsecret))
+    app.add_handler(CommandHandler("ghhelp", handlers.cmd_ghhelp))
     app.add_handler(
         CallbackQueryHandler(
             handlers.handle_reboot_callback,

@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -272,7 +273,7 @@ class SmartNotificationManager:
         try:
             if notification.type in self._notification_handlers:
                 handler = self._notification_handlers[notification.type]
-                if asyncio.iscoroutinefunction(handler):
+                if inspect.iscoroutinefunction(handler):
                     await handler(notification)
                 else:
                     handler(notification)

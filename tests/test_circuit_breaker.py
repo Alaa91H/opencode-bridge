@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from opencode_client import CircuitBreaker, CircuitBreakerOpenError
+from opencode_client import CircuitBreaker
 
 
 class StubClock:

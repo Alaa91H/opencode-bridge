@@ -214,6 +214,66 @@ _agent_commands_instance: AgentCommands | None = None
 _system_commands_instance: SystemCommands | None = None
 _config_commands_instance: ConfigCommands | None = None
 _metrics_commands_instance: MetricsCommands | None = None
+
+
+# ---------------------------------------------------------------------------
+# GitHub command shims
+#
+# ``GitHubCommandHandler`` carries the real implementation; these thin module-level
+# shims let ``bridge.telegram.app.register_core_handlers`` wire the GitHub commands
+# into the application's command registry so they stay aligned with ``core_commands()``.
+# Each shim is a single delegated ``await`` and is safe when no GitHub token is
+# configured (``github_handler`` is then ``None``).
+# ---------------------------------------------------------------------------
+
+async def _github(update: Any, context: Any, method: str) -> None:
+    handler = github_handler
+    if handler is None:
+        return
+    target = getattr(handler, method, None)
+    if target is None:
+        return
+    await target(update, context)
+
+
+async def cmd_ghrepos(update: Any, context: Any) -> None:
+    await _github(update, context, "cmd_github_repos")
+
+
+async def cmd_ghcreate(update: Any, context: Any) -> None:
+    await _github(update, context, "cmd_github_create")
+
+
+async def cmd_ghclone(update: Any, context: Any) -> None:
+    await _github(update, context, "cmd_github_clone")
+
+
+async def cmd_ghstatus(update: Any, context: Any) -> None:
+    await _github(update, context, "cmd_github_status")
+
+
+async def cmd_ghpr(update: Any, context: Any) -> None:
+    await _github(update, context, "cmd_github_pr")
+
+
+async def cmd_ghissue(update: Any, context: Any) -> None:
+    await _github(update, context, "cmd_github_issue")
+
+
+async def cmd_ghrelease(update: Any, context: Any) -> None:
+    await _github(update, context, "cmd_github_release")
+
+
+async def cmd_ghbranch(update: Any, context: Any) -> None:
+    await _github(update, context, "cmd_github_branch")
+
+
+async def cmd_ghsecret(update: Any, context: Any) -> None:
+    await _github(update, context, "cmd_github_secret")
+
+
+async def cmd_ghhelp(update: Any, context: Any) -> None:
+    await _github(update, context, "cmd_github_help")
 _draft_commands_instance: DraftCommands | None = None
 _draft_intake_instance: DraftIntakeAdapter | None = None
 _reboot_callback_instance: RebootCallbackAdapter | None = None
@@ -1083,7 +1143,7 @@ async def _send_main_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def cmd_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _send_main_keyboard(update, context)
 async def cmd_hide_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await message.reply_text("⌨️ تم إخفاء لوحة المفاتيح. يمكنك استعادتها باستخدام أمر /keyboard.", reply_markup=get_hide_keyboard())
+    await update.effective_message.reply_text("⌨️ تم إخفاء لوحة المفاتيح. يمكنك استعادتها باستخدام أمر /keyboard.", reply_markup=get_hide_keyboard())
 async def _create_task_status_message(bot, chat_id: int, text: str = "جاري تجهيز الطلب…") -> int | None:
     """Create the single user-facing message that will be edited until completion."""
     try:
@@ -1466,7 +1526,6 @@ async def post_init(app: Application) -> None:
                 workspace_root=BRIDGE_DIR / "github-workspaces",
             )
             await github_handler._ensure_client()
-            github_handler.register_handlers(app)
             log.info("تم تسجيل أوامر GitHub (ghrepos, ghcreate, ghclone, ghstatus, ghpr, ghissue, ghrelease, ghbranch, ghsecret, ghhelp)")
         except Exception as exc:
             log.warning("تعذر تهيئة معالج أوامر GitHub: %s", exc)

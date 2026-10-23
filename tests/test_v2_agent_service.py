@@ -76,6 +76,7 @@ class FakeClient:
         agent=None,
         parts=None,
         variant=None,
+        correlation_id=None,
     ):
         self.send_calls.append(
             {

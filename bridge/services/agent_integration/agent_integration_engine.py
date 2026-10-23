@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -295,7 +296,7 @@ class AgentSystemIntegration:
         if action_type in self._action_handlers:
             handler = self._action_handlers[action_type]
             try:
-                if asyncio.iscoroutinefunction(handler):
+                if inspect.iscoroutinefunction(handler):
                     result = await handler(action.parameters)
                 else:
                     result = handler(action.parameters)

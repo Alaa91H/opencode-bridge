@@ -35,14 +35,20 @@ class RetryDecision:
 
 
 def is_zen_free_model(model_id: str | None) -> bool:
-    """Recognize OpenCode Zen models whose IDs explicitly carry the free suffix."""
+    """Recognize OpenCode Zen models whose IDs explicitly carry the free suffix.
+
+    ``auto-selected`` is OpenCode's automatic model selector: it resolves to a
+    free-tier model, which includes the Zen free bucket, so a
+    ``FreeUsageLimitError`` against it is the Zen free daily limit.
+    """
     if not model_id:
         return False
     provider, separator, model = model_id.partition("/")
+    model_lc = model.casefold()
     return bool(
         separator
         and provider.casefold() in {"opencode", "opencode-zen"}
-        and model.casefold().endswith("-free")
+        and (model_lc.endswith("-free") or model_lc == "auto-selected")
     )
 
 

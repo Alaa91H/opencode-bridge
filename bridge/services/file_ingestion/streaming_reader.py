@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-import asyncio
+import inspect
 import logging
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
@@ -128,7 +128,7 @@ class StreamingFileReader:
 
                     # استدعاء دالة رد الاستدعاء لكل مقطع
                     try:
-                        if asyncio.iscoroutinefunction(callback):
+                        if inspect.iscoroutinefunction(callback):
                             await callback(chunk, chunks_processed - 1)
                         else:
                             callback(chunk, chunks_processed - 1)

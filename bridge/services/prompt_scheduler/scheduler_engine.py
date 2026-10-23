@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import heapq
+import inspect
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -157,7 +158,7 @@ class ConditionEngine:
                 return now.hour >= 6 and now.hour < 22  # 6 صباحاً إلى 10 مساءً
             if condition in self._condition_handlers:
                 handler = self._condition_handlers[condition]
-                if asyncio.iscoroutinefunction(handler):
+                if inspect.iscoroutinefunction(handler):
                     return await handler(context)
                 return handler(context)
             return True  # افتراضياً، إذا لم نRecognize الشرط، نعتبره محققاً

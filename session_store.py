@@ -10,4 +10,4 @@ from __future__ import annotations
 
 from bridge.domain.sessions.session_store import DB_PATH, SessionStore, UserSession
 
-__all__ = ["SessionStore", "UserSession", "DB_PATH"]
+__all__ = ["DB_PATH", "SessionStore", "UserSession"]

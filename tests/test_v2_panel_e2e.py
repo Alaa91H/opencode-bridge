@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 
+from bridge.domain.sessions.session_store import SessionStore
 from bridge.infrastructure.database.migrations import MigrationRunner
 from bridge.infrastructure.database.sqlite import BridgeDatabase
 from bridge.infrastructure.database.user_settings_store import UserSettingsStore
@@ -33,7 +34,6 @@ from bridge.telegram.panels import (
     build_panels,
 )
 from opencode_client import OpenCodeClient
-from bridge.domain.sessions.session_store import SessionStore
 from task_queue import TaskQueueStore
 
 OWNER = "424242"
@@ -83,18 +83,20 @@ class _OpenCodeHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
-        if self.path == "/global/health":
+        path = self.path.removeprefix("/api")
+        if path == "/global/health":
             self._send({"healthy": True, "version": "e2e-1.2.3"})
             return
-        if self.path == "/provider":
+        if path == "/provider":
             self._send(catalog_payload())
             return
         self._send({}, status=404)
 
     def do_POST(self) -> None:
+        path = self.path.removeprefix("/api")
         length = int(self.headers.get("Content-Length") or 0)
         self.rfile.read(length)
-        if self.path == "/session":
+        if path == "/session":
             self._send({"id": "ses_e2e"})
             return
         self._send({"ok": True})

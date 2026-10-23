@@ -194,11 +194,22 @@ class OpenCodeClient:
             self.credential_pool.save_state(self.credential_state_path)
 
     async def _credential_request(self, method: str, path: str, *, model_id: str | None = None, **kwargs: Any) -> httpx.Response:
-        """Apply credential failover only to provider-facing message submission."""
+        """Apply credential failover only to provider-facing message submission.
+
+        ``correlation_id`` is forwarded as an ``X-Correlation-Id`` header and is
+        never passed straight to httpx, which does not accept it as a request
+        argument.
+        """
+        correlation_id = kwargs.pop("correlation_id", None)
         if self.credential_pool is None or len(self.credential_pool) == 0:
-            return await self._client.request(method, path, **kwargs)
+            headers = dict(kwargs.pop("headers", {}) or {})
+            if correlation_id is not None:
+                headers["X-Correlation-Id"] = correlation_id
+            return await self._client.request(method, path, headers=headers, **kwargs)
         excluded: set[str] = set()
         original_headers = dict(kwargs.pop("headers", {}) or {})
+        if correlation_id is not None:
+            original_headers["X-Correlation-Id"] = correlation_id
         last_response: httpx.Response | None = None
         for _ in range(len(self.credential_pool)):
             credential = self.credential_pool.select(exclude=excluded)
@@ -220,28 +231,48 @@ class OpenCodeClient:
                     return response
                 category, delay = classified
                 if not self.credential_pool.record_failure(credential.name, category, retry_after=delay):
-                    return response
+                    # A terminal failure that cannot fail over (e.g. zen_free_quota,
+                    # which is shared by the host IP): propagate rather than swallow.
+                    raise
                 excluded.add(credential.name)
                 self._save_credential_state()
         if last_response is not None:
             return last_response
-        return await self._client.request(method, path, **kwargs)
+        return await self._client.request(method, path, headers=original_headers, **kwargs)
 
     async def health(self) -> dict[str, Any]:
         # Use the sessions list endpoint as a health check with basic auth.
-        # /api/session returns 200 with JSON when the server is up and authenticated.
+        # /api/session returns 200 with JSON when the server is up and
+        # authenticated; /global/health additionally reports the server version.
         if not self.circuit_breaker.can_proceed():
             raise CircuitBreakerOpenError("OpenCode circuit breaker is open")
-        try:
-            response = await self._client.get("/session")
-        except httpx.HTTPError:
+        last_error: Exception | None = None
+        for path in ("/global/health", "/session"):
+            try:
+                response = await self._client.get(path)
+            except httpx.HTTPError as exc:
+                last_error = exc
+                continue
+            if response.is_success:
+                self.circuit_breaker.record_outcome(True)
+                payload = {}
+                try:
+                    payload = response.json()
+                except ValueError:
+                    payload = {}
+                result = {"healthy": True, "status": "ok"}
+                version = payload.get("version")
+                if version:
+                    result["version"] = str(version)
+                return result
             self.circuit_breaker.record_outcome(False)
-            raise
-        if response.is_success:
-            self.circuit_breaker.record_outcome(True)
-            return {"healthy": True, "status": "ok"}
-        self.circuit_breaker.record_outcome(False)
-        response.raise_for_status()
+            last_error = httpx.HTTPStatusError(
+                f"health check failed: {response.status_code}",
+                request=response.request,
+                response=response,
+            )
+        if last_error is not None:
+            raise last_error
         return {"healthy": True, "status": "ok"}
 
     async def health_check(self) -> bool:
