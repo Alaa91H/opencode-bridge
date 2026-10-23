@@ -1670,3 +1670,68 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+# ------------------------------------------------------------------
+# Reminder / notification integration (sequential + scheduled)
+# ------------------------------------------------------------------
+_reminder_service: Any | None = None
+_reminder_scheduler: Any | None = None
+
+def _reminders() -> tuple[Any, Any]:
+    global _reminder_service, _reminder_scheduler
+    if _reminder_service is None:
+        from bridge.services.reminder_service import create_reminder_service, ReminderTransport
+        from bridge.services.reminder_service import ReminderStore
+        # Use the same BridgeDatabase instance as task_store (shared connection).
+        _reminder_service, _reminder_scheduler = create_reminder_service(
+            task_store.database if hasattr(task_store, "database") else None,
+            transport=_reminder_transport(),
+        )
+    return _reminder_service, _reminder_scheduler
+
+def _reminder_transport() -> Any:
+    """Thin Telegram transport adapter for reminders."""
+    class TelegramReminderTransport:
+        async def send_text(self, destination: str | int, text: str) -> Any:
+            try:
+                bot = bot_ref.get("bot")
+                if bot is not None:
+                    await bot.send_message(chat_id=int(destination), text=text)
+            except Exception:
+                pass
+    return TelegramReminderTransport()
+
+# Module-level reference container so transport can access the bot.
+bot_ref: dict[str, Any] = {}
+
+def _register_bot_ref(app: Any) -> None:
+    bot_ref["bot"] = app.bot if hasattr(app, "bot") else None
+
+async def cmd_remind(update: Any, context: Any) -> None:
+    """/remind <message> [at HH:MM] — queue a reminder; if running, queued."""
+    from datetime import datetime, timedelta, UTC
+    args = (context.args or [])
+    if not args:
+        await update.message.reply_text("استخدم: /remind نص التذكير [HH:MM]")
+        return
+    prompt = " ".join(args[:1])
+    at_str = args[-1] if len(args) > 1 else None
+    remind_at = datetime.now(UTC) + timedelta(minutes=5) if at_str is None else datetime.now(UTC).replace(hour=int(at_str.split(":")[0]), minute=int(at_str.split(":")[1]))
+    # Use sequential store for reminder queuing (if needed) or direct create
+    store, scheduler = _reminders()
+    reminder_id = await store.create(str(update.effective_user.id), prompt, remind_at)
+    await update.message.reply_text(f"✅ تم جدولة التذكير (#{reminder_id}) عند {remind_at:%H:%M}")
+    # Start scheduler if not running
+    await scheduler.start()
+
+async def cmd_reminders(update: Any, context: Any) -> None:
+    store, _ = _reminders()
+    items = await store.list_for_owner(str(update.effective_user.id), limit=10)
+    if not items:
+        await update.message.reply_text("لا توجد تذكيرات.")
+        return
+    lines = ["🕐 قائمة المهام — التذكيرات:"]
+    for r in items:
+        status_icon = "✅" if r.status == "sent" else ("⏳" if r.status == "pending" else "❌")
+        lines.append(f"{status_icon} #{r.id}: {r.message} @ {r.remind_at:%Y-%m-%d %H:%M}")
+    await update.message.reply_text("\n".join(lines[:20]))

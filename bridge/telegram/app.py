@@ -109,6 +109,8 @@ def core_commands() -> list[BotCommand]:
         BotCommand("ghbranch", "إدارة فروع GitHub (Branches)"),
         BotCommand("ghsecret", "إدارة أسرار GitHub (Secrets)"),
         BotCommand("ghhelp", "مساعدة أوامر GitHub"),
+        BotCommand("remind", "تذكير بالتوقيت المحدد"),
+        BotCommand("reminders", "قائمة المهام — التذكيرات"),
         BotCommand("keyboard", "إظهار لوحة المفاتيح الثابتة"),
         BotCommand("hidekeyboard", "إخفاء لوحة المفاتيح الثابتة"),
     ]
@@ -214,6 +216,9 @@ def register_core_handlers(
     app.add_handler(CommandHandler("ghbranch", handlers.cmd_ghbranch))
     app.add_handler(CommandHandler("ghsecret", handlers.cmd_ghsecret))
     app.add_handler(CommandHandler("ghhelp", handlers.cmd_ghhelp))
+    # Reminder / notification commands (sequential + scheduled)
+    app.add_handler(CommandHandler("remind", handlers.cmd_remind))
+    app.add_handler(CommandHandler("reminders", handlers.cmd_reminders))
     app.add_handler(
         CallbackQueryHandler(
             handlers.handle_reboot_callback,

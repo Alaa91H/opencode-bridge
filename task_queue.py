@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import random
 import uuid
+from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import aiosqlite
 
@@ -123,6 +125,26 @@ class PendingAttachmentBatch:
     expires_at: datetime
 
 
+@dataclass
+class QueuedCommand:
+    """A command queued for sequential execution behind the current task."""
+    id: int
+    owner_id: str
+    prompt: str
+    status: str  # queued, running, completed, failed, cancelled
+    sequence: int
+    created_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    result: str | None = None
+
+
+class QueueResult(NamedTuple):
+    queued: bool
+    current: QueuedCommand | None = None
+    queued_cmd: QueuedCommand | None = None
+
+
 class TaskQueueStore:
     """SQLite-backed task queue. All timestamps are stored in UTC."""
 
@@ -131,6 +153,11 @@ class TaskQueueStore:
         self.database = database or BridgeDatabase(self.db_path)
         self._owns_database = database is None
         self._lock = self.database.transaction_lock
+        # Sequential command queue for commands entered before the current task finishes.
+        self.sequential_queue: deque[QueuedCommand] = deque()
+        self.current_command: QueuedCommand | None = None
+        self._sequence_counter = 0
+        self._command_lock = asyncio.Lock()
 
     async def _get_db(self) -> aiosqlite.Connection:
         return await self.database.connect()
@@ -951,6 +978,95 @@ class TaskQueueStore:
             ) as cursor:
                 rows = await cursor.fetchall()
         return {str(row["status"]): int(row["task_count"]) for row in rows}
+
+    async def queue_command(self, owner_id: str, prompt: str) -> QueueResult:
+        """Queue a sequential command; starts immediately if no current task running."""
+        async with self._command_lock:
+            self._sequence_counter += 1
+            cmd = QueuedCommand(
+                id=self._sequence_counter,
+                owner_id=str(owner_id),
+                prompt=str(prompt),
+                status="queued",
+                sequence=self._sequence_counter,
+                created_at=utc_now(),
+            )
+            current = self.current_command
+            if current is not None and current.status == "running":
+                self.sequential_queue.append(cmd)
+                return QueueResult(queued=True, queued_cmd=cmd)
+            # Previous finished and not yet promoted (after finish_current): clear it.
+            if current is not None and current.status in ("completed", "failed"):
+                self.current_command = None
+            cmd.status = "running"
+            cmd.started_at = utc_now()
+            self.current_command = cmd
+            return QueueResult(queued=False, current=cmd)
+
+    async def list_queue(self) -> list[QueuedCommand]:
+        """قائمة المهام — current + queued in sequence; finished deleted, always clean."""
+        items = []
+        current = self.current_command
+        if current is not None and current.status == "running":
+            items.append(current)
+        # Only queued items remain; finished already deleted.
+        items.extend(self.sequential_queue)
+        return items
+
+    async def reorder_queue(self, order_ids: list[int]) -> bool:
+        """Reorder sequential commands by id; must include all queued ids."""
+        queued_ids = {c.id for c in self.sequential_queue}
+        if set(order_ids) != queued_ids or not queued_ids:
+            return False
+        ordered = [c for c in self.sequential_queue if c.id in order_ids]
+        ordered.sort(key=lambda c: order_ids.index(c.id))
+        self.sequential_queue.clear()
+        self.sequential_queue.extend(ordered)
+        return True
+
+    async def finish_current_command(self, success: bool, result: str = "") -> QueuedCommand | None:
+        """Delete finished command completely; promote next from sequential queue.
+
+        The command is removed from the pipeline (not just marked finished)
+        so the list stays clean; only active/queued items remain visible.
+        """
+        async with self._command_lock:
+            # Finished command is removed; previous result kept only if caller needs.
+            # Promote next queued sequential command.
+            if self.sequential_queue:
+                next_cmd = self.sequential_queue.popleft()
+                next_cmd.status = "running"
+                next_cmd.started_at = utc_now()
+                self.current_command = next_cmd
+                return next_cmd
+            self.current_command = None
+            return None
+
+    async def cancel_sequential(self, command_id: int) -> bool:
+        async with self._command_lock:
+            current = self.current_command
+            if current is not None and current.id == command_id:
+                if current.status == "running":
+                    # Do not cancel running; only queued can be cancelled.
+                    # But if finished already: already removed by finish.
+                    pass
+                else:
+                    current.status = "cancelled"
+                    # Promote next sequential command if any
+                    if self.sequential_queue:
+                        n = self.sequential_queue.popleft()
+                        n.status = "running"
+                        n.started_at = utc_now()
+                        self.current_command = n
+                        return True
+                    self.current_command = None
+                    return True
+            for c in list(self.sequential_queue):
+                if c.id == command_id:
+                    self.sequential_queue.remove(c)
+                    c.status = "cancelled"
+                    return True
+            return False
 
     async def queue_wait_seconds(
         self,

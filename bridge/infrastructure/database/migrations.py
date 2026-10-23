@@ -220,6 +220,20 @@ MIGRATIONS = (
             title TEXT
         )""",
     )),
+    Migration(12, "reminders_table", (
+        """CREATE TABLE IF NOT EXISTS reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id TEXT NOT NULL,
+            message TEXT NOT NULL,
+            remind_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            task_id INTEGER,
+            created_at TEXT NOT NULL,
+            sent_at TEXT
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(status, remind_at)",
+        "CREATE INDEX IF NOT EXISTS idx_reminders_owner ON reminders(owner_id, remind_at)",
+    )),
 )
 
 
