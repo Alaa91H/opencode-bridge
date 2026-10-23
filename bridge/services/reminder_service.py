@@ -11,10 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections import deque
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from bridge.infrastructure.database.sqlite import BridgeDatabase

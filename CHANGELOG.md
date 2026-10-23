@@ -1814,3 +1814,10 @@ The default configuration uses two task workers and a five-second idle poll inte
 ### التغييرات منذ v1.0.0
 
 - chore: add verified release workflow (fef393d)
+
+### Tool / capability management (new)
+- `bridge/services/tool_manager.py`: register, enable/disable, uninstall, update, list,
+  cache, notify-missing, integrate with reminder service.
+- `Migration(13)`: `agent_tools` table with indexes.
+- Commands `cmd_tools`, `cmd_enable_tool`, `cmd_disable_tool`, `cmd_update_tool`,
+  `cmd_install_tool` added to bot and `core_commands()`.

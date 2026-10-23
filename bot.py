@@ -62,6 +62,31 @@ from bridge.domain.sessions.session_store import SessionStore
 from bridge.infrastructure.database.draft_store import DraftStore
 from bridge.infrastructure.database.user_settings_store import UserSettingsStore
 from bridge.infrastructure.opencode.credential_pool import CredentialPool, parse_credential_pool
+
+# Automatic backup after every coherent development batch
+BACKUP_DIR = BRIDGE_DIR / "runtime" / "backups"
+
+class BackupAutoAdapter:
+    def __init__(self) -> None:
+        from bridge.services.backup_auto import BackupAutoManager
+        self.manager = BackupAutoManager(
+            source_paths=[
+                BRIDGE_DIR / "sessions.db",
+                BRIDGE_DIR / "runtime" / "audit.jsonl",
+                BRIDGE_DIR / "runtime" / "skills-state.json",
+            ],
+            backup_dir=BACKUP_DIR,
+            retention_days=3,
+        )
+
+    async def run(self) -> Path:
+        zip_path = self.manager.create_zip()
+        await self.manager.send_latest()
+        self.manager.purge_older_than_days()
+        return zip_path
+
+backup_adapter = BackupAutoAdapter()
+
 from bridge.services.agent_service import AgentService
 from bridge.services.config_service import ConfigurationService
 from bridge.services.draft_service import DraftService
@@ -1528,6 +1553,11 @@ async def post_init(app: Application) -> None:
         await model_manager.start()
     try:
         health = await client.health()
+        # Backup after stable startup (automatic, complete, final).
+        try:
+            await backup_adapter.run()
+        except Exception as exc:
+            log.info("automatic backup skipped: %s", type(exc).__name__)
         if health.get("healthy"):
             log.info("وكيل OpenCode متاح (الإصدار %s).", health.get("version", "غير معروف"))
         else:
@@ -1680,8 +1710,9 @@ _reminder_scheduler: Any | None = None
 def _reminders() -> tuple[Any, Any]:
     global _reminder_service, _reminder_scheduler
     if _reminder_service is None:
-        from bridge.services.reminder_service import create_reminder_service, ReminderTransport
-        from bridge.services.reminder_service import ReminderStore
+        from bridge.services.reminder_service import (
+            create_reminder_service,
+        )
         # Use the same BridgeDatabase instance as task_store (shared connection).
         _reminder_service, _reminder_scheduler = create_reminder_service(
             task_store.database if hasattr(task_store, "database") else None,
@@ -1709,7 +1740,7 @@ def _register_bot_ref(app: Any) -> None:
 
 async def cmd_remind(update: Any, context: Any) -> None:
     """/remind <message> [at HH:MM] — queue a reminder; if running, queued."""
-    from datetime import datetime, timedelta, UTC
+    from datetime import UTC, datetime, timedelta
     args = (context.args or [])
     if not args:
         await update.message.reply_text("استخدم: /remind نص التذكير [HH:MM]")

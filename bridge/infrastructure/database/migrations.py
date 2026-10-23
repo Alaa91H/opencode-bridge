@@ -237,6 +237,23 @@ MIGRATIONS = (
 )
 
 
+    Migration(13, "agent_tools", (
+        """CREATE TABLE IF NOT EXISTS agent_tools (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            tool_type TEXT NOT NULL DEFAULT 'builtin',
+            source_url TEXT,
+            installed_version TEXT,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            owner_id TEXT,
+            status TEXT NOT NULL DEFAULT 'available',
+            installed_at TEXT,
+            updated_at TEXT
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_agent_tools_name ON agent_tools(name)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_tools_owner ON agent_tools(owner_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_tools_enabled ON agent_tools(enabled, status)",
+    )),
 class MigrationRunner:
     def __init__(self, database: BridgeDatabase) -> None:
         self.database = database
