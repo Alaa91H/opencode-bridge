@@ -10,7 +10,7 @@ import httpx
 
 from bridge.services.task_execution_service import TaskExecutionService
 from bridge.services.task_service import TaskApplicationService
-from task_queue import TaskQueueStore, encode_time, utc_now
+from task_queue import TaskQueueStore, encode_attachments, encode_time, utc_now
 from task_service_v3 import TaskServiceV3
 from tests.test_v2_task_execution_service import FakeAttachmentStore, FakeDelivery
 
@@ -132,7 +132,12 @@ class DurableTaskResumeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reset_at.minute, 0)
 
     async def test_worker_marks_running_before_executor_and_completes(self):
-        first, _ = await self.store.enqueue("a", 1, "work")
+        # A scheduled-job task keeps a terminal record, so the worker lifecycle
+        # can be observed through the store after completion.
+        await self.store.create_scheduled_job(
+            "a", 1, "work", "work", utc_now() + timedelta(hours=1), repeat_seconds=3600,
+        )
+        first = await self.store.enqueue_scheduled_job_now("a", "work")
         claimed = await self.store.claim_next()
         seen = []
 
@@ -215,14 +220,29 @@ class DurableTaskResumeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.store.get(first.id)).status, "retrying")
 
     async def test_cancellation_cannot_be_undone_by_deferred_failure(self):
-        first, _ = await self.store.enqueue("a", 1, "work")
+        # Recorded (scheduled-job) tasks keep their cancelled row; a deferred
+        # failure must never resurrect a cancelled task.
+        await self.store.create_scheduled_job(
+            "a", 1, "work", "work", utc_now() + timedelta(hours=1), repeat_seconds=3600,
+        )
+        first = await self.store.enqueue_scheduled_job_now("a", "work")
         await self.store.claim_next()
         await self.store.cancel(first.id, "a")
         current = await self.store.retry_or_dead_letter(first.id, "quota", retryable=True, max_attempts=None)
         self.assertEqual(current.status, "cancelled")
 
     async def test_quota_then_restart_then_success_resumes_same_task_and_session(self):
-        first, _ = await self.store.enqueue("a", 1, "finish issues in order", attachments=[{"path": "/tmp/input.txt"}])
+        # Recorded (scheduled-job) task so the completed resume keeps a row.
+        await self.store.create_scheduled_job(
+            "a", 1, "issues", "finish issues in order", utc_now() + timedelta(hours=1), repeat_seconds=3600,
+        )
+        first = await self.store.enqueue_scheduled_job_now("a", "issues")
+        db_setup = await self.store._get_db()
+        await db_setup.execute(
+            "UPDATE agent_tasks SET attachments_json = ? WHERE id = ?",
+            (encode_attachments([{"path": "/tmp/input.txt"}]), first.id),
+        )
+        await db_setup.commit()
         attachments = FakeAttachmentStore()
         calls = []
 
@@ -317,7 +337,12 @@ class DurableTaskResumeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(attachments.cleaned, [])
 
     async def test_finish_cannot_overwrite_concurrent_cancellation(self):
-        first, _ = await self.store.enqueue("a", 1, "work")
+        # Recorded (scheduled-job) tasks keep the cancelled row, and finish()
+        # must never overwrite a concurrent cancellation of such a task.
+        await self.store.create_scheduled_job(
+            "a", 1, "work", "work", utc_now() + timedelta(hours=1), repeat_seconds=3600,
+        )
+        first = await self.store.enqueue_scheduled_job_now("a", "work")
         original_get = self.store.get
         cancelled = False
 

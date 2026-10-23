@@ -1,3 +1,18 @@
+## [3.59.0] - 2026-10-22
+
+### One-off prompts no longer leave terminal records in the queue
+
+Every finished one-off task used to keep a permanent `agent_tasks` row, so the queue database accumulated history that was never used again: 57 terminal rows were purged by hand on 2026-10-22, and the same build-up would have resumed from the very next task. Only scheduled and daily work were ever referenced after their run finished.
+
+`TaskQueueStore.keeps_record()` is now the single recording rule: a task keeps a database record past its terminal state when it is **recurring** (`repeat_seconds`), **spawned by a scheduled job** (`schedule_job_id`), or a **durable daily task** (`daily_continuation` checkpoint flag). Any other prompt is a plain one-off task and is removed from `agent_tasks` when it reaches its end.
+
+- `finish()` deletes a plain task's row instead of writing a `completed`/`failed` status, and returns `None` for it (all production call sites already ignore that return value). Recurring tasks still cycle back to `scheduled` with their next due time, and scheduled-job/daily tasks keep their terminal row.
+- `retry_or_dead_letter()` removes a plain task at its terminal failure instead of retaining a `dead_letter` row; `retrying` stays an active state, so deferred quota work is untouched.
+- `cancel()` now selects the row first: a recorded task keeps the old behaviour (row stays `cancelled`), while cancelling a plain task removes the row and still returns the `cancelled` snapshot, so command confirmations read exactly as before.
+- `recover_interrupted()` applies the same rule to work an interruption terminalized: uncheckpointed plain prompts (the only plain rows interruption can terminalize) leave no `failed` record, while recurring, scheduled and daily work keeps reporting the interruption.
+- Consequences for the owner-facing surface: `/tasks`, `/failed`, `/taskshow` and the tasks panel list only active and recorded work. A finished plain task is no longer retryable from `/failed` — there is no row to retry — so run it again by re-sending the request. The audit log (`task_finished`) and the Telegram delivery of the final answer are unchanged.
+- Tests: new `tests/test_task_recording_policy.py` covering all four transitions for plain, recurring, scheduled-spawn and daily tasks (13 cases), and `test_v2_panel_e2e`, `test_v2_durable_queue`, `test_durable_task_resume` adapted to use recorded tasks so the panel, retry and concurrent-cancellation guarantees they guard keep their meaning under the new policy.
+
 ## [3.58.0] - 2026-10-18
 
 ### The agent could not see 81 of the 84 skills in its own repository

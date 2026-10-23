@@ -349,7 +349,12 @@ class PanelEndToEndTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("غير مصرح", update.effective_message.replies[0]["text"])
 
     async def test_tasks_screen_lists_a_real_failed_task(self) -> None:
-        task, _sequence = await self.tasks.enqueue(OWNER, 10, "مهمة فاشلة", None)
+        # Recorded (scheduled-job) tasks keep their failed row, which is what
+        # the tasks screen renders with a retry action.
+        await self.tasks.create_scheduled_job(
+            OWNER, 10, "sched", "مهمة فاشلة", _future(), repeat_seconds=3600,
+        )
+        task = await self.tasks.enqueue_scheduled_job_now(OWNER, "sched")
         await self.tasks.finish(task.id, success=False, error="boom")
         text, keyboard = await self.routers[True].render("tasks", OWNER)
         self.assertIn("مهمة فاشلة", text)
@@ -359,7 +364,10 @@ class PanelEndToEndTests(unittest.IsolatedAsyncioTestCase):
         ])
 
     async def test_retry_flow_reaches_the_database(self) -> None:
-        task, _sequence = await self.tasks.enqueue(OWNER, 10, "أعد المحاولة", None)
+        await self.tasks.create_scheduled_job(
+            OWNER, 10, "retryable", "أعد المحاولة", _future(), repeat_seconds=3600,
+        )
+        task = await self.tasks.enqueue_scheduled_job_now(OWNER, "retryable")
         await self.tasks.finish(task.id, success=False, error="boom")
         update = FakeUpdate(data=f"pnl:do:tasks:retry:{task.id}")
         await self.routers[True].handle(update, None)

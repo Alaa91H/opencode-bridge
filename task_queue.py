@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import random
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
@@ -137,6 +137,20 @@ class TaskQueueStore:
     async def init(self) -> None:
         """Apply explicit, checksum-verified schema migrations."""
         await MigrationRunner(self.database).migrate()
+
+    @staticmethod
+    def keeps_record(task: QueuedTask) -> bool:
+        """Decide whether a task keeps a database record once it goes terminal.
+
+        The owner asked to record only scheduled and daily work: recurring tasks
+        (``repeat_seconds``), tasks spawned by a scheduled job (``schedule_job_id``)
+        and durable daily tasks (``daily_continuation`` checkpoint flag) keep a
+        record. Plain one-off prompts leave no terminal row behind.
+        """
+        if bool(task.repeat_seconds) or task.schedule_job_id is not None:
+            return True
+        checkpoint = task.checkpoint or {}
+        return bool(checkpoint.get("daily_continuation"))
 
     @staticmethod
     def _from_row(row: aiosqlite.Row) -> QueuedTask:
@@ -966,18 +980,39 @@ class TaskQueueStore:
         return [self._from_row(row) for row in rows]
 
     async def cancel(self, task_id: int, owner_id: str) -> QueuedTask | None:
-        now = encode_time(utc_now())
+        now_dt = utc_now()
+        now = encode_time(now_dt)
         db = await self._get_db()
         async with self._lock:
-            cursor = await db.execute(
-                """
-                UPDATE agent_tasks SET status = 'cancelled', updated_at = ?, completed_at = ?
-                WHERE id = ? AND owner_id = ? AND status IN ('queued', 'scheduled', 'running', 'leased', 'retrying')
-                """,
-                (now, now, task_id, owner_id),
-            )
-            await db.commit()
-        return await self.get(task_id) if cursor.rowcount else None
+            async with db.execute(
+                "SELECT * FROM agent_tasks WHERE id = ? AND owner_id = ? AND status IN "
+                "('queued', 'scheduled', 'running', 'leased', 'retrying')",
+                (task_id, owner_id),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is None:
+                return None
+            snapshot = self._from_row(row)
+            if self.keeps_record(snapshot):
+                cursor = await db.execute(
+                    """
+                    UPDATE agent_tasks SET status = 'cancelled', updated_at = ?, completed_at = ?
+                    WHERE id = ? AND owner_id = ? AND status IN ('queued', 'scheduled', 'running', 'leased', 'retrying')
+                    """,
+                    (now, now, task_id, owner_id),
+                )
+                updated = bool(cursor.rowcount)
+                await db.commit()
+                if not updated:
+                    return None
+            else:
+                # Plain one-off prompts are not recorded: cancelling removes the row.
+                await db.execute(
+                    "DELETE FROM agent_tasks WHERE id = ? AND owner_id = ?",
+                    (task_id, owner_id),
+                )
+                await db.commit()
+        return replace(snapshot, status="cancelled", completed_at=now_dt)
 
     async def delete_user_task(self, task_id: int, owner_id: str) -> QueuedTask | None:
         """Remove a queued or terminal task, never a running/leased task."""
@@ -1237,6 +1272,18 @@ class TaskQueueStore:
             return task
         now_dt = utc_now()
         terminal = (not retryable) or (max_attempts is not None and task.attempt >= max(1, int(max_attempts)))
+        if terminal and not self.keeps_record(task):
+            # Plain one-off prompts are not recorded: a terminal failure leaves
+            # no dead_letter row behind.
+            db = await self._get_db()
+            async with self._lock:
+                await db.execute(
+                    """DELETE FROM agent_tasks
+                       WHERE id = ? AND status IN ('leased', 'running', 'retrying', 'queued')""",
+                    (task_id,),
+                )
+                await db.commit()
+            return None
         if terminal:
             status, next_attempt = "dead_letter", None
         else:
@@ -1304,15 +1351,23 @@ class TaskQueueStore:
                     (encode_time(next_due), now, now, None if success else error, task_id),
                 )
             else:
-                await db.execute(
-                    """
-                    UPDATE agent_tasks
-                    SET status = ?, updated_at = ?, completed_at = ?, last_error = ?,
-                        lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL, next_attempt_at=NULL
-                    WHERE id = ? AND status != 'cancelled'
-                    """,
-                    ("completed" if success else "failed", now, now, error, task_id),
-                )
+                if self.keeps_record(task):
+                    await db.execute(
+                        """
+                        UPDATE agent_tasks
+                        SET status = ?, updated_at = ?, completed_at = ?, last_error = ?,
+                            lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL, next_attempt_at=NULL
+                        WHERE id = ? AND status != 'cancelled'
+                        """,
+                        ("completed" if success else "failed", now, now, error, task_id),
+                    )
+                else:
+                    # Plain one-off prompts are not recorded: the terminal row
+                    # is removed instead of being written as completed/failed.
+                    await db.execute(
+                        "DELETE FROM agent_tasks WHERE id = ? AND status != 'cancelled'",
+                        (task_id,),
+                    )
             if task.schedule_job_id is not None:
                 await db.execute(
                     """
@@ -1339,6 +1394,17 @@ class TaskQueueStore:
                     last_error = 'انقطع تشغيل البوت قبل اكتمال المهمة'
                 WHERE status IN ('running','leased')
                 """,
+                (now, now),
+            )
+            # Apply the recording policy to work the interruption terminalized:
+            # uncheckpointed rows failed here are plain one-off prompts (daily,
+            # recurring and scheduled-job work always carries a checkpoint or a
+            # recording flag), so they leave no failed record behind.
+            await db.execute(
+                """DELETE FROM agent_tasks
+                   WHERE status='failed' AND updated_at=? AND completed_at=?
+                     AND last_error='انقطع تشغيل البوت قبل اكتمال المهمة'
+                     AND repeat_seconds IS NULL AND schedule_job_id IS NULL""",
                 (now, now),
             )
             await db.commit()

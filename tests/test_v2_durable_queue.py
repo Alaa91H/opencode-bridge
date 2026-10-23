@@ -14,9 +14,15 @@ class DurableQueueTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 store = TaskQueueStore(Path(tmp) / "queue.db")
                 await store.init()
-                task, _ = await store.enqueue("owner", 1, "work", idempotency_key="update:1", priority=7)
-                self.assertTrue(task.public_id)
-                self.assertEqual(task.priority, 7)
+                # A scheduled-job task keeps terminal records, so the full
+                # lease -> heartbeat -> recovery -> retry -> dead Letter
+                # lifecycle stays observable through the store.
+                job = await store.create_scheduled_job(
+                    "owner", 1, "recover", "work", utc_now() + timedelta(hours=1), repeat_seconds=3600,
+                )
+                task = await store.enqueue_scheduled_job_now("owner", "recover")
+                self.assertIsNone(task.public_id)  # scheduled spawns carry no public_id
+                self.assertEqual(task.schedule_job_id, job.id)
 
                 leased = await store.claim_next("worker-a", lease_seconds=30)
                 self.assertIsNotNone(leased)
