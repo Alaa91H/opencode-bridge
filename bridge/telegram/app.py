@@ -18,8 +18,9 @@ def core_commands() -> list[BotCommand]:
         BotCommand("reset", "إعادة ضبط الجلسة"),
         BotCommand("abort", "إيقاف الطلب الجاري"),
         BotCommand("stop", "إيقاف الطلب الجاري"),
-        BotCommand("tasks", "عرض المهام الحالية (الأوامر المتسلسلة + المهام النشطة)"),
-        BotCommand("schedshow", "عرض المهام المجدولة (يومي + تاريخ)"),
+        BotCommand("tasklist", "📋 قائمة المهام — الأوامر + المهام الحالية + المجدولة"),
+        BotCommand("tasks", "الأوامر المتسلسلة + المهام النشطة"),
+        BotCommand("scheduled", "المهام المجدولة (يومي + تاريخ)"),
         BotCommand("direct", "تمرير النص حرفياً إلى الوكيل"),
         BotCommand("daily", "مهمة طويلة تُستأنف يومياً عند 12 UTC"),
         BotCommand("failed", "عرض المهام الفاشلة"),
@@ -31,7 +32,7 @@ def core_commands() -> list[BotCommand]:
         BotCommand("schedule", "إنشاء مهمة مجدولة باسم"),
         BotCommand("repeat", "إنشاء مهمة متكررة باسم"),
         BotCommand("schedules", "عرض المهام المجدولة"),
-        BotCommand("schedshow", "عرض تفاصيل مهمة مجدولة"),
+        BotCommand("tasklist", "📋 قائمة المهام — متكامل"),
         BotCommand("schedhistory", "عرض سجل تشغيل الجدولة"),
         BotCommand("draft", "إنشاء وإدارة Draft دائم"),
         BotCommand("schedrename", "تغيير اسم مهمة مجدولة"),
@@ -139,6 +140,8 @@ def register_core_handlers(
     app.add_handler(CommandHandler("abort", handlers.cmd_abort))
     app.add_handler(CommandHandler("stop", handlers.cmd_abort))
     app.add_handler(CommandHandler("tasks", handlers.cmd_tasks))
+    app.add_handler(CommandHandler("tasklist", handlers.cmd_tasks))
+    app.add_handler(CommandHandler("scheduled", handlers.cmd_schedules))
     # Two professional buttons for combined task list: current + scheduled
     app.add_handler(CommandHandler("tasklist", handlers.cmd_tasks))
     app.add_handler(CommandHandler("direct", handlers.cmd_direct))

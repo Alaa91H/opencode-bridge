@@ -150,6 +150,7 @@ from reboot_state import decision_path, read_state, request_path, write_state
 from task_queue import QueuedTask, TaskQueueStore
 from task_service import TaskService
 
+
 # Early command definitions for handler registration (before main)
 def cmd_remind(update, context): return None  # real def later
 def cmd_reminders(update, context): return None
@@ -157,9 +158,9 @@ def cmd_reminders(update, context): return None
 if TYPE_CHECKING:
     from bridge.services.admin_backups import AdminBackups
     from bridge.services.download_service import DownloadService
+    from bridge.services.github.commands import GitHubCommandHandler
     from bridge.services.host_control import HostControl
     from bridge.services.mirrors import MirrorService
-    from bridge.services.github.commands import GitHubCommandHandler
 
 
 if TYPE_CHECKING:
@@ -1579,8 +1580,9 @@ async def post_init(app: Application) -> None:
         log.warning("وكيل OpenCode غير متاح عند بدء التشغيل: %s", exc)
 
     try:
-        from bridge.services.reminder_service import create_reminder_service, ReminderTransport
-        from bridge.services.reminder_service import ReminderStore
+        from bridge.services.reminder_service import (
+            create_reminder_service,
+        )
         reminder_db = BridgeDatabase(BRIDGE_DIR / 'runtime' / 'reminders.db')
         reminder_store, reminder_sched = create_reminder_service(
             reminder_db,
