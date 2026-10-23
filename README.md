@@ -96,6 +96,17 @@ Recurring executions never overlap for the same owner because they enter the exi
 
 Schedule timestamps are currently entered and displayed in UTC.
 
+## Queue Management
+
+Commands sent while a task is running wait automatically and execute one at a time per owner. `/queue` shows the running task plus waiting commands in execution order, with the ID needed to manage each one:
+
+- `/queue` lists the running task and numbered waiting positions.
+- `/queue remove <id>` deletes one waiting command; run it with `/queue remove 42`.
+- `/queue up <id>` and `/queue down <id>` adjust priority within the waiting list.
+- `/queue clear` removes all waiting commands; the running task is never cancelled.
+
+Terminal one-off tasks leave no queue record once they finish, and claiming a task removes it from the waiting list before execution starts.
+
 ## Safety & Execution Guardrails
 
 The checked-in OpenCode policy blocks high-risk or inappropriate server-side operations, including:

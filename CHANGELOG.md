@@ -1,3 +1,15 @@
+## [3.61.0] - 2026-10-23
+
+### The queue could execute commands in order, but the owner could not see or manage it
+
+Typing a command while another task was running already queued it and ran it later, one at a time per owner. The waiting commands were invisible from the chat, could not be reordered or removed without opening the control panel, and a newly queued task only showed a generic spinner with no indication of when it would start.
+
+- **`/queue` management surface** — lists the running task plus waiting commands in their real execution order, numbered from one, with the internal ID needed for management. `remove <id>` deletes one waiting command, `up <id>` and `down <id>` change its priority, and `clear` removes every waiting command while leaving the running task untouched. Unknown IDs and tasks that started between listing and removal are reported instead of failing silently.
+- **Waiting list matches the claim query** — `TaskQueueStore.list_waiting()` uses the same `priority DESC, created_at, id` order as `claim_next()`, so the displayed position is the position the task will actually take. Only `queued` and `retrying` rows are listed; a task disappears from the waiting list the moment it is claimed, before execution starts. Scheduled jobs are untouched by `/queue clear`.
+- **Queue position on submission** — when a prompt is accepted while another task is running, the status message now shows its waiting position and a `/queue` hint instead of an indefinite spinner. A task that starts immediately keeps the normal progress path.
+- **Owner-scoped cleanup** — the bulk delete runs in one transaction and returns the removed rows so their input attachments are deleted through the existing cleanup path; a concurrent claim is never deleted or cancelled.
+- **Tests** — new `tests/test_queue_management.py` covers claim-time removal, waiting order with priorities, owner isolation, rendering and trimming, command dispatch, unknown IDs and the submission acknowledgement.
+
 ## [3.60.0] - 2026-10-23
 
 ### GitHub administration, any-format prompts and cleaner delivered answers

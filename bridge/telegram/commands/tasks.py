@@ -11,7 +11,10 @@ from telegram.ext import ContextTypes
 
 from bridge.domain.policies import RequestRejected
 from bridge.services.task_service import TaskApplicationService
-from bridge.telegram.rendering.tasks import render_active_tasks_and_schedules
+from bridge.telegram.rendering.tasks import (
+    render_active_tasks_and_schedules,
+    render_queue,
+)
 from progress import render_persisted_activity, render_progress
 from prompt_enhancer import ResearchMode
 
@@ -115,6 +118,147 @@ class TaskCommands:
                 max_length=self.max_message_length,
             ),
         )
+
+    async def _waiting_match(self, owner_id: str, token: str) -> tuple[Any | None, list[Any]]:
+        waiting = await self.task_service.waiting(owner_id)
+        for task in waiting:
+            if token in {str(task.id), str(getattr(task, "public_id", "") or "")}:
+                return task, waiting
+        return None, waiting
+
+    async def _announce_queued(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        owner_id: str,
+        chat_id: int,
+        status_message_id: int | None,
+        task_id: int,
+    ) -> None:
+        """Tell the owner the actual queue position instead of a generic spinner."""
+        if status_message_id is None:
+            return
+        try:
+            running, waiting = await self.task_service.queue_snapshot(owner_id)
+            position = next(
+                (index for index, task in enumerate(waiting, 1) if task.id == task_id),
+                None,
+            )
+            if position is None:
+                return
+            # Already claimed: the worker is about to replace the status
+            # message with real progress.
+            if running is not None and running.id == task_id:
+                return
+            # Position one with nothing running is about to start.
+            if running is None and position == 1:
+                return
+            await self.edit_status(
+                context.bot,
+                chat_id,
+                status_message_id,
+                f"تم تسجيل الأمر في الطابور — المركز {position} من {len(waiting)}.\n"
+                "رح ينفّذ تلقائيًا بعد المهمة الحالية.\n"
+                "للعرض والإدارة: /queue",
+            )
+        except Exception as exc:
+            self.log.debug("تعذر إظهار مركز الطابور: %s", type(exc).__name__)
+
+    async def queue(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """List and manage the owner's waiting tasks."""
+        if not update.message:
+            return
+        owner_id = self._owner(update)
+        args = list(context.args or [])
+        action = (args[0] if args else "list").strip().lower()
+        aliases = {"عرض": "list", "حذف": "remove", "إزالة": "remove", "ازالة": "remove",
+                   "رفع": "up", "خفض": "down", "تفريغ": "clear", "مسح": "clear"}
+        action = aliases.get(action, action)
+        usage = (
+            "إدارة الطابور:\n"
+            "/queue — عرض الطابور ومراكز الانتظار\n"
+            "/queue remove <id> — حذف أمر منتظر\n"
+            "/queue up <id> / /queue down <id> — تغيير أولويته\n"
+            "/queue clear — حذف كل الأوامر المنتظرة (المهمة الجارية لا تتأثر)"
+        )
+        try:
+            if action in {"list", "show", "status"}:
+                running, waiting = await self.task_service.queue_snapshot(owner_id)
+                await self.reply(
+                    update.message,
+                    render_queue(running, waiting, max_length=self.max_message_length),
+                )
+                return
+            if action in {"help", "?"}:
+                await self.reply(update.message, usage)
+                return
+            if action == "clear":
+                removed = await self.task_service.clear_waiting(owner_id)
+                self.audit_write(
+                    "queue_cleared", "accepted", actor_id=owner_id,
+                    details={"removed": len(removed)},
+                )
+                if removed:
+                    await self.reply(
+                        update.message,
+                        f"تم حذف {len(removed)} أمرًا من الطابور. المهمة الجارية، إن وجدت، ما تأثرت.",
+                    )
+                else:
+                    await self.reply(update.message, "الطابور فاضي؛ ما في أوامر منتظرة للحذف.")
+                return
+            if action in {"remove", "delete", "cancel"}:
+                if len(args) < 2:
+                    await self.reply(update.message, "استخدم: /queue remove <id>")
+                    return
+                task, waiting = await self._waiting_match(owner_id, args[1].strip())
+                if task is None:
+                    await self.reply(update.message, "ما في مهمة منتظرة بهذا الرقم. اعرض الطابور بـ /queue.")
+                    return
+                removed = await self.task_service.remove(owner_id, task.id)
+                if removed is None:
+                    await self.reply(update.message, f"المهمة #{task.id} بدأت التنفيذ أو لم تعد بالطابور.")
+                    return
+                self.audit_write(
+                    "queue_removed", "accepted", actor_id=owner_id,
+                    details={"task_id": task.id},
+                )
+                await self.reply(
+                    update.message,
+                    f"تم حذف المهمة #{task.id} من الطابور. باقي {max(0, len(waiting) - 1)} أمرًا منتظرًا.",
+                )
+                return
+            if action in {"up", "down"}:
+                if len(args) < 2:
+                    await self.reply(update.message, f"استخدم: /queue {action} <id>")
+                    return
+                task, _waiting = await self._waiting_match(owner_id, args[1].strip())
+                if task is None:
+                    await self.reply(update.message, "ما في مهمة منتظرة بهذا الرقم. اعرض الطابور بـ /queue.")
+                    return
+                moved = await self.task_service.change_priority(
+                    owner_id, task.id, 1 if action == "up" else -1
+                )
+                if moved is None:
+                    await self.reply(update.message, f"المهمة #{task.id} ليست بانتظار التنفيذ الآن.")
+                    return
+                _running, waiting = await self.task_service.queue_snapshot(owner_id)
+                position = next(
+                    (index for index, item in enumerate(waiting, 1) if item.id == task.id),
+                    None,
+                )
+                self.audit_write(
+                    "queue_priority", "accepted", actor_id=owner_id,
+                    details={"task_id": task.id, "delta": 1 if action == "up" else -1},
+                )
+                await self.reply(
+                    update.message,
+                    f"تم تحديث أولوية المهمة #{task.id}"
+                    + (f" — صارت بالمركز {position}." if position else "."),
+                )
+                return
+            await self.reply(update.message, usage)
+        except Exception as exc:
+            self.log.exception("فشل إدارة الطابور")
+            await self.reply(update.message, self.error_message(exc, "إدارة الطابور"))
 
     async def failed(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         owner_id = self._owner(update)
@@ -263,6 +407,13 @@ class TaskCommands:
                     "position": queued.queue_position,
                 },
             )
+            await self._announce_queued(
+                context,
+                str(update.effective_user.id),
+                int(update.effective_chat.id),
+                status_message_id,
+                queued.task.id,
+            )
         except Exception as exc:
             self.log.exception("فشل تسجيل أمر البحث %s", raw_command)
             error_text = self.error_message(exc, "تسجيل مهمة البحث")
@@ -352,6 +503,10 @@ class TaskCommands:
                 self.audit_write("direct_agent_command", "accepted", actor_id=self._owner(update),
                                  details={"task_id": queued_media.task.id, "daily": daily,
                                           "attachments": len(attachments)})
+                await self._announce_queued(
+                    context, self._owner(update), self._chat_id(update),
+                    message_id, queued_media.task.id,
+                )
                 return
             queued = await self.task_service.enqueue_prompt(
                 self._owner(update), self._chat_id(update), prompt,
@@ -362,6 +517,10 @@ class TaskCommands:
             self.wake_tasks()
             self.audit_write("direct_agent_command", "accepted", actor_id=self._owner(update),
                              details={"task_id": queued.task.id, "daily": daily})
+            await self._announce_queued(
+                context, self._owner(update), self._chat_id(update),
+                message_id, queued.task.id,
+            )
         except Exception as exc:
             self.log.exception("تعذر تسجيل أمر الوكيل المباشر")
             await self.reply(update.message, self.error_message(exc, "تسجيل الأمر المباشر"))
@@ -426,6 +585,13 @@ class TaskCommands:
                 "accepted",
                 actor_id=queued.task.owner_id,
                 details={"task_id": queued.task.id, "position": queued.queue_position},
+            )
+            await self._announce_queued(
+                context,
+                user_id,
+                update.effective_chat.id,
+                status_message_id,
+                queued.task.id,
             )
         except Exception as exc:
             self.log.exception("فشل تسجيل الطلب")

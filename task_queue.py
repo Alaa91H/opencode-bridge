@@ -1014,6 +1014,41 @@ class TaskQueueStore:
                 await db.commit()
         return replace(snapshot, status="cancelled", completed_at=now_dt)
 
+    async def list_waiting(self, owner_id: str, limit: int = 50) -> list[QueuedTask]:
+        """Tasks waiting for their turn, in the exact order the claim query uses."""
+        db = await self._get_db()
+        async with self._lock:
+            async with db.execute(
+                """
+                SELECT * FROM agent_tasks
+                WHERE owner_id = ? AND status IN ('queued', 'retrying')
+                ORDER BY priority DESC, created_at, id
+                LIMIT ?
+                """,
+                (owner_id, max(1, min(int(limit), 100))),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [self._from_row(row) for row in rows]
+
+    async def delete_waiting(self, owner_id: str) -> list[QueuedTask]:
+        """Remove every waiting task for one owner, never the running one.
+
+        DELETE ... RETURNING keeps the returned rows and the rows actually
+        removed identical even if another process claims a task concurrently.
+        """
+        db = await self._get_db()
+        async with self._lock:
+            async with db.execute(
+                "DELETE FROM agent_tasks WHERE owner_id = ?"
+                " AND status IN ('queued','retrying')"
+                " RETURNING *",
+                (owner_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+            if rows:
+                await db.commit()
+        return [self._from_row(row) for row in rows]
+
     async def delete_user_task(self, task_id: int, owner_id: str) -> QueuedTask | None:
         """Remove a queued or terminal task, never a running/leased task."""
         db = await self._get_db()

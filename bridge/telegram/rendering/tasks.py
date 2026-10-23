@@ -36,3 +36,44 @@ def render_active_tasks_and_schedules(
             lines.append(line)
 
     return "\n".join(lines) if lines else "لا توجد طلبات حالية أو مهام مجدولة."
+
+
+def render_queue(running: Any | None, waiting: list[Any], *, max_length: int) -> str:
+    """The owner-facing work queue: what runs now and what waits in order."""
+    if running is None and not waiting:
+        return (
+            "طابور التنفيذ فاضي.\n"
+            "أي أمر ترسله بينفّذ مباشرة، وأي أمر يوصل أثناء مهمة جارية بينتظر دوره تلقائيًا."
+        )
+
+    def preview(task: Any, limit: int = 90) -> str:
+        return " ".join(str(task.prompt).split())[:limit]
+
+    lines: list[str] = []
+    if running is not None:
+        lines.append("قيد التنفيذ الآن:")
+        lines.append(f"• #{running.id} — {preview(running)}")
+        if waiting:
+            lines.append("")
+
+    if waiting:
+        lines.append(f"بانتظار التنفيذ ({len(waiting)}):")
+        for position, task in enumerate(waiting, 1):
+            flags = []
+            if task.status == "retrying":
+                flags.append("إعادة محاولة")
+            if getattr(task, "priority", 0):
+                flags.append(f"أولوية {task.priority:+d}")
+            suffix = f" · {'، '.join(flags)}" if flags else ""
+            lines.append(f"{position}. #{task.id} — {preview(task)}{suffix}")
+        lines.append("")
+        lines.append(
+            "الإدارة: /queue remove <id> · /queue up <id> · /queue down <id> · /queue clear"
+        )
+    elif running is not None:
+        lines.append("ما في أوامر بانتظار التنفيذ.")
+
+    text = "\n".join(lines)
+    if len(text) > max_length:
+        text = text[: max(1, max_length - 40)].rstrip() + "\n… القائمة أطول من العرض."
+    return text

@@ -685,7 +685,7 @@ def _panel_router() -> PanelRouter:
 async def _dispatch_advanced_button(name: str, update: Update, context: ContextTypes.DEFAULT_TYPE,
                                     payload: str) -> None:
     """Dispatch an allowlisted button command through the existing authorized adapter."""
-    if name not in frozenset(["new","abort","share","unshare","status","health","agents","model","tasks","failed","progress","trace","cancel","retry","discard","schedules","schedule","repeat","schedshow","schedhistory","schedrename","schededit","schedappend","schedtime","schedinterval","schedtimezone","schedrun","schedpause","schedresume","scheddelete","draft","config","limits","metrics","maintenance","download","deletefile","mirror","prompt","topics","taskshow","dailies","exec"]):
+    if name not in frozenset(["new","abort","share","unshare","status","health","agents","model","tasks","queue","failed","progress","trace","cancel","retry","discard","schedules","schedule","repeat","schedshow","schedhistory","schedrename","schededit","schedappend","schedtime","schedinterval","schedtimezone","schedrun","schedpause","schedresume","scheddelete","draft","config","limits","metrics","maintenance","download","deletefile","mirror","prompt","topics","taskshow","dailies","exec"]):
         raise ValueError("Unsupported advanced action")
     handler = globals().get("cmd_" + name)
     if handler is None:
@@ -1092,6 +1092,10 @@ async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 @authorized
 async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _task_command_adapter().tasks(update, context)
+
+@authorized
+async def cmd_queue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _task_command_adapter().queue(update, context)
 
 @authorized
 async def cmd_failed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

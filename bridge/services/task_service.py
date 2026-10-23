@@ -30,6 +30,8 @@ class TaskRepository(Protocol):
     async def cancel_running_for_owner(self, owner_id: str) -> Any | None: ...
     async def delete_user_task(self, task_id: int, owner_id: str) -> Any | None: ...
     async def change_priority(self, task_id: int, owner_id: str, delta: int) -> Any | None: ...
+    async def list_waiting(self, owner_id: str, limit: int = 50) -> list[Any]: ...
+    async def delete_waiting(self, owner_id: str) -> list[Any]: ...
     async def list_recent(self, owner_id: str, limit: int = 10) -> list[Any]: ...
     async def list_failed(self, owner_id: str, limit: int = 20) -> list[Any]: ...
     async def retry_failed(self, task_id: int, owner_id: str) -> Any | None: ...
@@ -135,6 +137,25 @@ class TaskApplicationService:
 
     async def change_priority(self, owner_id: str, task_id: int, delta: int) -> Any | None:
         return await self.repository.change_priority(task_id, owner_id, delta)
+
+    async def waiting(self, owner_id: str, limit: int = 50) -> list[Any]:
+        return await self.repository.list_waiting(owner_id, limit)
+
+    async def queue_snapshot(self, owner_id: str) -> tuple[Any | None, list[Any]]:
+        """The running task (if any) and the waiting tasks in claim order."""
+        active = await self.repository.list_active(owner_id)
+        running = next(
+            (task for task in active if task.status in {"running", "leased"}),
+            None,
+        )
+        return running, await self.repository.list_waiting(owner_id)
+
+    async def clear_waiting(self, owner_id: str) -> list[Any]:
+        removed = await self.repository.delete_waiting(owner_id)
+        for task in removed:
+            if getattr(task, "attachments", None):
+                self.attachment_store.delete_input_records(task.attachments)
+        return removed
 
     async def remove(self, owner_id: str, task_id: int) -> Any | None:
         deleted = await self.repository.delete_user_task(task_id, owner_id)
