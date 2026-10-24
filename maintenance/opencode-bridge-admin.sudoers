@@ -1,2 +1,6 @@
 # Dedicated bridge owner: only fixed APT update/upgrade commands, no wildcard arguments.
 ubuntu ALL=(root) NOPASSWD: /usr/bin/apt-get -y update, /usr/bin/apt-get -y upgrade
+# Tool management: the root-owned helper validates the action and tool key
+# against its own fixed map before it invokes apt-get.  No package name,
+# argument list or shell text is accepted from the caller.
+ubuntu ALL=(root) NOPASSWD: /usr/local/sbin/opencode-bridge-tools

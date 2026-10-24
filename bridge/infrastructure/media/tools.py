@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 
@@ -27,11 +28,13 @@ class MediaToolCapabilities:
         return bool(self.pdftotext)
 
 
-def detect_media_tools() -> MediaToolCapabilities:
+def detect_media_tools(disabled: Iterable[str] = ()) -> MediaToolCapabilities:
+    """Detect installed tools, omitting capabilities the owner switched off."""
+    blocked = set(disabled)
     return MediaToolCapabilities(
-        ffmpeg=shutil.which("ffmpeg"),
-        ffprobe=shutil.which("ffprobe"),
-        tesseract=shutil.which("tesseract"),
-        pdftotext=shutil.which("pdftotext"),
-        pdfimages=shutil.which("pdfimages"),
+        ffmpeg=None if "ffmpeg" in blocked else shutil.which("ffmpeg"),
+        ffprobe=None if "ffmpeg" in blocked else shutil.which("ffprobe"),
+        tesseract=None if "tesseract" in blocked else shutil.which("tesseract"),
+        pdftotext=None if "poppler" in blocked else shutil.which("pdftotext"),
+        pdfimages=None if "poppler" in blocked else shutil.which("pdfimages"),
     )

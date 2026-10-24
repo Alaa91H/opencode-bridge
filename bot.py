@@ -43,6 +43,7 @@ from bridge.services.draft_service import DraftService
 from bridge.services.host_control import HostControl
 from bridge.services.host_credentials import HostCredentialManager
 from bridge.services.maintenance_service import MaintenanceReportService
+from bridge.services.media_analysis_service import MediaAnalysisService
 from bridge.services.media_service import MediaTaskService
 from bridge.services.metrics_service import BridgeMetricsService
 from bridge.services.mirrors import MirrorService
@@ -54,6 +55,7 @@ from bridge.services.skill_sync import DEFAULT_SOURCE as SKILLS_SOURCE_DEFAULT
 from bridge.services.skill_sync import SkillSyncService
 from bridge.services.task_execution_service import TaskExecutionService
 from bridge.services.task_service import TaskApplicationService
+from bridge.services.tool_manager import ToolManager
 from bridge.services.user_preferences_service import UserPreferencesService
 from bridge.services.worker_capacity import WorkerCapacity
 from bridge.telegram.app import build_application, core_commands, register_core_handlers
@@ -73,6 +75,7 @@ from bridge.telegram.commands.shell import ShellCommands
 from bridge.telegram.commands.skills import SkillCommands
 from bridge.telegram.commands.system import SystemCommands
 from bridge.telegram.commands.tasks import TaskCommands
+from bridge.telegram.commands.tools import ToolCommands
 from bridge.telegram.control_ui import ControlUI
 from bridge.telegram.draft_intake import DraftIntakeAdapter
 from bridge.telegram.execution import TelegramExecutionDelivery
@@ -203,6 +206,8 @@ _download_commands_instance: DownloadCommands | None = None
 _manage_commands_instance: ManageCommands | None = None
 _shell_commands_instance: ShellCommands | None = None
 _mirror_service_instance: MirrorService | None = None
+_tool_manager_instance: ToolManager | None = None
+_tool_commands_instance: ToolCommands | None = None
 download_cleanup_task: asyncio.Task[None] | None = None
 _access_controller_instance: TelegramAccessController | None = None
 _request_guard = RequestGuard(()) if runtime_flag_enabled("OPENCODE_FULL_ACCESS") else RequestGuard((check_build, check_hardline))
@@ -234,12 +239,22 @@ _media_service = MediaTaskService(
 )
 _schedule_service = ScheduleService(task_store, _request_guard)
 _draft_service = DraftService(DraftStore(task_store.database), _task_application_service, _schedule_service)
+
+
+def _tool_manager() -> ToolManager:
+    global _tool_manager_instance
+    if _tool_manager_instance is None:
+        _tool_manager_instance = ToolManager(BRIDGE_DIR)
+    return _tool_manager_instance
+
+
 _task_execution_service = TaskExecutionService(
     task_store,
     _agent_service,
     attachment_store,
     audit_write=audit.write,
     logger=log,
+    media_analysis=MediaAnalysisService(disabled_tools=_tool_manager().disabled_tools()),
 )
 _maintenance_service = MaintenanceReportService(MAINTENANCE_REPORT_PATH)
 _configuration_service = ConfigurationService(SETTINGS)
@@ -418,6 +433,7 @@ def _downloads() -> DownloadService:
             max_total_bytes=SETTINGS.downloads.max_total_bytes,
             ttl_hours=SETTINGS.downloads.ttl_hours,
             direct_send_limit=SETTINGS.downloads.direct_send_limit,
+            tool_enabled=_tool_manager().enabled,
         )
     return _download_service
 
@@ -433,6 +449,18 @@ def _download_command_adapter() -> DownloadCommands:
             logger=log,
         )
     return _download_commands_instance
+
+
+def _tool_command_adapter() -> ToolCommands:
+    global _tool_commands_instance
+    if _tool_commands_instance is None:
+        _tool_commands_instance = ToolCommands(
+            _tool_manager(),
+            reply=_safe_reply,
+            error_message=user_error,
+            logger=log,
+        )
+    return _tool_commands_instance
 
 
 def _mirrors() -> MirrorService:
@@ -722,13 +750,14 @@ def _control_ui() -> ControlUI:
             provider_keys=provider_keys,
             runtime_controls=RuntimeControls(BRIDGE_DIR / "runtime"),
             host_credentials=HostCredentialManager(BRIDGE_DIR),
-            backups=AdminBackups(BRIDGE_DIR),
+            backups=AdminBackups(BRIDGE_DIR, tool_enabled=_tool_manager().enabled),
             mirrors=_mirrors(),
             project=BRIDGE_DIR,
             admin_allowed=_is_control_owner,
             legacy_dispatch=_dispatch_advanced_button,
             research_modes=RESEARCH_COMMAND_MODES,
             host_control=HostControl(BRIDGE_DIR),
+            tools=_tool_manager(),
             audit=audit.write,
         )
     return _control_ui_instance
@@ -1245,6 +1274,10 @@ async def cmd_health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 @authorized
 async def cmd_download(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _download_command_adapter().download(update, context)
+
+@authorized
+async def cmd_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _tool_command_adapter().tools(update, context)
 
 @authorized
 async def cmd_deletefile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -10,6 +10,9 @@ TIMER = PROJECT_DIR / "maintenance" / "opencode-bridge-maintenance.timer"
 GUARD = PROJECT_DIR / "maintenance" / "reboot-guard.sh"
 GUARD_SERVICE = PROJECT_DIR / "maintenance" / "opencode-bridge-reboot-guard.service"
 INSTALLER = PROJECT_DIR / "maintenance" / "install-root-assets.sh"
+TOOLS_HELPER = PROJECT_DIR / "maintenance" / "opencode-bridge-tools.py"
+SUDOERS = PROJECT_DIR / "maintenance" / "opencode-bridge-admin.sudoers"
+DEV_TOOLS = PROJECT_DIR / "scripts" / "install-dev-tools.sh"
 
 
 class MaintenanceAssetTests(unittest.TestCase):
@@ -128,6 +131,31 @@ class MaintenanceAssetTests(unittest.TestCase):
         self.assertIn("deferred_running_task", content)
         self.assertIn("reboot request could not be delivered", content)
         self.assertIn('chown ubuntu:ubuntu "$REQUEST_PATH"', content)
+
+    def test_tool_helper_is_fixed_argument_and_installed_by_root_assets(self) -> None:
+        helper = TOOLS_HELPER.read_text(encoding="utf-8")
+        self.assertIn("PACKAGES = {", helper)
+        self.assertIn('CORE = frozenset({"git", "gh", "curl"})', helper)
+        self.assertIn("if os.geteuid() != 0:", helper)
+        self.assertIn("if len(argv) != 3:", helper)
+        self.assertIn('action == "remove" and key in CORE', helper)
+        self.assertNotIn("shell=True", helper)
+        installer = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn("opencode-bridge-tools.py", installer)
+        self.assertIn("/usr/local/sbin/opencode-bridge-tools", installer)
+        sudoers = SUDOERS.read_text(encoding="utf-8")
+        self.assertIn(
+            "ubuntu ALL=(root) NOPASSWD: /usr/local/sbin/opencode-bridge-tools",
+            sudoers,
+        )
+
+    def test_daily_dev_tool_install_respects_removed_policy(self) -> None:
+        content = DEV_TOOLS.read_text(encoding="utf-8")
+        self.assertIn("runtime/tool-policy.json", content)
+        self.assertIn("removed_packages", content)
+        self.assertIn('data.get("removed", [])', content)
+        self.assertIn('[[ "$package" == "$removed" ]] && skip=1', content)
+        self.assertIn('packages=("${kept[@]}")', content)
 
     def test_root_units_and_installer_have_required_boundaries(self) -> None:
         for path in (SERVICE, GUARD_SERVICE):

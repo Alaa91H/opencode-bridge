@@ -26,7 +26,12 @@ from bridge.domain.schedules.user_timezones import (
 )
 from bridge.services.host_credentials import LABEL_RE
 from bridge.services.server_admin import update_now
+from bridge.services.tool_manager import ToolManagerError
 from bridge.telegram.download_delivery import deliver_download
+from bridge.telegram.rendering.tools import (
+    size_text as tool_size_text,
+)
+from bridge.telegram.rendering.tools import tool_name, tool_purpose
 
 log = logging.getLogger(__name__)
 
@@ -222,6 +227,33 @@ WORDS["ar"].update({
     "host_power_disabled": "❌ إعادة التشغيل غير مفعّلة على هذا السيرفر.",
     "assets_stale": "⚠️ أصول root قديمة بعد آخر تحديث؛ تُجدَّد تلقائيًا في الصيانة اليومية أو بتنفيذ install-root-assets.sh بصلاحية root.",
 })
+WORDS["ar"].update({
+    "tools": "🧰 أدوات الوكيل",
+    "tools_text": "أدوات الوكيل الخارجية على هذا الخادم. التعطيل يوقف استخدام الأداة دون حذفها، والحذف نهائي حتى تعيد تثبيتها.",
+    "tool_enable": "✅ تفعيل", "tool_disable": "⏸ تعطيل",
+    "tool_install": "➕ تثبيت", "tool_update": "🔄 تحديث", "tool_remove": "🗑 حذف",
+    "tool_activate_all": "⚡ تفعيل جميع الأدوات", "tool_harden": "🔎 فحص وتأمين",
+    "tool_running": "⏳ العملية جارية…", "tool_working": "⏳ {detail}",
+    "tool_policy_error": "⚠️ سياسة الأدوات غير صالحة؛ بقيت القدرات معطّلة بأمان. أصلح الصلاحيات أو الملف ثم أعد المحاولة.",
+    "tool_busy": "⏳ توجد عملية مضيف جارية الآن؛ انتظرها ثم أعد المحاولة.",
+    "tool_activate_warning": "سيُثبّت هذا كل أداة ناقصة، بما فيها الحزمتان الثقيلتان FFmpeg وTesseract، ثم يفحص السلامة. قد يستغرق عدة دقائق.",
+    "tool_required": "أداة أساسية لا يمكن تعطيلها أو حذفها.",
+    "tool_heavy": "حزمة ثقيلة",
+    "tool_missing": "الأوامر الناقصة: {detail}",
+    "tool_unsafe": "⚠️ مسار غير آمن: {detail}",
+    "tool_no_helper": "⚠️ مساعد الأدوات بصلاحية root غير مثبّت؛ حدّث أصول root أولًا.",
+    "tool_installed": "تم تثبيت الأداة.", "tool_updated": "تم تحديث الأداة.",
+    "tool_removed": "تم حذف الأداة.", "tool_unchanged": "الأداة جاهزة أصلًا.",
+    "tool_failed": "تعذّرت العملية: {detail}",
+    "tool_audit_ok": "✅ فحص السلامة سليم.", "tool_audit_issues": "⚠️ مشكلات الفحص:\n{detail}",
+    "tool_activation": "النتيجة: ثُبّتت {installed}، وفُعّلت {enabled}، وفشلت {failed}.",
+    "tool_state_usable": "يعمل", "tool_state_disabled": "معطّل", "tool_state_missing": "غير مثبّت",
+    "tool_state_removed": "محذوف", "tool_state_broken": "يحتاج إصلاحاً",
+    "tool_confirm_remove": "سيُحذف {name} من الخادم نهائيًا. هل تؤكد؟",
+    "tool_confirm_activate": "سيُثبّت كل الأدوات الناقصة. هل تؤكد؟",
+    "tool_package": "الحزمة", "tool_version": "الإصدار", "tool_size": "الحجم",
+    "tool_purpose": "الغرض",
+})
 WORDS["en"].update({
     "host_busy": "⏳ A host operation is already running ({detail}). Wait for it.",
     "svcctl": "🛠 Service control", "procs": "🔬 Top processes", "disk": "💽 Disk usage",
@@ -247,16 +279,43 @@ WORDS["en"].update({
     "host_power_disabled": "❌ Reboot is not enabled on this server.",
     "assets_stale": "⚠️ Root-owned assets are stale after the last update; the daily maintenance run refreshes them, or run install-root-assets.sh as root.",
 })
+WORDS["en"].update({
+    "tools": "🧰 Agent tools",
+    "tools_text": "External tools available to the agent on this host. Disabling stops use without uninstalling; removing is permanent until you install again.",
+    "tool_enable": "✅ Enable", "tool_disable": "⏸ Disable",
+    "tool_install": "➕ Install", "tool_update": "🔄 Update", "tool_remove": "🗑 Remove",
+    "tool_activate_all": "⚡ Activate all tools", "tool_harden": "🔎 Audit & harden",
+    "tool_running": "⏳ Working…", "tool_working": "⏳ {detail}",
+    "tool_policy_error": "⚠️ The tool policy is invalid; capabilities stayed safely disabled. Repair its permissions or contents, then retry.",
+    "tool_busy": "⏳ Another host operation is running; wait, then retry.",
+    "tool_activate_warning": "This installs every missing tool, including the heavy FFmpeg and Tesseract packages, then audits them. It can take several minutes.",
+    "tool_required": "A core tool cannot be disabled or removed.",
+    "tool_heavy": "Heavy package",
+    "tool_missing": "Missing commands: {detail}",
+    "tool_unsafe": "⚠️ Unsafe path: {detail}",
+    "tool_no_helper": "⚠️ The root tool helper is not installed; refresh root assets first.",
+    "tool_installed": "Tool installed.", "tool_updated": "Tool updated.",
+    "tool_removed": "Tool removed.", "tool_unchanged": "The tool is already ready.",
+    "tool_failed": "Operation failed: {detail}",
+    "tool_audit_ok": "✅ Integrity audit passed.", "tool_audit_issues": "⚠️ Audit findings:\n{detail}",
+    "tool_activation": "Result: {installed} installed, {enabled} enabled, {failed} failed.",
+    "tool_state_usable": "Ready", "tool_state_disabled": "Disabled", "tool_state_missing": "Not installed",
+    "tool_state_removed": "Removed", "tool_state_broken": "Needs repair",
+    "tool_confirm_remove": "This permanently removes {name} from the host. Confirm?",
+    "tool_confirm_activate": "This installs every missing tool. Confirm?",
+    "tool_package": "Package", "tool_version": "Version", "tool_size": "Size",
+    "tool_purpose": "Purpose",
+})
 ADMIN_SCREENS = frozenset({
     "credentials", "keys", "hostkeys", "backups", "mirrors", "server", "services", "resources",
-    "updates", "memory", "workers", "advanced", "svcctl", "procs", "disk", "power"})
+    "updates", "memory", "workers", "advanced", "svcctl", "procs", "disk", "power", "tools"})
 HOST_CONFIRM_KINDS = frozenset({"svcrestart", "cleanup", "reboot"})
 
 
 def is_admin_screen(screen: str) -> bool:
     """Screens that need the owner in a private chat (single source for show() and handle())."""
     return (screen in ADMIN_SCREENS or screen.startswith("advanced.")
-            or screen.startswith("logs."))
+            or screen.startswith("logs.") or screen.startswith("tools."))
 
 
 def pre_block(text: str, limit: int = 3400) -> str:
@@ -298,7 +357,8 @@ class ControlUI:
                  legacy_dispatch: Any | None = None, research_modes: dict | None = None,
                  host_credentials: Any | None = None, backups: Any | None = None,
                  mirrors: Any | None = None, project: Any | None = None,
-                 host_control: Any | None = None, audit: Any | None = None):
+                 host_control: Any | None = None, tools: Any | None = None,
+                 audit: Any | None = None):
         self.preferences = preferences
         self.agents = agents
         self.models = models
@@ -319,6 +379,7 @@ class ControlUI:
         self.mirrors = mirrors
         self.project = project
         self.host_control = host_control
+        self.tools = tools
         self._audit_sink = audit
         self._running_updates: set[asyncio.Task] = set()
 
@@ -344,6 +405,14 @@ class ControlUI:
     async def _lang(self, owner: str) -> str:
         value = (await self.preferences.get(owner)).language
         return value if value in WORDS else "en"
+
+    @staticmethod
+    def _tool_state(t: dict, status: Any) -> str:
+        if status.enabled and status.installed:
+            return t["tool_state_usable"]
+        if not status.enabled:
+            return t["tool_state_removed"] if not status.installed else t["tool_state_disabled"]
+        return t["tool_state_broken"] if status.missing_commands else t["tool_state_missing"]
 
     def keyboard(self, language: str) -> ReplyKeyboardMarkup:
         t = WORDS[language]
@@ -396,7 +465,7 @@ class ControlUI:
 
         if screen == "home":
             text = t["home_text"]
-            for key in ("agent", "credentials", "direct", "daily", "research", "tasks", "schedules", "downloads", "mirrors", "backups", "server", "settings", "advanced", "help"):
+            for key in ("agent", "credentials", "direct", "daily", "research", "tasks", "schedules", "downloads", "mirrors", "backups", "server", "tools", "settings", "advanced", "help"):
                 if key in ("direct", "daily", "research"):
                     rows.append([button(t[key], "input", key)])
                 else:
@@ -575,6 +644,64 @@ class ControlUI:
             nav(t["disk"], "disk")
             nav(t["power"], "power")
             nav(t["backups"], "backups")
+            nav(t["tools"], "tools")
+        elif screen == "tools":
+            if self.tools is None:
+                raise ValueError("tool manager is not configured")
+            text = t["tools_text"]
+            try:
+                statuses = await self.tools.status()
+            except ToolManagerError:
+                text += "\n\n" + t["tool_policy_error"]
+                nav(t["back"], "server")
+            else:
+                for status in statuses:
+                    marker = "✅" if status.usable else "○"
+                    text += "\n" + marker + " " + safe(tool_name(status.key), 30)
+                    text += " — " + safe(self._tool_state(t, status), 24)
+                    if status.version:
+                        text += " · " + safe(status.version, 24)
+                    rows.append([button(
+                        ("⏸ " if status.usable else "▶️ ") + tool_name(status.key)[:32],
+                        "go", "tools." + status.key)])
+                rows.append([button(t["tool_activate_all"], "confirm", "toolactivateall", 0)])
+                rows.append([button(t["tool_harden"], "toolharden")])
+                nav(t["refresh"], "tools")
+        elif screen.startswith("tools."):
+            if self.tools is None:
+                raise ValueError("tool manager is not configured")
+            key = screen.split(".", 1)[1]
+            try:
+                status = await self.tools.status_for(key)
+            except ToolManagerError:
+                raise ValueError("unknown tool") from None
+            spec = status.spec
+            text = t["tools"] + f"\n\n{safe(tool_name(spec.key), 40)} — {safe(self._tool_state(t, status), 24)}"
+            text += "\n" + t["tool_purpose"] + ": " + safe(tool_purpose(spec.key), 160)
+            text += "\n" + t["tool_package"] + ": " + spec.package
+            if spec.heavy:
+                text += " · " + t["tool_heavy"]
+            text += "\n" + t["tool_version"] + ": " + safe(status.version or "—", 40)
+            text += " · " + t["tool_size"] + ": " + tool_size_text(status.size_kib)
+            if spec.required:
+                text += "\n" + t["tool_required"]
+            if status.missing_commands:
+                text += "\n" + t["tool_missing"].format(detail=", ".join(status.missing_commands))
+            if status.unsafe_paths:
+                text += "\n" + t["tool_unsafe"].format(detail="; ".join(status.unsafe_paths))
+            if not self.tools.helper_available():
+                text += "\n" + t["tool_no_helper"]
+            if not spec.required:
+                rows.append([button(
+                    t["tool_disable"] if status.enabled else t["tool_enable"],
+                    "tooltoggle", spec.key)])
+            if not status.installed:
+                rows.append([button(t["tool_install"], "toolinstall", spec.key)])
+            elif status.package_installed:
+                rows.append([button(t["tool_update"], "toolupdate", spec.key)])
+            if status.installed and spec.removable:
+                rows.append([button(t["tool_remove"], "confirm", "toolremove", spec.key)])
+            nav(t["refresh"], screen)
         elif screen == "svcctl":
             from bridge.services.service_monitor import service_overview
 
@@ -714,7 +841,8 @@ class ControlUI:
             raise ValueError("unknown screen")
         if screen != "home":
             back = ("credentials" if screen in {"keys", "hostkeys"}
-                    else "server" if screen in {"svcctl", "procs", "disk", "power"}
+                    else "tools" if screen.startswith("tools.")
+                    else "server" if screen in {"tools", "svcctl", "procs", "disk", "power"}
                     else "svcctl" if screen.startswith("logs.") else "home")
             nav(t["back"], back)
         return text, InlineKeyboardMarkup(rows)
@@ -999,6 +1127,67 @@ class ControlUI:
             await status.edit_text(t["error"])
         return True
 
+    async def _run_tool_action(
+        self, update: Any, context: Any, operation: str, key: str = "",
+    ) -> None:
+        """Run one package action without blocking the callback or the bot loop."""
+        query = update.callback_query
+        owner = str(update.effective_user.id)
+        t = WORDS[await self._lang(owner)]
+        await query.answer()
+        notice = await update.effective_message.reply_text(t["tool_running"])
+
+        async def progress(detail: str) -> None:
+            try:
+                await notice.edit_text(t["tool_working"].format(detail=detail[:180]))
+            except Exception:
+                pass
+
+        try:
+            if operation == "activate":
+                activation = await self.tools.activate_all(progress=progress)
+                lines = [t["tool_activation"].format(
+                    installed=len(activation.installed),
+                    enabled=len(activation.enabled),
+                    failed=len(activation.failures),
+                )]
+                if activation.failures:
+                    lines.append(", ".join(activation.failures[:8]))
+                audit = activation.audit
+            elif operation == "harden":
+                audit = await self.tools.harden()
+                lines = []
+            else:
+                action = getattr(self.tools, operation)
+                result = await action(key, progress=progress)
+                if result.ok:
+                    lines = [{
+                        "installed": t["tool_installed"],
+                        "already_installed": t["tool_unchanged"],
+                        "updated": t["tool_updated"],
+                        "removed": t["tool_removed"],
+                    }.get(result.code, t["success"])]
+                elif result.code == "busy":
+                    lines = [t["tool_busy"]]
+                elif result.code == "unavailable":
+                    lines = [t["tool_no_helper"]]
+                else:
+                    lines = [t["tool_failed"].format(
+                        detail=(result.detail or result.code)[:400])]
+                audit = None
+            if audit is not None:
+                if audit.ok:
+                    lines.append(t["tool_audit_ok"])
+                else:
+                    issues = "\n".join("• " + item[:180] for item in audit.issues[:12])
+                    lines.append(t["tool_audit_issues"].format(detail=issues))
+            await notice.edit_text("\n".join(lines)[:3500])
+        except Exception as exc:
+            log.exception("Tool management action failed")
+            await notice.edit_text(t["tool_failed"].format(detail=type(exc).__name__))
+            return
+        await self.show(update, context, "tools." + key if key else "tools")
+
     async def handle(self, update: Any, context: Any) -> None:
         query = update.callback_query
         if query is None or not isinstance(query.data, str) or not query.data.startswith("ux:"):
@@ -1017,21 +1206,25 @@ class ControlUI:
                 "hostadd", "hostscope", "hostreplace", "hostactivate", "keysel", "keyauto",
                 "backupcreate", "backupsend", "backupsecure", "mirrorurl",
                 "mirrorfile", "toggleos", "togglebackuppurge", "autopilot", "toggleupdate", "checkbridge",
+                "tooltoggle", "toolinstall", "toolupdate", "toolremove",
+                "toolactivateall", "toolharden",
             }
             if (action in private_operations
                     or (action == "go" and len(parts) > 2
                         and parts[2] in {"credentials", "keys", "hostkeys", "backups", "mirrors"})
                     or (action == "input" and len(parts) > 2 and parts[2] == "key_add")
                     or (action in {"confirm", "execute"} and len(parts) > 2
-                        and parts[2] in ({"key", "hostkey", "backup"} | HOST_CONFIRM_KINDS))):
+                        and parts[2] in ({"key", "hostkey", "backup", "toolremove", "toolactivateall"} | HOST_CONFIRM_KINDS))):
                 if not self.admin_allowed(update) or getattr(
                     getattr(update, "effective_chat", None), "type", None) != "private":
                     await query.answer(t["admin_private"], show_alert=True)
                     return
             if (action in {"workers", "keysel", "keyauto", "toggleupdate", "zram", "swap", "legacy", "researchmode"}
                     or (action == "input" and len(parts) > 2 and parts[2] in {"key_add", "age_recipient"})
-                    or (action == "confirm" and len(parts) > 2 and parts[2] in {"key"})
-                    or (action == "execute" and len(parts) > 2 and parts[2] in {"key"})):
+                    or (action == "confirm" and len(parts) > 2
+                        and parts[2] in {"key", "toolremove", "toolactivateall"})
+                    or (action == "execute" and len(parts) > 2
+                        and parts[2] in {"key", "toolremove", "toolactivateall"})):
                 if not self.admin_allowed(update):
                     await query.answer("Admin only", show_alert=True)
                     return
@@ -1094,6 +1287,34 @@ class ControlUI:
                     "scope": item["scope"], "name": item["name"], "replace": True}
                 await query.answer()
                 await update.effective_message.reply_text(t["host_value"])
+                return
+            elif action == "tooltoggle":
+                if self.tools is None:
+                    raise ValueError("tool manager is not configured")
+                try:
+                    status = await self.tools.status_for(parts[2])
+                    if status.spec.required:
+                        raise ToolManagerError("core tools cannot be disabled")
+                    self.tools.set_enabled(status.key, not status.enabled)
+                except ToolManagerError as exc:
+                    await query.answer(
+                        t["tool_failed"].format(detail=str(exc)[:180]), show_alert=True)
+                    return
+                screen = "tools." + status.key
+            elif action == "toolinstall":
+                await self._run_tool_action(update, context, "install", parts[2])
+                return
+            elif action == "toolupdate":
+                await self._run_tool_action(update, context, "update", parts[2])
+                return
+            elif action == "toolremove":
+                await self._run_tool_action(update, context, "remove", parts[2])
+                return
+            elif action == "toolactivateall":
+                await self._run_tool_action(update, context, "activate")
+                return
+            elif action == "toolharden":
+                await self._run_tool_action(update, context, "harden")
                 return
             elif action == "hostactivate":
                 entries = self.host_credentials.catalog()
@@ -1281,10 +1502,15 @@ class ControlUI:
                 await self.models.select_variant(owner, int(parts[2]), int(parts[3]))
                 screen = "agent"
             elif action == "confirm":
-                if parts[2] not in {"cancel", "schedule", "file", "new", "key", "task", "hostkey", "backup", "updateagent", "updatesystem", "updatebridge"} | HOST_CONFIRM_KINDS:
+                if parts[2] not in {"cancel", "schedule", "file", "new", "key", "task", "hostkey", "backup", "toolremove", "toolactivateall", "updateagent", "updatesystem", "updatebridge"} | HOST_CONFIRM_KINDS:
                     raise ValueError("unsupported confirmation")
                 context.user_data["ui_confirm"] = (parts[2], parts[3])
                 text = t["confirm_text"]
+                if parts[2] == "toolremove":
+                    text = t["tool_confirm_remove"].format(
+                        name=tool_name(parts[3]))
+                elif parts[2] == "toolactivateall":
+                    text = t["tool_activate_warning"]
                 keyboard = InlineKeyboardMarkup([[
                     button(t["yes"], "execute", parts[2], parts[3]),
                     button(t["no"], "go", "home")]])
@@ -1301,7 +1527,13 @@ class ControlUI:
                     if not self.admin_allowed(update) or getattr(
                         getattr(update, "effective_chat", None), "type", None) != "private":
                         raise ValueError("Private administrator chat required")
-                if kind == "hostkey":
+                if kind == "toolremove":
+                    await self._run_tool_action(update, context, "remove", value)
+                    return
+                elif kind == "toolactivateall":
+                    await self._run_tool_action(update, context, "activate")
+                    return
+                elif kind == "hostkey":
                     entries = self.host_credentials.catalog()
                     idx = int(value)
                     if not 0 <= idx < min(len(entries), 24):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 
 from bridge.domain.attachments.intelligence import (
@@ -12,9 +13,9 @@ from bridge.services.media_pipeline_service import MediaPipelineService
 
 
 class AttachmentIntelligenceService:
-    def __init__(self) -> None:
+    def __init__(self, disabled_tools: Iterable[str] = ()) -> None:
         self.router = AttachmentIntelligenceRouter()
-        self.media = MediaPipelineService()
+        self.media = MediaPipelineService(disabled_tools)
 
     def route(self, path: Path, *, mime: str, query: str = "", max_direct_bytes: int = 8 * 1024 * 1024) -> AttachmentRoute:
         context = AttachmentContext(query=query, max_direct_bytes=max_direct_bytes)

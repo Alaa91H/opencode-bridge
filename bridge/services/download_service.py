@@ -28,6 +28,7 @@ import stat
 import tempfile
 import unicodedata
 import uuid
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -228,6 +229,7 @@ class DownloadService:
         timeout_seconds: float = 60.0,
         ytdlp_path: str | None = None,
         allow_private_hosts: bool = False,
+        tool_enabled: Callable[[str], bool] | None = None,
     ) -> None:
         self.root = Path(root).resolve()
         self.max_total_bytes = max(1, min(DEFAULT_MAX_TOTAL_BYTES, int(max_total_bytes)))
@@ -237,6 +239,7 @@ class DownloadService:
         self.timeout_seconds = float(timeout_seconds)
         self.ytdlp_path = ytdlp_path or shutil.which("yt-dlp")
         self.allow_private_hosts = bool(allow_private_hosts)
+        self._tool_enabled = tool_enabled or (lambda _key: True)
         # Serialize state-changing downloads so concurrent requests cannot both
         # spend the same remaining disk budget or overwrite index changes.
         self._transfer_lock = asyncio.Lock()
@@ -460,6 +463,8 @@ class DownloadService:
         """
         if not self.ytdlp_path:
             raise DownloadError("yt-dlp is not installed on this server")
+        if not self._tool_enabled("yt-dlp"):
+            raise DownloadError("yt-dlp is disabled in tool management")
         normalized = validate_url(url, allow_private_hosts=self.allow_private_hosts)
         await _assert_resolved_public(normalized, allow_private=self.allow_private_hosts)
         self.ensure_directories()
@@ -728,7 +733,7 @@ class DownloadService:
             "ttl_hours": self.ttl_hours,
             "used_bytes": self.used_bytes(),
             "free_bytes": free,
-            "ytdlp_available": bool(self.ytdlp_path),
+            "ytdlp_available": bool(self.ytdlp_path) and self._tool_enabled("yt-dlp"),
             "ytdlp_path": self.ytdlp_path or "",
             "transcoding": False,
         }

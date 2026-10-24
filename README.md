@@ -61,7 +61,7 @@ Telegram attachments are first-class queued tasks:
 - Intermediate conversions are restricted to a per-task scratch directory that is deleted at task completion. Only files written to the managed output directory are returned to Telegram.
 - Original incoming files are deleted after a non-recurring task reaches its terminal execution path; daily maintenance remains a fallback for interrupted-process cleanup.
 
-The bridge never installs a parser or codec on demand. If an appropriate read-only server tool is unavailable, the agent must report that limitation rather than execute unknown content or fabricate an analysis. See the current [OpenCode attachment documentation](https://opencode.ai/v2/docs/attachments) for model-visible formats.
+The bridge never installs a parser or codec on demand, and the agent cannot install packages. The owner can explicitly manage the small allow-listed tool set described below; if an appropriate read-only server tool is unavailable or switched off, the agent must report that limitation rather than execute unknown content or fabricate an analysis. See the current [OpenCode attachment documentation](https://opencode.ai/v2/docs/attachments) for model-visible formats.
 
 The defaults are 20 MiB per incoming file, 10 attachments per task, 50 MiB aggregate size, and a 10-minute pending-instruction window. They are configurable with `TELEGRAM_ATTACHMENT_MAX_BYTES`, `TELEGRAM_ATTACHMENT_MAX_COUNT`, `TELEGRAM_ATTACHMENT_MAX_TOTAL_BYTES`, and `TELEGRAM_ATTACHMENT_PENDING_SECONDS`.
 
@@ -112,6 +112,18 @@ Terminal one-off tasks leave no queue record once they finish, and claiming a ta
 Database backups created from the private control panel are packaged as a zip and sent to the owner's Telegram chat immediately. The zip contains the snapshot plus its JSON metadata (creation time, encryption flag and SHA-256), so the downloaded copy can be verified later.
 
 Backups older than three days are removed permanently, together with their metadata (and `.sha256` files for release archives). Cleanup runs after every new backup and in the daily host-maintenance job, and no expired snapshot is exempt. The zip copy already sent to Telegram remains the off-host recovery copy after the local file is deleted. Encrypted backups stay encrypted inside the zip; unencrypted snapshots may include sensitive task text and are only sent to the authenticated private chat.
+
+## Host Tool Management
+
+The private control panel now has an **Agent tools** screen, and `/tools` exposes the same inventory from chat:
+
+- `/tools` lists every supported external tool with its state and version; `/tools <key>` shows its package, commands, version, size and any missing or unsafe path.
+- The catalogue is fixed in code and covers `git`, `gh`, `curl`, `jq`, `rg`, `yt-dlp`, `aria2`, `ffmpeg`, `age`, `poppler` and `tesseract`. Core tools (`git`, `gh`, `curl`) cannot be disabled or removed.
+- **Disable** stops the Bridge capability that depends on the tool without uninstalling it. Downloading video/audio, local media analysis, PDF OCR and encrypted backups are gated accordingly.
+- **Install**, **Update** and **Remove** run through a root-owned, fixed-argument helper (`/usr/local/sbin/opencode-bridge-tools`) with one narrow `sudoers` rule. No package name, path or shell text is accepted from a callback.
+- **Activate all** installs missing catalogue packages, re-enables every capability and then audits binaries, permissions and package integrity. It warns that `ffmpeg` and `tesseract` are heavy packages before starting.
+- Removal is recorded in `runtime/tool-policy.json`; the daily provisioning script reads that policy and does not silently reinstall a package the owner removed. A corrupt policy fails closed.
+- Package actions share the existing host-operation guard, so they cannot overlap an OS upgrade, reboot or service restart.
 
 ## Safety & Execution Guardrails
 

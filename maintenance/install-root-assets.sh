@@ -19,6 +19,8 @@ fi
 install -m 0750 -o root -g root "${MAINTENANCE_DIR}/daily-maintenance.sh" /usr/local/sbin/opencode-bridge-maintenance
 install -m 0750 -o root -g root "${MAINTENANCE_DIR}/reboot-guard.sh" /usr/local/sbin/opencode-bridge-reboot-guard
 install -m 0750 -o root -g root "${MAINTENANCE_DIR}/resource-optimizer.sh" /usr/local/sbin/opencode-bridge-resource-optimizer
+install -m 0750 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-tools.py" /usr/local/sbin/opencode-bridge-tools
+python3 -c 'import pathlib; compile(pathlib.Path("/usr/local/sbin/opencode-bridge-tools").read_text(), "opencode-bridge-tools", "exec")'
 install -m 0644 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-resource-optimizer.service" /etc/systemd/system/opencode-bridge-resource-optimizer.service
 install -m 0644 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-resource-optimizer.timer" /etc/systemd/system/opencode-bridge-resource-optimizer.timer
 install -m 0644 -o root -g root "${MAINTENANCE_DIR}/opencode-bridge-maintenance.service" /etc/systemd/system/opencode-bridge-maintenance.service

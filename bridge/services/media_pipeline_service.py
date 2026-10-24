@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from bridge.domain.attachments.media_pipeline import MediaInput, MediaPipeline
 from bridge.infrastructure.media.archive_processor import ZipArchiveProcessor
 from bridge.infrastructure.media.processors import (
@@ -12,8 +14,8 @@ from bridge.infrastructure.media.tools import detect_media_tools
 
 
 class MediaPipelineService:
-    def __init__(self) -> None:
-        tools = detect_media_tools()
+    def __init__(self, disabled_tools: Iterable[str] = ()) -> None:
+        tools = detect_media_tools(disabled_tools)
         self.tools = tools
         self.pipeline = MediaPipeline([
             ImageProcessor(tools),

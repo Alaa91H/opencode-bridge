@@ -13,6 +13,7 @@ import tarfile
 import tempfile
 import uuid
 import zipfile
+from collections.abc import Callable
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -23,8 +24,15 @@ from bridge.services.host_credentials import secure_write
 class AdminBackups:
     RETENTION_DAYS = 3
 
-    def __init__(self, project: Path, release_root: Path | None = None):
+    def __init__(
+        self,
+        project: Path,
+        release_root: Path | None = None,
+        *,
+        tool_enabled: Callable[[str], bool] | None = None,
+    ):
         self.project = Path(project)
+        self._tool_enabled = tool_enabled or (lambda _key: True)
         # Derive the default from the project so tests and alternate installs
         # never read or prune the live host's release archives.  For the real
         # checkout this is exactly /home/ubuntu/opencode-backups/releases.
@@ -140,6 +148,8 @@ class AdminBackups:
         if recipient.is_symlink() or not recipient.is_file():
             raise ValueError("Configure runtime/backup-age-recipient with your age public key")
         key = recipient.read_text(encoding="ascii").strip()
+        if not self._tool_enabled("age"):
+            raise ValueError("The age tool is disabled in tool management")
         if not key.startswith("age1") or len(key) > 160 or not shutil.which("age"):
             raise ValueError("A valid age recipient and the age program are required")
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)

@@ -33,6 +33,16 @@ class MediaPipelineTests(unittest.TestCase):
         self.assertFalse(caps.pdf)
         self.assertEqual(which.call_count, 5)
 
+    def test_owner_disabled_tools_are_not_detected(self):
+        with patch("bridge.infrastructure.media.tools.shutil.which", return_value="/usr/bin/tool") as which:
+            caps = detect_media_tools({"ffmpeg", "poppler", "tesseract"})
+        self.assertIsNone(caps.ffmpeg)
+        self.assertIsNone(caps.ffprobe)
+        self.assertIsNone(caps.tesseract)
+        self.assertIsNone(caps.pdftotext)
+        self.assertIsNone(caps.pdfimages)
+        self.assertEqual(which.call_count, 0)
+
     def test_processors_degrade_without_optional_tools(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

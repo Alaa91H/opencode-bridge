@@ -36,6 +36,20 @@ class MediaDownloadTests(unittest.IsolatedAsyncioTestCase):
                 now=datetime.fromisoformat(record.created_at) + timedelta(hours=25))["removed"], 1)
             self.assertFalse(Path(record.path).exists())
 
+    async def test_disabled_ytdlp_is_refused_before_the_subprocess(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            exe = root / "fake-ytdlp"
+            exe.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            exe.chmod(0o700)
+            service = DownloadService(
+                root / "downloads", ytdlp_path=str(exe),
+                allow_private_hosts=True, tool_enabled=lambda key: key != "yt-dlp",
+            )
+            self.assertFalse(service.capabilities()["ytdlp_available"])
+            with self.assertRaises(DownloadError):
+                await service.fetch("owner", "https://example.org/watch?v=1", media=True)
+
     async def test_media_fails_before_subprocess_for_local_url(self):
         with tempfile.TemporaryDirectory() as folder:
             service = DownloadService(Path(folder), ytdlp_path="/nonexistent/ytdlp")

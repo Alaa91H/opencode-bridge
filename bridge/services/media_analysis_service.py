@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -49,20 +50,23 @@ class MediaAnalysisService:
         pipeline: MediaPipeline | None = None,
         deadline_seconds: float = DEFAULT_DEADLINE_SECONDS,
         tool_timeout: int = TOOL_TIMEOUT_SECONDS,
+        disabled_tools: Iterable[str] = (),
     ) -> None:
-        self.pipeline = pipeline or self._build_pipeline(tool_timeout)
+        self.pipeline = pipeline or self._build_pipeline(tool_timeout, disabled_tools)
         self.deadline_seconds = max(0.1, float(deadline_seconds))
         self.router = AttachmentIntelligenceRouter()
         # Shares the caps and the honesty rules of the in-process path.
         self.limits = AttachmentContextService()
 
     @staticmethod
-    def _build_pipeline(tool_timeout: int) -> MediaPipeline:
+    def _build_pipeline(tool_timeout: int, disabled_tools: Iterable[str] = ()) -> MediaPipeline:
         """Reuse the existing processor set, but with a bounded tool timeout."""
         from bridge.infrastructure.media.processors import PdfProcessor
         from bridge.infrastructure.media.tools import detect_media_tools
 
-        return MediaPipeline([PdfProcessor(detect_media_tools(), timeout=tool_timeout)])
+        return MediaPipeline([
+            PdfProcessor(detect_media_tools(disabled_tools), timeout=tool_timeout)
+        ])
 
     # ---- selection ------------------------------------------------------
     @staticmethod

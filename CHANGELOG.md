@@ -1,3 +1,23 @@
+## [3.63.0] - 2026-10-24
+
+### The owner can now manage the agent's external tools from the panel
+
+The bridge depended on a fixed set of host utilities, but there was no way to see which ones were usable, stop a capability without uninstalling it, install a missing parser when a task actually needed it, or remove a heavy package the server no longer needed. Package changes were also outside the host-operation guard and could race an upgrade or reboot.
+
+- **Tool inventory and `/tools`** — the control panel has an Agent tools screen and `/tools <key>` shows package, command paths, version, size, missing commands and unsafe permissions. The catalogue is fixed to `git`, `gh`, `curl`, `jq`, `rg`, `yt-dlp`, `aria2`, `ffmpeg`, `age`, `poppler` and `tesseract`; no caller-supplied package names are accepted.
+- **Capability policy** — `runtime/tool-policy.json` records disabled and removed tool keys. Disabling `yt-dlp`, `ffmpeg`, `tesseract`, `poppler` or `age` immediately gates the corresponding download, media, OCR and backup paths. Core tools cannot be disabled or removed, and an invalid policy fails closed.
+- **Root-owned package helper** — install, update and remove run through `/usr/local/sbin/opencode-bridge-tools`, a root-owned helper with its own static tool map, exact argument validation, a core-tool removal refusal and `apt-get` only. The bridge gets one narrow sudoers rule; it cannot pass a package name or shell text.
+- **Daily provisioning respects removal** — `scripts/install-dev-tools.sh` now reads the policy and skips packages the owner removed, so the 08:30 UTC maintenance run cannot silently undo a deliberate removal.
+- **Activation and hardening** — one action installs every missing catalogue tool, re-enables all capabilities and audits command paths, permissions and `dpkg --verify` integrity. It warns about the heavy `ffmpeg` and `tesseract` packages.
+- **Host-operation safety** — package work joins the existing process-wide guard, so it cannot overlap an OS upgrade, reboot, service restart or cleanup.
+- **Tests** — new service, command, UI and maintenance-asset tests cover policy fail-closed behaviour, required-tool protection, helper absence, install/remove transitions, disabled media and download paths, age gating, confirmation flows and installer/sudoers boundaries.
+
+### Upgrade notes
+
+- Root assets must be refreshed once to install the helper and its sudoers rule: `sudo -E bash maintenance/install-root-assets.sh` (or wait for the daily maintenance run). Until then the panel reports the helper as unavailable and refuses package actions.
+- No database migration and no dependency changes. Existing tools keep working; only explicitly disabled or removed entries change behaviour.
+- The daily provisioning script now honours `runtime/tool-policy.json`; verify the policy exists before relying on removal persistence.
+
 ## [3.62.1] - 2026-10-23
 
 ### Three-day retention now deletes every expired backup
