@@ -45,7 +45,7 @@ class SelfUpdatePolicyTests(unittest.TestCase):
 
     def test_version_ahead_does_not_downgrade(self):
         with tempfile.TemporaryDirectory() as folder:
-            (Path(folder) / "runtime").mkdir()
+            (Path(folder) / "runtime").mkdir(mode=0o700)
             (Path(folder) / "runtime" / "auto-update-enabled").write_text("1\n", encoding="ascii")
             Path(folder, "VERSION").write_text("3.2.0\n", encoding="utf-8")
             called = []
@@ -63,7 +63,7 @@ class SelfUpdatePolicyTests(unittest.TestCase):
     def test_failed_activation_quarantines_only_the_failed_tag(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            (root / "runtime").mkdir()
+            (root / "runtime").mkdir(mode=0o700)
             (root / "runtime" / "auto-update-enabled").write_text("1\n", encoding="ascii")
             (root / "VERSION").write_text("3.2.0\n", encoding="utf-8")
             release = {"tag": "v3.3.0"}
@@ -119,7 +119,7 @@ class SelfUpdatePolicyTests(unittest.TestCase):
     def test_corrupt_quarantine_refuses_automatic_activation(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            (root / "runtime").mkdir()
+            (root / "runtime").mkdir(mode=0o700)
             (root / "runtime" / self_update.QUARANTINE_FILE).write_text(
                 "not JSON", encoding="utf-8",
             )
@@ -130,7 +130,7 @@ class SelfUpdatePolicyTests(unittest.TestCase):
     def test_modes_respect_off_notify_and_explicit_maintenance_window(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            (root / "runtime").mkdir()
+            (root / "runtime").mkdir(mode=0o700)
             (root / "VERSION").write_text("3.2.0\n", encoding="utf-8")
             mode_path = root / "runtime" / "autopilot-mode"
             calls = []
@@ -191,7 +191,7 @@ class SelfUpdatePolicyTests(unittest.TestCase):
     def test_emergency_stop_blocks_manual_and_automated_release_actions(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            (root / "runtime").mkdir()
+            (root / "runtime").mkdir(mode=0o700)
             (root / "runtime" / "autopilot-mode").write_text(
                 "emergency-stop\n", encoding="ascii",
             )
@@ -211,7 +211,7 @@ class SelfUpdatePolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             runtime = root / "runtime"
-            runtime.mkdir()
+            runtime.mkdir(mode=0o700)
             flag = runtime / "auto-update-enabled"
             for value in ("yes", "2", "1\\n0", "", "true"):
                 with self.subTest(flag=value):
@@ -223,7 +223,7 @@ class SelfUpdatePolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             self.assertEqual(self_update.deployment_mode(root), "off")
-            (root / "runtime").mkdir()
+            (root / "runtime").mkdir(mode=0o700)
             legacy = root / "runtime" / "auto-update-enabled"
             legacy.write_text("0\n", encoding="ascii")
             self.assertEqual(self_update.deployment_mode(root), "off")
@@ -234,7 +234,7 @@ class SelfUpdatePolicyTests(unittest.TestCase):
     def test_check_only_ignores_disabled_deployment_but_never_activates(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            (root / "runtime").mkdir()
+            (root / "runtime").mkdir(mode=0o700)
             (root / "runtime" / "autopilot-mode").write_text("off\n", encoding="ascii")
             (root / "VERSION").write_text("3.2.0\n", encoding="ascii")
             commit = "b" * 40
@@ -282,7 +282,7 @@ class SelfUpdatePolicyTests(unittest.TestCase):
     def test_manual_apply_can_update_even_if_automatic_mode_is_off(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            (root / "runtime").mkdir()
+            (root / "runtime").mkdir(mode=0o700)
             (root / "runtime" / "autopilot-mode").write_text("off\n", encoding="ascii")
             (root / "VERSION").write_text("3.2.0\n", encoding="ascii")
             commit = "c" * 40
@@ -317,7 +317,7 @@ class SelfUpdatePolicyTests(unittest.TestCase):
     def test_manual_apply_does_not_bypass_release_quarantine(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            (root / "runtime").mkdir()
+            (root / "runtime").mkdir(mode=0o700)
             (root / "VERSION").write_text("3.2.0\n", encoding="ascii")
             self_update.quarantine_failed_activation(root, "v3.3.0", "d" * 40,
                                                        "CalledProcessError")

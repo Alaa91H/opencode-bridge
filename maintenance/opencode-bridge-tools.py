@@ -44,7 +44,7 @@ def usage() -> int:
 
 def run(argv: list[str], *, timeout: int) -> int:
     try:
-        completed = subprocess.run(  # noqa: S603 -- fixed argv built from the map above
+        completed = subprocess.run(
             argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, timeout=timeout, env=APT_ENV,
             check=False,
