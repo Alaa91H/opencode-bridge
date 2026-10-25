@@ -1123,6 +1123,63 @@ class TaskQueueStore:
             await db.commit()
         return await self.get(task_id) if cursor.rowcount else None
 
+    async def move_waiting(self, task_id: int, owner_id: str, offset: int) -> QueuedTask | None:
+        """Move one waiting task by ``offset`` positions in its owner's queue.
+
+        The queue order is the same one the claim query uses. Re-numbering the
+        waiting priorities makes the move exact even when several rows share a
+        priority; running work is never touched.
+        """
+        if offset not in (-1, 1):
+            raise ValueError("move step must be -1 or 1")
+        db = await self._get_db()
+        now = encode_time(utc_now())
+        async with self._lock:
+            async with db.execute(
+                """
+                SELECT * FROM agent_tasks
+                WHERE owner_id = ? AND status IN ('queued', 'retrying')
+                ORDER BY priority DESC, created_at, id
+                """,
+                (owner_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+            position = next(
+                (index for index, row in enumerate(rows) if int(row["id"]) == task_id),
+                None,
+            )
+            if position is None:
+                return None
+            target = position + offset
+            if not 0 <= target < len(rows):
+                return self._from_row(rows[position])
+            ordered = list(rows)
+            ordered[position], ordered[target] = ordered[target], ordered[position]
+            for index, row in enumerate(ordered, 1):
+                await db.execute(
+                    "UPDATE agent_tasks SET priority=?, updated_at=? WHERE id=? AND owner_id=?",
+                    (len(ordered) - index, now, int(row["id"]), owner_id),
+                )
+            await db.commit()
+        return await self.get(task_id)
+
+    async def update_waiting_prompt(
+        self, task_id: int, owner_id: str, prompt: str,
+    ) -> QueuedTask | None:
+        """Replace the complete prompt of one not-yet-started task."""
+        clean = prompt.strip()
+        if not clean:
+            raise ValueError("أمر المهمة فارغ")
+        db = await self._get_db()
+        async with self._lock:
+            cursor = await db.execute(
+                "UPDATE agent_tasks SET prompt=?, updated_at=? "
+                "WHERE id=? AND owner_id=? AND status IN ('queued','retrying')",
+                (clean, encode_time(utc_now()), task_id, owner_id),
+            )
+            await db.commit()
+        return await self.get(task_id) if cursor.rowcount else None
+
     async def list_recent(self, owner_id: str, limit: int = 10) -> list[QueuedTask]:
         db = await self._get_db()
         async with self._lock:

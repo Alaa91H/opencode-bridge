@@ -37,8 +37,8 @@ log = logging.getLogger(__name__)
 
 WORDS = {
     "ar": {
-        "home": "🏠 الرئيسية", "agent": "🤖 إدارة الوكيل", "tasks": "📋 المهام",
-        "schedules": "📅 الجدولة", "downloads": "📁 الملفات", "settings": "⚙️ الإعدادات", "keys": "🔑 مفاتيح API", "server": "🖥 الخادم", "memory": "💾 الذاكرة", "updates": "🔃 التحديث التلقائي", "key_add": "➕ إضافة مفتاح", "key_auto": "🔄 تدوير تلقائي",
+        "home": "🏠 الرئيسية", "agent": "🤖 إدارة الوكيل", "tasks": "📋 قائمة المهام",
+        "schedules": "📅 المهام المجدولة", "downloads": "📁 الملفات", "settings": "⚙️ الإعدادات", "keys": "🔑 مفاتيح API", "server": "🖥 الخادم", "memory": "💾 الذاكرة", "updates": "🔃 التحديث التلقائي", "key_add": "➕ إضافة مفتاح", "key_auto": "🔄 تدوير تلقائي",
         "language": "🌐 اللغة", "models": "🧠 النموذج والتفكير",
         "agents": "🔄 تبديل الوكيل", "workers": "⚡ المهام المتزامنة",
         "direct": "✉️ أمر مباشر", "daily": "🔁 مهمة يومية",
@@ -47,6 +47,9 @@ WORDS = {
         "stop": "🛑 إيقاف", "retry": "♻️ إعادة المحاولة",
         "yes": "✅ تأكيد", "no": "❌ إلغاء", "delete": "🗑 حذف",
         "on": "✅ مفعّل", "off": "⏸ متوقف",
+        "pause_job": "⏸ إيقاف الجدولة", "resume_job": "▶️ تشغيل الجدولة",
+        "edit_time": "📅 تعديل الموعد", "edit_repeat": "🔁 تعديل التكرار",
+        "next_run": "التشغيل التالي",
         "empty": "لا توجد عناصر.", "cancelled": "أُلغي الطلب.",
         "error": "تعذر تنفيذ العملية. حاول من جديد.",
         "input": "أرسل النص في رسالتك التالية (لا يلزم كتابة أمر /).",
@@ -57,6 +60,21 @@ WORDS = {
         "timezone": "🌍 البلد والتوقيت", "tz_custom": "✍️ توقيت آخر",
         "tz_prompt": "أرسل منطقة زمنية IANA مثل Asia/Damascus أو Europe/Berlin.",
         "priority_up": "⬆️ رفع الأولوية", "priority_down": "⬇️ خفض الأولوية",
+        "edit_task": "✏️ تعديل", "move_up": "⬆️ أعلى", "move_down": "⬇️ أسفل",
+        "queue_running": "قيد التنفيذ الآن:", "queue_waiting": "بانتظار التنفيذ ({count}):",
+        "queue_empty": "طابور المهام فاضي. أضف أمرًا مباشرًا أو مهمة يومية من الأزرار تحت.",
+        "failed_tasks": "مهام فاشلة:",
+        "recurrence": "التكرار", "once": "مرة واحدة",
+        "daily_repeat": "يوميًا", "weekly_repeat": "أسبوعيًا",
+        "monthly_repeat": "شهريًا (كل 30 يومًا)",
+        "every_minutes": "كل {count} دقيقة", "every_hours": "كل {count} ساعة",
+        "every_days": "كل {count} يوم", "every_seconds": "كل {count} ثانية",
+        "no_next_run": "لا يوجد موعد تالٍ",
+        "task_edit_prompt": "أرسل أمر المهمة الكامل الجديد؛ سيُستبدل النص القديم بالكامل.",
+        "schedule_edit_prompt": "أرسل أمر المهمة المجدولة الكامل الجديد؛ سيُستبدل النص القديم بالكامل.",
+        "schedule_time_detail": "أرسل الموعد المحلي بصيغة YYYY-MM-DD HH:MM ({zone}).",
+        "schedule_recurrence_prompt": "أرسل التكرار: once أو 1d أو 7d أو 30d أو 12h.",
+        "invalid_value": "القيمة غير صالحة: {detail}",
         "remove_task": "🗑 حذف المهمة", "recent_tasks": "مهام سابقة:",
         "schedule_interval": "أرسل الفاصل الزمني مثل 1d أو 12h أو 30m.",
         "schedule_prompt": "أرسل تعليمات المهمة المجدولة.",
@@ -94,8 +112,8 @@ WORDS = {
         "saved": "حُفظ التغيير.", "not_found": "انتهت صلاحية هذا الزر؛ افتح القائمة من جديد.",
         "home_text": "لوحة تحكم OpenCode Bridge\nاختر القسم أو استخدم الأزرار الثابتة أسفل المحادثة.",
         "agent_text": "إدارة وكيل OpenCode\nالوكيل: {agent}\nالنموذج: {model}\nمستوى التفكير: {reason}",
-        "tasks_text": "المهام النشطة والفاشلة (صف انتظار واحد لجميع المستخدمين).",
-        "schedules_text": "المهام المجدولة؛ شغّل أو أوقف الجدولة بزر واحد.",
+        "tasks_text": "قائمة المهام: تنفيذ واحد بعد الآخر بترتيب الإدخال. المهمة المنتهية تُحذف تلقائيًا، والمنتظرة قابلة للتعديل أو النقل.",
+        "schedules_text": "المهام المجدولة: افتح أي مهمة لتعديل أمرها أو موعدها أو تكرارها.",
         "download_text": "الملفات المحمّلة: إرسال أو حذف الملفات.",
         "settings_text": "اللغة وحدود التزامن. مهمة واحدة افتراضيًا، وبحد أقصى مهمتين.",
         "language_text": "اختر لغة الواجهة:", "worker_text": "الحد الفعلي الحالي: {limit}\nالحد الأعلى: 2. المهام الجارية لا تُلغى عند خفض العدد.",
@@ -103,7 +121,7 @@ WORDS = {
         "reason_text": "مستويات التفكير المتاحة للنموذج {model}:",
         "agent_list_text": "اختر الوكيل من قائمة OpenCode الفعلية:",
         "confirm_text": "هل تؤكد تنفيذ العملية؟",
-        "help_text": "اختر مهمة مباشرة أو يومية، ثم أرسل تعليماتك كنص. المهمة اليومية تتابع بعد تجدد الرصيد عند 12:00 UTC. من قسم الوكيل يمكنك تغيير الوكيل والنموذج والتفكير. لعرض الأوامر القديمة استخدم /help.",
+        "help_text": "افتح قائمة المهام لإضافة أمر مباشر أو مهمة يومية ومتابعة الطابور وتعديله. المهمة اليومية تتابع بعد تجدد الرصيد عند 12:00 UTC. افتح المهام المجدولة لتعديل الموعد أو التكرار. من قسم الوكيل يمكنك تغيير الوكيل والنموذج والتفكير. لعرض الأوامر القديمة استخدم /help.",
         "server_text": "إدارة الخادم: التحديثات والذاكرة وحالة النشر.",
         "memory_text": "إعدادات الذاكرة (تُطبّق بواسطة خدمة النظام خلال ساعة تقريبًا).",
         "updates_text": "وضع تحديث Bridge تلقائيًا: {state}",
@@ -119,8 +137,8 @@ WORDS = {
         "success": "تمت العملية.", "number_one": "1 — موصى به", "number_two": "2 — عند الحاجة",
     },
     "en": {
-        "home": "🏠 Home", "agent": "🤖 Agent manager", "tasks": "📋 Tasks",
-        "schedules": "📅 Schedules", "downloads": "📁 Files", "settings": "⚙️ Settings", "keys": "🔑 API keys", "server": "🖥 Server", "memory": "💾 Memory", "updates": "🔃 Auto-update", "key_add": "➕ Add key", "key_auto": "🔄 Auto rotation",
+        "home": "🏠 Home", "agent": "🤖 Agent manager", "tasks": "📋 Task queue",
+        "schedules": "📅 Scheduled tasks", "downloads": "📁 Files", "settings": "⚙️ Settings", "keys": "🔑 API keys", "server": "🖥 Server", "memory": "💾 Memory", "updates": "🔃 Auto-update", "key_add": "➕ Add key", "key_auto": "🔄 Auto rotation",
         "language": "🌐 Language", "models": "🧠 Model & reasoning",
         "agents": "🔄 Switch agent", "workers": "⚡ Parallel tasks",
         "direct": "✉️ Direct task", "daily": "🔁 Daily task",
@@ -129,6 +147,9 @@ WORDS = {
         "stop": "🛑 Cancel", "retry": "♻️ Retry",
         "yes": "✅ Confirm", "no": "❌ Back", "delete": "🗑 Delete",
         "on": "✅ Enabled", "off": "⏸ Paused",
+        "pause_job": "⏸ Pause schedule", "resume_job": "▶️ Resume schedule",
+        "edit_time": "📅 Edit date/time", "edit_repeat": "🔁 Edit recurrence",
+        "next_run": "Next run",
         "empty": "Nothing to show.", "cancelled": "Action cancelled.",
         "error": "Could not complete the action. Please retry.",
         "input": "Send the instruction in your next message (no / command needed).",
@@ -139,6 +160,21 @@ WORDS = {
         "timezone": "🌍 Country & time", "tz_custom": "✍️ Other timezone",
         "tz_prompt": "Send an IANA timezone like America/New_York or Europe/Berlin.",
         "priority_up": "⬆️ Higher priority", "priority_down": "⬇️ Lower priority",
+        "edit_task": "✏️ Edit", "move_up": "⬆️ Up", "move_down": "⬇️ Down",
+        "queue_running": "Running now:", "queue_waiting": "Waiting ({count}):",
+        "queue_empty": "The task queue is empty. Add a direct or daily task with the buttons below.",
+        "failed_tasks": "Failed tasks:",
+        "recurrence": "Recurrence", "once": "Once",
+        "daily_repeat": "Daily", "weekly_repeat": "Weekly",
+        "monthly_repeat": "Monthly (every 30 days)",
+        "every_minutes": "Every {count} minutes", "every_hours": "Every {count} hours",
+        "every_days": "Every {count} days", "every_seconds": "Every {count} seconds",
+        "no_next_run": "No next run",
+        "task_edit_prompt": "Send the complete replacement instruction for this queued task.",
+        "schedule_edit_prompt": "Send the complete replacement instructions for this schedule.",
+        "schedule_time_detail": "Send the local date/time as YYYY-MM-DD HH:MM ({zone}).",
+        "schedule_recurrence_prompt": "Send the recurrence: once, 1d, 7d, 30d or 12h.",
+        "invalid_value": "Invalid value: {detail}",
         "remove_task": "🗑 Delete task", "recent_tasks": "Previous tasks:",
         "schedule_interval": "Send an interval such as 1d, 12h or 30m.",
         "schedule_prompt": "Send the task instructions to schedule.",
@@ -176,8 +212,8 @@ WORDS = {
         "not_found": "This button is stale; reopen the menu.",
         "home_text": "OpenCode Bridge control center\nChoose a section or use the persistent keyboard below.",
         "agent_text": "OpenCode agent manager\nAgent: {agent}\nModel: {model}\nReasoning: {reason}",
-        "tasks_text": "Active and failed tasks (one shared work queue).",
-        "schedules_text": "Scheduled jobs. Enable or pause using buttons.",
+        "tasks_text": "Task queue: one task at a time in insertion order. Finished tasks are removed automatically; waiting tasks can be edited or moved.",
+        "schedules_text": "Scheduled tasks: open any task to edit its instructions, date/time or recurrence.",
         "download_text": "Downloaded files: send or remove.",
         "settings_text": "Language and concurrency settings. One task by default, two maximum.",
         "language_text": "Choose interface language:",
@@ -186,7 +222,7 @@ WORDS = {
         "reason_text": "Supported reasoning levels for {model}:",
         "agent_list_text": "Choose an agent from the live OpenCode list:",
         "confirm_text": "Confirm this action?",
-        "help_text": "Choose Direct task or Daily task, then send plain instructions. Daily tasks resume after the 12:00 UTC quota reset. Use Agent manager to select the agent, model and reasoning. Legacy commands remain available via /help.",
+        "help_text": "Open the task queue to add a direct or daily task, then manage and reorder waiting work. Daily tasks resume after the 12:00 UTC quota reset. Open scheduled tasks to edit dates or recurrence. Use Agent manager to select the agent, model and reasoning. Legacy commands remain available via /help.",
         "server_text": "Server controls: updates, memory and deployment status.",
         "memory_text": "Memory policy (root service applies updates within roughly an hour).",
         "updates_text": "Bridge update mode: {state}",
@@ -328,7 +364,7 @@ def pre_block(text: str, limit: int = 3400) -> str:
     return "<pre>" + escaped + "</pre>"
 
 
-BUTTON_KEYS = (("home", "agent"), ("credentials", "backups"), ("direct", "tasks"), ("daily", "schedules"), ("downloads", "mirrors"), ("server", "settings"), ("language", "advanced"), ("help",))
+BUTTON_KEYS = (("home", "agent"), ("credentials", "backups"), ("tasks", "schedules"), ("downloads", "mirrors"), ("server", "settings"), ("language", "advanced"), ("help",))
 BINDINGS = {value: key for lang in WORDS.values() for key in
             ("home", "agent", "credentials", "keys", "hostkeys", "backups", "mirrors", "direct", "daily", "tasks", "schedules", "downloads", "server", "settings", "language", "advanced", "help")
             for value in (lang[key],)}
@@ -347,6 +383,26 @@ def button(label: str, action: str, *parts: Any) -> InlineKeyboardButton:
 
 def safe(value: object, limit: int = 100) -> str:
     return html.escape(str(value)[:limit], quote=False)
+
+
+def recurrence_label(seconds: int | None, words: dict[str, str]) -> str:
+    """Human label for the interval stored on a scheduled job."""
+    if not seconds:
+        return words["once"]
+    if seconds % 86400 == 0:
+        days = seconds // 86400
+        if days == 1:
+            return words["daily_repeat"]
+        if days == 7:
+            return words["weekly_repeat"]
+        if days == 30:
+            return words["monthly_repeat"]
+        return words["every_days"].format(count=days)
+    if seconds % 3600 == 0:
+        return words["every_hours"].format(count=seconds // 3600)
+    if seconds % 60 == 0:
+        return words["every_minutes"].format(count=seconds // 60)
+    return words["every_seconds"].format(count=seconds)
 
 
 class ControlUI:
@@ -405,6 +461,12 @@ class ControlUI:
     async def _lang(self, owner: str) -> str:
         value = (await self.preferences.get(owner)).language
         return value if value in WORDS else "en"
+
+    async def _schedule_job(self, owner: str, job_id: int) -> Any:
+        job = await self.schedule_store.get_scheduled_job_by_id(int(job_id), owner)
+        if job is None:
+            raise ValueError("stale schedule")
+        return job
 
     @staticmethod
     def _tool_state(t: dict, status: Any) -> str:
@@ -465,8 +527,8 @@ class ControlUI:
 
         if screen == "home":
             text = t["home_text"]
-            for key in ("agent", "credentials", "direct", "daily", "research", "tasks", "schedules", "downloads", "mirrors", "backups", "server", "tools", "settings", "advanced", "help"):
-                if key in ("direct", "daily", "research"):
+            for key in ("agent", "credentials", "research", "tasks", "schedules", "downloads", "mirrors", "backups", "server", "tools", "settings", "advanced", "help"):
+                if key == "research":
                     rows.append([button(t[key], "input", key)])
                 else:
                     nav(t[key], key)
@@ -517,26 +579,40 @@ class ControlUI:
         elif screen == "tasks":
             text = t["tasks_text"]
             active = await self.tasks.active(owner)
+            waiting = await self.tasks.waiting(owner)
             failed = await self.tasks.failed(owner)
-            if not active and not failed:
-                text += "\n" + t["empty"]
-            for task in active[:8]:
-                text += "\n• " + safe(task.status) + " — " + safe(task.prompt, 70)
-                if task.status in {"queued", "retrying"}:
-                    rows.append([button(t["priority_up"], "priority", task.id, 1),
-                                 button(t["priority_down"], "priority", task.id, -1)])
-                rows.append([button(t["stop"] + " #" + str(task.id), "confirm", "cancel", task.id),
-                             button(t["remove_task"], "confirm", "task", task.id)])
-            for task in failed[:8]:
-                text += "\n• " + safe(task.status) + " — " + safe(task.prompt, 70)
-                rows.append([button(t["retry"] + " #" + str(task.id), "retry", task.id)])
-            previous = await self.tasks.recent(owner)
-            if previous:
-                text += "\n" + t["recent_tasks"]
-            for task in previous[:8]:
-                text += "\n• " + safe(task.status) + " #" + str(task.id)
-                rows.append([button(t["remove_task"] + " #" + str(task.id), "confirm", "task", task.id)])
-            rows.append([button(t["direct"], "input", "direct"), button(t["daily"], "input", "daily")])
+            running = [task for task in active if task.status in {"running", "leased"}]
+            if running:
+                text += "\n\n" + t["queue_running"]
+                for task in running[:3]:
+                    text += "\n• #" + str(task.id) + " — " + safe(task.prompt, 90)
+                    rows.append([button(
+                        t["stop"] + " #" + str(task.id), "confirm", "cancel", task.id)])
+            if waiting:
+                text += "\n\n" + t["queue_waiting"].format(count=len(waiting))
+                for position, task in enumerate(waiting[:10], 1):
+                    text += f"\n{position}. #{task.id} — {safe(task.prompt, 90)}"
+                    controls = [
+                        button(t["edit_task"] + " #" + str(task.id),
+                               "input", "task_edit", task.id)]
+                    if position > 1:
+                        controls.append(button(t["move_up"], "move", task.id, -1))
+                    if position < len(waiting):
+                        controls.append(button(t["move_down"], "move", task.id, 1))
+                    controls.append(button(
+                        t["delete"] + " #" + str(task.id), "confirm", "task", task.id))
+                    rows.append(controls)
+                if len(waiting) > 10:
+                    text += "\n… " + str(len(waiting) - 10) + " +"
+            if not running and not waiting:
+                text += "\n\n" + t["queue_empty"]
+            if failed:
+                text += "\n\n" + t["failed_tasks"]
+                for task in failed[:5]:
+                    text += "\n• #" + str(task.id) + " — " + safe(task.prompt, 80)
+                    rows.append([button(t["retry"] + " #" + str(task.id), "retry", task.id)])
+            rows.append([button(t["direct"], "input", "direct"),
+                         button(t["daily"], "input", "daily")])
             nav(t["refresh"], "tasks")
         elif screen == "schedules":
             text = t["schedules_text"]
@@ -544,14 +620,43 @@ class ControlUI:
             if not jobs:
                 text += "\n" + t["empty"]
             for job in jobs[:15]:
-                due = display_local(job.next_run_at, job.timezone_name) if job.next_run_at else "—"
-                text += "\n• " + safe(job.name, 60) + " (" + safe(due) + ")"
-                rows.append([button((t["on"] if job.enabled else t["off"]) + " " + job.name[:25], "schedule", job.id),
-                             button(t["delete"], "confirm", "schedule", job.id)])
+                due = display_local(job.next_run_at, job.timezone_name) if job.next_run_at else t["no_next_run"]
+                timing = recurrence_label(job.repeat_seconds, t)
+                state = t["on"] if job.enabled else t["off"]
+                text += "\n" + state + " " + safe(job.name, 60) + " — " + timing + " — " + safe(due, 40)
+                rows.append([
+                    button("📋 " + job.name[:30], "go", "schedule." + str(job.id)),
+                    button(t["pause_job"] if job.enabled else t["resume_job"],
+                           "schedule", job.id)])
+            if len(jobs) > 15:
+                text += "\n… " + str(len(jobs) - 15) + " +"
             rows.append([button(t["create_schedule"], "input", "schedule_once"),
                          button(t["create_repeat"], "input", "schedule_recurring")])
             nav(t["timezone"], "timezone")
             nav(t["refresh"], "schedules")
+        elif screen.startswith("schedule."):
+            job = await self._schedule_job(owner, int(screen.split(".", 1)[1]))
+            due = display_local(job.next_run_at, job.timezone_name) if job.next_run_at else t["no_next_run"]
+            timing = recurrence_label(job.repeat_seconds, t)
+            state = t["on"] if job.enabled else t["off"]
+            text = (
+                safe(job.name, 80) + "\n"
+                + state + " · " + timing + "\n"
+                + t["next_run"] + ": " + safe(due, 40) + "\n"
+                + t["timezone"] + ": " + safe(job.timezone_name, 40) + "\n\n"
+                + safe(job.prompt, 1200)
+            )
+            rows.append([button(t["edit_task"], "input", "sched_edit", job.id),
+                         button(t["edit_time"], "input", "sched_time", job.id)])
+            rows.append([button(t["edit_repeat"], "input", "sched_repeat", job.id),
+                         button(t["pause_job"] if job.enabled else t["resume_job"],
+                                "schedule", job.id)])
+            rows.append([button(t["once"], "schedrepeat", job.id, "once"),
+                         button(t["daily_repeat"], "schedrepeat", job.id, "1d")])
+            rows.append([button(t["weekly_repeat"], "schedrepeat", job.id, "7d"),
+                         button(t["monthly_repeat"], "schedrepeat", job.id, "30d")])
+            rows.append([button(t["delete"], "confirm", "schedule", job.id)])
+            nav(t["refresh"], screen)
         elif screen == "downloads":
             text = t["download_text"]
             records = self.downloads.list(owner)
@@ -841,6 +946,7 @@ class ControlUI:
             raise ValueError("unknown screen")
         if screen != "home":
             back = ("credentials" if screen in {"keys", "hostkeys"}
+                    else "schedules" if screen.startswith("schedule.")
                     else "tools" if screen.startswith("tools.")
                     else "server" if screen in {"tools", "svcctl", "procs", "disk", "power"}
                     else "svcctl" if screen.startswith("logs.") else "home")
@@ -970,7 +1076,45 @@ class ControlUI:
         lang = await self._lang(owner)
         t = WORDS[lang]
         if not text:
+            if isinstance(waiting, str) and waiting.startswith(
+                ("task_edit:", "sched_edit:", "sched_time:", "sched_repeat:")
+            ):
+                context.user_data["ui_wait"] = waiting
             await message.reply_text(t["input"])
+            return True
+        if isinstance(waiting, str) and waiting.startswith(
+            ("task_edit:", "sched_edit:", "sched_time:", "sched_repeat:")
+        ):
+            mode, _, raw_target = waiting.partition(":")
+            try:
+                target_id = int(raw_target)
+                if mode == "task_edit":
+                    updated = await self.tasks.edit_waiting_prompt(owner, target_id, text)
+                    if updated is None:
+                        raise ValueError("المهمة بدأت التنفيذ أو لم تعد بالطابور")
+                    screen = "tasks"
+                else:
+                    job = await self._schedule_job(owner, target_id)
+                    if mode == "sched_edit":
+                        await self.schedule_service.replace_prompt(owner, job.name, text)
+                    elif mode == "sched_time":
+                        when = local_to_utc(text, job.timezone_name)
+                        await self.schedule_service.change_next_run(owner, job.name, when)
+                        self.wake()
+                    else:
+                        await self.schedule_service.change_interval(owner, job.name, text)
+                        self.wake()
+                    screen = "schedule." + str(job.id)
+            except ValueError as exc:
+                context.user_data["ui_wait"] = waiting
+                await message.reply_text(t["invalid_value"].format(detail=str(exc)))
+                return True
+            except Exception:
+                log.exception("Control UI edit failed")
+                await message.reply_text(t["error"])
+                return True
+            await message.reply_text(t["saved"])
+            await self.show(update, context, screen)
             return True
         if waiting == "age_recipient":
             if not self.admin_allowed(update) or getattr(
@@ -1237,9 +1381,26 @@ class ControlUI:
                         return
             elif action == "input":
                 mode = parts[2]
-                if mode not in {"direct", "daily", "download", "media", "research", "schedule_once", "schedule_recurring", "key_add", "tz_custom", "age_recipient"}:
+                edit_modes = {"task_edit", "sched_edit", "sched_time", "sched_repeat"}
+                if mode not in {"direct", "daily", "download", "media", "research", "schedule_once", "schedule_recurring", "key_add", "tz_custom", "age_recipient"} | edit_modes:
                     raise ValueError("invalid input mode")
-                if mode == "key_add":
+                if mode in edit_modes:
+                    if len(parts) != 4:
+                        raise ValueError("missing edit target")
+                    target_id = int(parts[3])
+                    context.user_data.pop("ui_wizard", None)
+                    context.user_data["ui_wait"] = f"{mode}:{target_id}"
+                    if mode == "task_edit":
+                        prompt = t["task_edit_prompt"]
+                    else:
+                        job = await self._schedule_job(owner, target_id)
+                        if mode == "sched_edit":
+                            prompt = t["schedule_edit_prompt"]
+                        elif mode == "sched_time":
+                            prompt = t["schedule_time_detail"].format(zone=job.timezone_name)
+                        else:
+                            prompt = t["schedule_recurrence_prompt"]
+                elif mode == "key_add":
                     context.user_data.pop("ui_wait", None)
                     context.user_data["ui_wizard"] = {"mode": mode, "step": "provider"}
                     prompt = t["key_provider"]
@@ -1466,6 +1627,27 @@ class ControlUI:
                     raise ValueError("invalid country index")
                 await self.preferences.update(owner, timezone=COUNTRIES[index][1])
                 screen = "timezone"
+            elif action == "move":
+                if len(parts) != 4:
+                    raise ValueError("invalid move")
+                moved = await self.tasks.move_waiting(
+                    owner, int(parts[2]), int(parts[3]))
+                if moved is None:
+                    raise ValueError("task is not waiting")
+                self.wake()
+                screen = "tasks"
+            elif action == "schedrepeat":
+                if len(parts) != 4:
+                    raise ValueError("invalid recurrence")
+                interval = {
+                    "once": "once", "1d": "1d", "7d": "7d", "30d": "30d",
+                }.get(parts[3])
+                if interval is None:
+                    raise ValueError("unsupported recurrence")
+                job = await self._schedule_job(owner, int(parts[2]))
+                await self.schedule_service.change_interval(owner, job.name, interval)
+                self.wake()
+                screen = "schedule." + str(job.id)
             elif action == "priority":
                 changed = await self.tasks.change_priority(owner, int(parts[2]), int(parts[3]))
                 if changed is None:

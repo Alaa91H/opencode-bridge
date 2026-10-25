@@ -30,6 +30,10 @@ class TaskRepository(Protocol):
     async def cancel_running_for_owner(self, owner_id: str) -> Any | None: ...
     async def delete_user_task(self, task_id: int, owner_id: str) -> Any | None: ...
     async def change_priority(self, task_id: int, owner_id: str, delta: int) -> Any | None: ...
+    async def move_waiting(self, task_id: int, owner_id: str, offset: int) -> Any | None: ...
+    async def update_waiting_prompt(
+        self, task_id: int, owner_id: str, prompt: str,
+    ) -> Any | None: ...
     async def list_waiting(self, owner_id: str, limit: int = 50) -> list[Any]: ...
     async def delete_waiting(self, owner_id: str) -> list[Any]: ...
     async def list_recent(self, owner_id: str, limit: int = 10) -> list[Any]: ...
@@ -137,6 +141,15 @@ class TaskApplicationService:
 
     async def change_priority(self, owner_id: str, task_id: int, delta: int) -> Any | None:
         return await self.repository.change_priority(task_id, owner_id, delta)
+
+    async def move_waiting(self, owner_id: str, task_id: int, offset: int) -> Any | None:
+        return await self.repository.move_waiting(task_id, owner_id, offset)
+
+    async def edit_waiting_prompt(
+        self, owner_id: str, task_id: int, prompt: str,
+    ) -> Any | None:
+        self.guard.ensure_allowed(prompt)
+        return await self.repository.update_waiting_prompt(task_id, owner_id, prompt)
 
     async def waiting(self, owner_id: str, limit: int = 50) -> list[Any]:
         return await self.repository.list_waiting(owner_id, limit)

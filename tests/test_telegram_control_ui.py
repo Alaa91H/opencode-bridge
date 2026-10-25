@@ -71,12 +71,28 @@ class FakeTasks:
         self.retried = []
         self.deleted = []
         self.priorities = []
+        self.edits = []
+        self.moves = []
+        self.waiting_tasks = [
+            SimpleNamespace(id=10, status="queued", prompt="First waiting"),
+            SimpleNamespace(id=12, status="queued", prompt="Second waiting"),
+        ]
     async def active(self, owner):
         return [SimpleNamespace(id=8, status="running", prompt="Running")]
+    async def waiting(self, owner):
+        return list(self.waiting_tasks)
     async def failed(self, owner):
         return [SimpleNamespace(id=9, status="failed", prompt="Failed")]
     async def recent(self, owner):
         return []
+
+    async def edit_waiting_prompt(self, owner, task_id, prompt):
+        self.edits.append((owner, task_id, prompt))
+        return SimpleNamespace(id=task_id)
+
+    async def move_waiting(self, owner, task_id, delta):
+        self.moves.append((owner, task_id, delta))
+        return SimpleNamespace(id=task_id)
 
     async def change_priority(self, owner, task_id, delta):
         self.priorities.append((owner, task_id, delta))
@@ -101,9 +117,14 @@ class FakeSchedules:
     def __init__(self):
         self.created = []
     async def list_scheduled_jobs(self, owner):
-        return [SimpleNamespace(id=11, name="Daily scan", enabled=True, next_run_at=None, timezone_name="UTC")]
+        return [SimpleNamespace(
+            id=11, name="Daily scan", enabled=True, next_run_at=None,
+            timezone_name="UTC", repeat_seconds=86400, prompt="Scan the repository")]
     async def get_scheduled_job_by_id(self, i, owner):
-        return SimpleNamespace(id=i, name="Daily scan", enabled=True, next_run_at=None, timezone_name="UTC") if i == 11 else None
+        return SimpleNamespace(
+            id=i, name="Daily scan", enabled=True, next_run_at=None,
+            timezone_name="UTC", repeat_seconds=86400,
+            prompt="Scan the repository") if i == 11 else None
     async def set_scheduled_job_enabled(self, owner, name, enabled):
         self.created.append(("toggle", name, enabled))
     async def delete_scheduled_job(self, owner, name):
@@ -113,12 +134,19 @@ class FakeSchedules:
 class FakeScheduleService:
     def __init__(self):
         self.created = []
+        self.edits = []
     async def create_once(self, owner, chat, name, prompt, when, **kwargs):
         self.created.append(("once", owner, name, prompt, when))
         return SimpleNamespace(id=51)
     async def create_recurring(self, owner, chat, name, prompt, interval, **kwargs):
         self.created.append(("recurring", owner, name, prompt, interval))
         return SimpleNamespace(id=52)
+    async def replace_prompt(self, owner, name, prompt):
+        self.edits.append(("prompt", owner, name, prompt))
+    async def change_next_run(self, owner, name, when):
+        self.edits.append(("time", owner, name, when))
+    async def change_interval(self, owner, name, interval):
+        self.edits.append(("interval", owner, name, interval))
 
 
 class FakeDownloads:
@@ -172,6 +200,70 @@ class UIFlowTests(unittest.IsolatedAsyncioTestCase):
         ar, _ = await self.ui.render("1", "home")
         self.assertIn("لوحة تحكم", ar)
         self.assertTrue(self.message.reply_text.await_count > 0)
+
+    async def test_home_offers_two_task_screens_only(self):
+        from bridge.telegram.control_ui import WORDS
+
+        for language in ("ar", "en"):
+            with self.subTest(language=language):
+                self.prefs.values["1"] = UserPreferences(language=language)
+                _text, markup = await self.ui.render("1", "home")
+                choices = [b.callback_data for row in markup.inline_keyboard for b in row]
+                self.assertIn(callback("go", "tasks"), choices)
+                self.assertIn(callback("go", "schedules"), choices)
+                self.assertNotIn(callback("input", "direct"), choices)
+                self.assertNotIn(callback("input", "daily"), choices)
+                labels = [button.text for row in self.ui.keyboard(language).keyboard
+                          for button in row]
+                self.assertIn(WORDS[language]["tasks"], labels)
+                self.assertIn(WORDS[language]["schedules"], labels)
+                self.assertNotIn(WORDS[language]["direct"], labels)
+                self.assertNotIn(WORDS[language]["daily"], labels)
+
+    async def test_queue_order_reordering_and_prompt_edit(self):
+        text, markup = await self.ui.render("1", "tasks")
+        self.assertIn("1. #10", text)
+        self.assertIn("2. #12", text)
+        self.assertTrue(all(len(b.callback_data.encode("utf-8")) <= 64
+                            for row in markup.inline_keyboard for b in row))
+        choices = [b.callback_data for row in markup.inline_keyboard for b in row]
+        self.assertIn(callback("move", 10, 1), choices)
+        self.assertNotIn(callback("move", 10, -1), choices)
+        await self.press(callback("move", 10, 1))
+        self.assertEqual(self.tasks.moves, [("1", 10, 1)])
+        await self.press(callback("input", "task_edit", 10))
+        self.assertEqual(self.context.user_data["ui_wait"], "task_edit:10")
+        self.message.text = ""
+        await self.ui.on_text(self.update, self.context)
+        self.assertEqual(self.context.user_data["ui_wait"], "task_edit:10")
+        self.message.text = "Replacement instruction"
+        await self.ui.on_text(self.update, self.context)
+        self.assertEqual(self.tasks.edits,
+                         [("1", 10, "Replacement instruction")])
+        self.assertNotIn("ui_wait", self.context.user_data)
+
+    async def test_schedule_detail_prompt_time_and_recurrence_edits(self):
+        from datetime import UTC, datetime
+
+        text, markup = await self.ui.render("1", "schedule.11")
+        self.assertIn("Daily scan", text)
+        self.assertIn("Scan the repository", text)
+        choices = [b.callback_data for row in markup.inline_keyboard for b in row]
+        self.assertIn(callback("go", "schedules"), choices)
+        await self.press(callback("input", "sched_edit", 11))
+        self.message.text = "Replacement schedule prompt"
+        await self.ui.on_text(self.update, self.context)
+        self.assertEqual(self.scheduler.edits[-1],
+                         ("prompt", "1", "Daily scan", "Replacement schedule prompt"))
+        await self.press(callback("schedrepeat", 11, "7d"))
+        self.assertEqual(self.scheduler.edits[-1],
+                         ("interval", "1", "Daily scan", "7d"))
+        await self.press(callback("input", "sched_time", 11))
+        self.message.text = "2026-12-01 12:00"
+        await self.ui.on_text(self.update, self.context)
+        self.assertEqual(self.scheduler.edits[-1],
+                         ("time", "1", "Daily scan",
+                          datetime(2026, 12, 1, 12, tzinfo=UTC)))
 
     async def test_live_agent_selection_is_saved(self):
         _text, markup = await self.ui.render("1", "agents")

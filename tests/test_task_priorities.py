@@ -30,6 +30,41 @@ class TaskPriorityTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(await self.store.delete_user_task(first.id, "alice"))
         self.assertIsNone(await self.store.get(first.id))
 
+    async def test_waiting_tasks_move_in_claim_order_and_respect_owner(self):
+        first, _ = await self.store.enqueue("alice", 1, "first")
+        second, _ = await self.store.enqueue("alice", 1, "second")
+        third, _ = await self.store.enqueue("alice", 1, "third")
+
+        moved = await self.store.move_waiting(third.id, "alice", -1)
+        self.assertEqual(moved.id, third.id)
+        waiting = await self.store.list_waiting("alice")
+        self.assertEqual([task.id for task in waiting], [first.id, third.id, second.id])
+        self.assertEqual([task.priority for task in waiting], [2, 1, 0])
+
+        self.assertIsNone(await self.store.move_waiting(third.id, "bob", -1))
+        edge = await self.store.move_waiting(first.id, "alice", -1)
+        self.assertEqual(edge.id, first.id)
+        self.assertEqual([task.id for task in await self.store.list_waiting("alice")],
+                         [first.id, third.id, second.id])
+        with self.assertRaises(ValueError):
+            await self.store.move_waiting(third.id, "alice", 2)
+        self.assertEqual((await self.store.claim_next(max_active=1)).id, first.id)
+        await self.store.finish(first.id, True)
+        self.assertEqual((await self.store.claim_next(max_active=1)).id, third.id)
+
+    async def test_prompt_edit_only_changes_waiting_owner_tasks(self):
+        task, _ = await self.store.enqueue("alice", 1, "original")
+        updated = await self.store.update_waiting_prompt(
+            task.id, "alice", "  replacement instruction  ")
+        self.assertEqual(updated.prompt, "replacement instruction")
+        self.assertIsNone(await self.store.update_waiting_prompt(
+            task.id, "bob", "hijack"))
+        with self.assertRaises(ValueError):
+            await self.store.update_waiting_prompt(task.id, "alice", "   ")
+        await self.store.claim_next(max_active=1)
+        self.assertIsNone(await self.store.update_waiting_prompt(
+            task.id, "alice", "too late"))
+
     async def test_priority_bounds_and_invalid_delta(self):
         task, _ = await self.store.enqueue("alice", 1, "task")
         with self.assertRaises(ValueError):
