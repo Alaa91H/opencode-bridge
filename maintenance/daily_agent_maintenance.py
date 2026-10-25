@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import sys
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,7 @@ RUNTIME_DIR = BRIDGE_DIR / "runtime"
 REPORT_PATH = RUNTIME_DIR / "agent-maintenance-latest.md"
 STATE_PATH = RUNTIME_DIR / "agent-maintenance-latest.json"
 UTC = UTC
+AUDIT_TIMEOUT_SECONDS = 900.0
 
 
 SETTINGS = get_settings()
@@ -86,18 +88,36 @@ async def run() -> dict[str, Any]:
             "Report only concrete findings, whether the deployment appears healthy, and any action that still needs "
             "the owner. Mention the selected model and reasoning variant only if relevant."
         )
+        audit_message_id = "msg_" + uuid.uuid4().hex
         try:
-            response = await client.send_prompt(
-                session_id,
-                prompt,
-                model=model,
-                agent=agent,
-                variant=variant,
+            response = await asyncio.wait_for(
+                client.send_prompt(
+                    session_id,
+                    prompt,
+                    model=model,
+                    agent=agent,
+                    variant=variant,
+                    message_id=audit_message_id,
+                ),
+                timeout=AUDIT_TIMEOUT_SECONDS,
             )
         except httpx.HTTPStatusError as exc:
             if not variant or exc.response.status_code not in {400, 404, 422}:
                 raise
-            response = await client.send_prompt(session_id, prompt, model=model, agent=agent, variant=None)
+            # The rejected variant never produced a reply; a fresh message ID
+            # keeps the fallback from reconnecting to the failed submission.
+            audit_message_id = "msg_" + uuid.uuid4().hex
+            response = await asyncio.wait_for(
+                client.send_prompt(
+                    session_id,
+                    prompt,
+                    model=model,
+                    agent=agent,
+                    variant=None,
+                    message_id=audit_message_id,
+                ),
+                timeout=AUDIT_TIMEOUT_SECONDS,
+            )
             variant = None
 
         audit_text = extract_text_response(response).strip() or "لم يُرجع الوكيل ملخصًا نصيًا."

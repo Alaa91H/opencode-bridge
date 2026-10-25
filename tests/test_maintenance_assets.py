@@ -13,6 +13,7 @@ INSTALLER = PROJECT_DIR / "maintenance" / "install-root-assets.sh"
 TOOLS_HELPER = PROJECT_DIR / "maintenance" / "opencode-bridge-tools.py"
 SUDOERS = PROJECT_DIR / "maintenance" / "opencode-bridge-admin.sudoers"
 DEV_TOOLS = PROJECT_DIR / "scripts" / "install-dev-tools.sh"
+DAILY_AGENT = PROJECT_DIR / "maintenance" / "daily_agent_maintenance.py"
 
 
 class MaintenanceAssetTests(unittest.TestCase):
@@ -156,6 +157,13 @@ class MaintenanceAssetTests(unittest.TestCase):
         self.assertIn('data.get("removed", [])', content)
         self.assertIn('[[ "$package" == "$removed" ]] && skip=1', content)
         self.assertIn('packages=("${kept[@]}")', content)
+
+    def test_daily_agent_audit_uses_resumable_prompt_and_bounded_wait(self) -> None:
+        content = DAILY_AGENT.read_text(encoding="utf-8")
+        self.assertIn('audit_message_id = "msg_" + uuid.uuid4().hex', content)
+        self.assertIn("message_id=audit_message_id", content)
+        self.assertIn("asyncio.wait_for(", content)
+        self.assertIn("AUDIT_TIMEOUT_SECONDS = 900.0", content)
 
     def test_root_units_and_installer_have_required_boundaries(self) -> None:
         for path in (SERVICE, GUARD_SERVICE):
