@@ -70,6 +70,7 @@ from bridge.telegram.commands.downloads import DownloadCommands
 from bridge.telegram.commands.drafts import DraftCommands
 from bridge.telegram.commands.manage import ManageCommands
 from bridge.telegram.commands.metrics import MetricsCommands
+from bridge.telegram.commands.reminders import ReminderCommands
 from bridge.telegram.commands.schedules import ScheduleCommands
 from bridge.telegram.commands.shell import ShellCommands
 from bridge.telegram.commands.skills import SkillCommands
@@ -188,6 +189,7 @@ _agent_commands_instance: AgentCommands | None = None
 _system_commands_instance: SystemCommands | None = None
 _config_commands_instance: ConfigCommands | None = None
 _metrics_commands_instance: MetricsCommands | None = None
+_reminder_commands_instance: ReminderCommands | None = None
 _draft_commands_instance: DraftCommands | None = None
 _draft_intake_instance: DraftIntakeAdapter | None = None
 _reboot_callback_instance: RebootCallbackAdapter | None = None
@@ -973,6 +975,15 @@ def _metrics_command_adapter() -> MetricsCommands:
     return _metrics_commands_instance
 
 
+def _reminder_command_adapter() -> ReminderCommands:
+    global _reminder_commands_instance
+    if _reminder_commands_instance is None:
+        import reminder_plugin
+
+        _reminder_commands_instance = reminder_plugin.commands()
+    return _reminder_commands_instance
+
+
 async def _pending_attachment_cleanup_loop() -> None:
     await _media_adapter().cleanup_loop()
 
@@ -1337,6 +1348,21 @@ async def cmd_limits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 @authorized
 async def cmd_metrics(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _metrics_command_adapter().metrics(update, context)
+
+
+@authorized
+async def cmd_remind(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _reminder_command_adapter().remind(update, context)
+
+
+@authorized
+async def cmd_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _reminder_command_adapter().reminders(update, context)
+
+
+@authorized
+async def cmd_remindcancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _reminder_command_adapter().cancel(update, context)
 
 
 @authorized

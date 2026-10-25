@@ -17,6 +17,7 @@ log.info(
 )
 import ci_plugin
 import gh_plugin
+import reminder_plugin
 import resource_commands
 import v3_plugin
 import watchdog_plugin
@@ -36,6 +37,7 @@ async def post_init(app) -> None:
     await v3_plugin.install(app)
     await ci_plugin.install(app)
     await gh_plugin.install(app)
+    await reminder_plugin.install(app)
     await resource_commands.install(app)
     await watchdog_plugin.install(app)
     await _announce_update_outcome(app)
@@ -58,6 +60,7 @@ async def _announce_update_outcome(app) -> None:
 
 
 async def post_shutdown(app) -> None:
+    await reminder_plugin.close()
     await watchdog_plugin.close()
     await ci_plugin.close()
     await gh_plugin.close()

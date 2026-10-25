@@ -206,6 +206,24 @@ MIGRATIONS = (
         "CREATE INDEX IF NOT EXISTS idx_agent_tasks_owner_status_updated "
         "ON agent_tasks(owner_id, status, updated_at DESC, id DESC)",
     )),
+    Migration(10, "owner_reminders", (
+        """CREATE TABLE IF NOT EXISTS reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id TEXT NOT NULL,
+            chat_id INTEGER NOT NULL,
+            message TEXT NOT NULL,
+            remind_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'sending', 'sent', 'cancelled', 'failed')),
+            created_at TEXT NOT NULL,
+            sent_at TEXT,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT)""",
+        "CREATE INDEX IF NOT EXISTS idx_reminders_due "
+        "ON reminders(status, remind_at, id)",
+        "CREATE INDEX IF NOT EXISTS idx_reminders_owner "
+        "ON reminders(owner_id, status, remind_at)",
+    )),
 )
 
 

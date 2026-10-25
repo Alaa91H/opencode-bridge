@@ -22,7 +22,7 @@ class MigrationTests(unittest.TestCase):
                 expected = {
                     "schema_migrations", "task_attempts", "task_events", "attachments",
                     "task_outputs", "schedules", "schedule_runs", "agent_sessions",
-                    "user_settings", "resource_snapshots", "failure_records",
+                    "user_settings", "resource_snapshots", "failure_records", "reminders",
                 }
                 self.assertTrue(expected.issubset(tables))
                 async with db.execute("PRAGMA foreign_keys") as cursor:

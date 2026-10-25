@@ -54,6 +54,9 @@ def core_commands() -> list[BotCommand]:
         BotCommand("config", "عرض الإعدادات الفعلية غير السرية"),
         BotCommand("limits", "عرض الحدود الفعلية الحالية"),
         BotCommand("metrics", "قياسات حيّة للطابور والنتائج والموارد"),
+        BotCommand("remind", "جدولة تذكير لمرة واحدة"),
+        BotCommand("reminders", "عرض التذكيرات القادمة"),
+        BotCommand("remindcancel", "إلغاء تذكير قيد الانتظار"),
         BotCommand("search", "بحث موثّق سريع"),
         BotCommand("deepresearch", "بحث عميق متعدد المصادر"),
         BotCommand("extreme", "بحث شديد العمق"),
@@ -153,6 +156,9 @@ def register_core_handlers(
     app.add_handler(CommandHandler("config", handlers.cmd_config))
     app.add_handler(CommandHandler("limits", handlers.cmd_limits))
     app.add_handler(CommandHandler("metrics", handlers.cmd_metrics))
+    app.add_handler(CommandHandler("remind", handlers.cmd_remind))
+    app.add_handler(CommandHandler("reminders", handlers.cmd_reminders))
+    app.add_handler(CommandHandler("remindcancel", handlers.cmd_remindcancel))
     app.add_handler(CommandHandler(research_command_names, handlers.cmd_research_mode))
     app.add_handler(CommandHandler("help", handlers.cmd_help))
     app.add_handler(
