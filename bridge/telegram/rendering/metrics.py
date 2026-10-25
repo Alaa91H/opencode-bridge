@@ -40,13 +40,23 @@ def render_metrics(snapshot: Any) -> str:
         f"• بالانتظار الآن: {queue.depth} (جاهز {queue.queued} • مؤجّل {queue.retrying})",
         f"• قيد التنفيذ: {queue.active}"
         + (f" من حد {snapshot.worker_limit} عامل" if snapshot.worker_limit is not None else ""),
+    ]
+    wait_p50 = getattr(queue, "wait_p50_seconds", None)
+    wait_p95 = getattr(queue, "wait_p95_seconds", None)
+    if wait_p50 is not None:
+        line = f"• انتظار قبل البدء: p50 {wait_p50:.1f}s"
+        if wait_p95 is not None:
+            line += f" • p95 {wait_p95:.1f}s"
+        line += f" ({int(getattr(queue, 'wait_samples', 0))} مهمة)"
+        lines.append(line)
+    lines.extend([
         f"• مجدولة future: {queue.scheduled}",
         f"• منتهية: {queue.completed} • فاشلة: {queue.failed} • ملغاة: {queue.cancelled}",
         "",
         "النتائج داخل النافذة:",
         f"• مهام مكتملة: {outcomes.finished} (ناجحة {outcomes.succeeded} • فاشلة {outcomes.failed})",
         f"• مؤجّلة بسبب المزوّد: {outcomes.deferred}",
-    ]
+    ])
     if outcomes.avg_duration_seconds is not None:
         lines.append(
             f"• متوسط زمن التنفيذ: {outcomes.avg_duration_seconds:.1f}s"

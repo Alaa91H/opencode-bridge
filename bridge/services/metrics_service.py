@@ -20,6 +20,7 @@ are always exact.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -44,11 +45,23 @@ class QueueMetrics:
     failed: int = 0
     completed: int = 0
     cancelled: int = 0
+    wait_p50_seconds: float | None = None
+    wait_p95_seconds: float | None = None
+    wait_samples: int = 0
 
     @property
     def depth(self) -> int:
         """Work waiting for a worker: claimable now plus deferred retries."""
         return self.queued + self.retrying
+
+
+def _percentile(values: tuple[float, ...], fraction: float) -> float | None:
+    """Nearest-rank percentile; None for an empty sample."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    rank = max(1, math.ceil(max(0.0, min(fraction, 1.0)) * len(ordered)))
+    return round(ordered[rank - 1], 2)
 
 
 @dataclass(frozen=True)
@@ -145,7 +158,11 @@ class BridgeMetricsService:
         self.worker_limit = worker_limit
         self.disk_path = disk_path
 
-    def queue_metrics(self, counts: dict[str, int]) -> QueueMetrics:
+    def queue_metrics(
+        self,
+        counts: dict[str, int],
+        wait_seconds: tuple[float, ...] = (),
+    ) -> QueueMetrics:
         """Map the task status vocabulary (see claim_next / finish) to gauges."""
         return QueueMetrics(
             queued=int(counts.get("queued", 0)),
@@ -155,6 +172,9 @@ class BridgeMetricsService:
             failed=int(counts.get("failed", 0)) + int(counts.get("dead_letter", 0)),
             completed=int(counts.get("completed", 0)),
             cancelled=int(counts.get("cancelled", 0)),
+            wait_p50_seconds=_percentile(wait_seconds, 0.50),
+            wait_p95_seconds=_percentile(wait_seconds, 0.95),
+            wait_samples=len(wait_seconds),
         )
 
     def resource_metrics(self) -> dict[str, float]:
@@ -193,9 +213,18 @@ class BridgeMetricsService:
             counts = await self.store.queue_counts()
         except Exception:
             counts = {}
+        wait_seconds: tuple[float, ...] = ()
+        waiter = getattr(self.store, "queue_wait_seconds", None)
+        if callable(waiter):
+            try:
+                wait_seconds = tuple(
+                    await waiter(limit=200, since=current - timedelta(hours=hours))
+                )
+            except Exception:
+                wait_seconds = ()
         events = read_recent(self.audit_path)
         return MetricsSnapshot(
-            queue=self.queue_metrics(counts or {}),
+            queue=self.queue_metrics(counts or {}, wait_seconds),
             outcomes=summarize_outcomes(events, since=current - timedelta(hours=hours)),
             resources=self.resource_metrics(),
             worker_limit=self.worker_limit_value(),
