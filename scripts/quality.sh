@@ -136,10 +136,12 @@ no_debug_markers() {
 
 no_secrets() {
   local status=0
-  if grep -rnE 'BEGIN [A-Z ]*PRIVATE KEY' --include='*.py' --include='*.sh' --include='*.json' . 2>/dev/null; then
+  if grep -rnE 'BEGIN [A-Z ]*PRIVATE KEY' --exclude-dir=.git --exclude-dir=.venv \
+       --include='*.py' --include='*.sh' --include='*.json' . 2>/dev/null; then
     status=1
   fi
-  if grep -rnE '[0-9]{8,10}:[A-Za-z0-9_-]{35}' --include='*.py' --include='*.sh' \
+  if grep -rnE '[0-9]{8,10}:[A-Za-z0-9_-]{35}' --exclude-dir=.git --exclude-dir=.venv \
+       --include='*.py' --include='*.sh' \
        --include='*.json' --include='*.md' . 2>/dev/null; then
     status=1
   fi

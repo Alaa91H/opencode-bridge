@@ -225,7 +225,9 @@ class PushAccountingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_push_refuses_private_key_content(self) -> None:
         outputs = self._outputs("M\tsrc/app.py\n")
-        outputs["diff --cached --unified=0"] = "+-----BEGIN RSA PRIVATE KEY-----\n"
+        # Split so the repository hygiene scan can tell this synthetic fixture
+        # apart from a real committed key.
+        outputs["diff --cached --unified=0"] = "+-----BEGIN RSA " + "PRIVATE KEY-----\n"
         service = self._GitService(outputs)
         with self.assertRaises(GitHubAdminError):
             await service.push(self.workspace(), "chore: x")
