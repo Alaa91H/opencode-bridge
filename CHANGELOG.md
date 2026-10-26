@@ -1,3 +1,16 @@
+## [3.63.1] - 2026-10-26
+
+### Fixed
+
+- **Daily maintenance no longer races the OpenCode restart.** After applying an update, the run restarted `opencode-serve.service` and waited a fixed three seconds before starting the daily agent task. On the deployment host the server needs longer than that, so the task failed with `RemoteProtocolError` even though the update had succeeded. The restart step now waits for the documented `/global/health` gate in `wait_for_opencode.py` (150-second bound) before the agent task starts.
+- **A healthy released host is no longer reported as degraded.** The watchdog counted every unreleased commit on `origin/main` as a deployment gap. Because the bridge deploys release tags only, an ordinary post-release commit reduced the score and produced a `degraded` report every five minutes. It now measures the distance to the newest release tag reachable from `origin/main`; untagged work on `main` is not a host-health problem.
+- **Automatic skill syncs record their audit trail again.** The 3.63.0 adapter called an audit helper that did not exist on the class, so every scheduled sync completed its work and then failed with `AttributeError`, logged a misleading “skills sync stopped” line, and wrote no audit entry. The adapter now writes the record and withholds it only when auditing is not configured.
+- **Tests** — the maintenance asset test asserts the health gate replaces the fixed sleep and runs before the agent task, the watchdog tests cover the release-tag distance and an untagged `main`, and the skill adapter tests cover the audit record for automatic syncs and reloads.
+
+### Tooling
+
+- The repository hygiene scan no longer reports its own synthetic private-key fixture as a committed secret, and virtualenv or `.git` contents are excluded so local runs of `scripts/quality.sh` match CI.
+
 ## [3.63.0] - 2026-10-26
 
 ### The owner can now manage the agent's external tools from the panel
