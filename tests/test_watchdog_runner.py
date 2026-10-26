@@ -46,6 +46,7 @@ class WatchdogRestartTests(unittest.TestCase):
             ),
             patch.object(watchdog_runner, "_restart_service", return_value=False) as restart,
             patch.object(watchdog_runner, "_write_report", return_value=report),
+            patch.object(watchdog_runner, "_load_state", return_value={"restart_history": {}}),
             patch.object(watchdog_runner, "_save_state", side_effect=saved.append),
             patch.object(watchdog_runner, "AuditLogger"),
             patch.object(watchdog_runner.time, "time", return_value=1000.0),

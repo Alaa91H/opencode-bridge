@@ -1,4 +1,4 @@
-## [3.63.0] - 2026-10-24
+## [3.63.0] - 2026-10-26
 
 ### The owner can now manage the agent's external tools from the panel
 
@@ -12,10 +12,45 @@ The bridge depended on a fixed set of host utilities, but there was no way to se
 - **Host-operation safety** — package work joins the existing process-wide guard, so it cannot overlap an OS upgrade, reboot, service restart or cleanup.
 - **Tests** — new service, command, UI and maintenance-asset tests cover policy fail-closed behaviour, required-tool protection, helper absence, install/remove transitions, disabled media and download paths, age gating, confirmation flows and installer/sudoers boundaries.
 
+### The task queue is now editable and schedules have detail screens
+
+The queue previously showed a flat list and only allowed priority changes. Waiting work can now be selected, reordered and rewritten from the panel, and scheduled jobs can be inspected and edited instead of being limited to pause and delete.
+
+- The task screen separates the running task, the ordered waiting queue and failed tasks, and removes finished tasks from view.
+- Waiting tasks can be moved up or down, fully rewritten, or deleted before they start.
+- Every scheduled job has its own screen with its prompt, next run, timezone and recurrence; the prompt, local date/time and recurrence can be edited there.
+- Recurrence is shown in human terms such as once, daily, weekly, every 30 days, or a custom interval, in Arabic and English.
+- All new actions remain owner-scoped and reject stale buttons and invalid input.
+
+### Settings now owns the administration screens
+
+The home keyboard had grown to expose agent management, credentials, backups, server controls and tools as separate top-level entries. Those screens now live under Settings, leaving Home focused on tasks, schedules, files, language and help.
+
+- Settings groups agent, credentials, backups, server, agent tools and advanced tools alongside language, timezone and concurrency.
+- The persistent keyboard is reduced to Home, Settings, Task queue, Scheduled tasks, Files, Language and Help.
+- Legacy menu values and text aliases still resolve, so old messages and custom entry points keep working.
+- Back navigation returns from agent and model lists to Settings, from logs to service control, and from advanced screens to Settings.
+
+### Watchdog restarts no longer bypass the cooldown
+
+A slow `opencode-serve` stop could take longer than the watchdog's 30-second restart timeout. The watchdog treated the timeout as a failed restart without recording it, then retried on the next cycle, bypassing both the cooldown and the hourly loop guard.
+
+- Restart operations now allow 150 seconds, above the unit's 120-second stop timeout.
+- Every allowed restart attempt is written to `runtime/watchdog-state.json` before the restart runs.
+- A watchdog process restarted together with the service retains the attempt history and enforces the configured cooldown.
+- Regression coverage asserts the longer timeout, pre-restart persistence and failed-attempt recording.
+
+### Reminders, queue metrics and maintenance resilience
+
+- One-off owner-scoped reminders are stored in SQLite and delivered by a single scheduler with bounded retries; `/remind`, `/reminders` and `/remindcancel` create, list and cancel them.
+- The metrics page reports p50 and p95 enqueue-to-claim waiting time, derived from durable task timestamps.
+- The daily agent audit now uses the resumable prompt path, a fresh message ID and a 15-minute ceiling, so a slow provider response no longer fails the run at the 60-second request timeout.
+
 ### Upgrade notes
 
 - Root assets must be refreshed once to install the helper and its sudoers rule: `sudo -E bash maintenance/install-root-assets.sh` (or wait for the daily maintenance run). Until then the panel reports the helper as unavailable and refuses package actions.
-- No database migration and no dependency changes. Existing tools keep working; only explicitly disabled or removed entries change behaviour.
+- The reminder feature adds migration 10 (`reminders`); the normal SQLite migration runner applies it automatically at startup. No manual migration is required.
+- No Python dependency changes. Existing tasks, schedules and settings are preserved; only explicitly disabled or removed tools change behaviour.
 - The daily provisioning script now honours `runtime/tool-policy.json`; verify the policy exists before relying on removal persistence.
 
 ## [3.62.1] - 2026-10-23
