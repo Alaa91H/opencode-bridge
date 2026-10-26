@@ -1,3 +1,16 @@
+## [3.63.2] - 2026-10-26
+
+### Fixed
+
+- **Long answers no longer stall in collapse detection.** The guard that cuts a degenerate answer before delivery used a repeated-line regular expression with a backreference. On a single-line answer of roughly 200,000 characters the engine tried every offset, and delivery spent minutes in `re.search` before it could conclude the answer was clean: the overlong-answer test alone consumed 171 seconds of CPU on the deployed host. The line rule is now a linear scan, and the inline phrase scan uses a five-character `str.find` prefilter instead of testing every period at every offset. A clean 258k-character line fell from about 17 seconds to 0.7 seconds, and a repeated 200k line is detected in about 60 ms.
+- **Restarting one service no longer restarts the whole stack.** `opencode-bridge.target` listed both members with `Requires=`. When a member with `Restart=on-failure` entered its restart job, systemd stopped that member, the required target followed, and `PartOf=` then stopped the sibling: killing `opencode-serve` took the Telegram bridge down for about 30 seconds, and killing the Telegram process also stopped and restarted OpenCode, aborting running work. The target now uses `Wants=`; the members keep `PartOf=` so an explicit stop or restart of the target still reaches both.
+- **Tests** — a timing regression covers a clean 258k-character line and a repeated 200k line, the phrase window is checked at periods 5 and 60, and a unit contract rejects `Requires=` on the stack target while requiring `PartOf=` on both members.
+
+### Upgrade notes
+
+- Reinstall the user units so the corrected target is active: `cd /home/ubuntu/opencode-bridge && scripts/deploy.sh v3.63.2` (the deployment regenerates and reloads the units).
+- No database migration, dependency change or configuration change is required. Existing tasks and settings are preserved.
+
 ## [3.63.1] - 2026-10-26
 
 ### Fixed
