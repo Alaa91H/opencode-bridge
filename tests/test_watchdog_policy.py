@@ -26,11 +26,23 @@ class WatchdogPolicyTests(unittest.TestCase):
             self.resources(),
             self.healthy_services(),
             QueueHealth(),
-            UpdateHealth(deployed_matches_head=True, behind_origin_main=0),
+            UpdateHealth(deployed_matches_head=True, behind_latest_release=0),
         )
         self.assertEqual(result.status, "healthy")
         self.assertEqual(result.score, 100)
         self.assertFalse(result.recoverable_services)
+
+    def test_being_behind_a_published_release_degrades_health(self) -> None:
+        result = assess_health(
+            self.resources(),
+            self.healthy_services(),
+            QueueHealth(),
+            UpdateHealth(deployed_matches_head=True, behind_latest_release=2),
+        )
+        self.assertEqual(result.status, "degraded")
+        self.assertTrue(
+            any("behind the latest release by 2 commit(s)" in issue for issue in result.issues),
+        )
 
     def test_inactive_services_are_recoverable_and_critical(self) -> None:
         result = assess_health(
@@ -118,7 +130,7 @@ class MemoryIsNotPressureByItselfTests(unittest.TestCase):
             ),
             ServiceHealth(True, True, True),
             QueueHealth(),
-            UpdateHealth(deployed_matches_head=True, behind_origin_main=0),
+            UpdateHealth(deployed_matches_head=True, behind_latest_release=0),
         )
 
     def test_the_shape_that_raised_a_false_alarm_is_healthy(self) -> None:

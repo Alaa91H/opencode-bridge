@@ -59,5 +59,30 @@ class WatchdogRestartTests(unittest.TestCase):
         self.assertGreaterEqual(len(saved), 2, "attempt must be persisted before restart")
 
 
+class LatestReleaseCheckTests(unittest.TestCase):
+    def test_behind_count_uses_the_newest_release_tag_not_unreleased_main(self) -> None:
+        calls: list[tuple[str, ...]] = []
+
+        def fake_run(*args: str, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(args)
+            if args[:2] == ("git", "describe"):
+                return subprocess.CompletedProcess(list(args), 0, "v3.63.1\n", "")
+            if args[:3] == ("git", "rev-list", "--count"):
+                return subprocess.CompletedProcess(list(args), 0, "3\n", "")
+            raise AssertionError(args)
+
+        with patch.object(watchdog_runner, "_run", side_effect=fake_run):
+            self.assertEqual(watchdog_runner._behind_latest_release(), 3)
+
+        self.assertIn("refs/remotes/origin/main", calls[0])
+        self.assertEqual(calls[1][3], "HEAD..v3.63.1")
+
+    def test_main_without_a_release_tag_is_not_a_health_problem(self) -> None:
+        completed = subprocess.CompletedProcess(["git"], 1, "", "fatal: No names found")
+        with patch.object(watchdog_runner, "_run", return_value=completed) as run:
+            self.assertIsNone(watchdog_runner._behind_latest_release())
+        self.assertEqual(run.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

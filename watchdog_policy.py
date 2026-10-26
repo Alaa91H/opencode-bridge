@@ -43,7 +43,7 @@ class ServiceHealth:
 @dataclass(frozen=True)
 class UpdateHealth:
     deployed_matches_head: bool | None = None
-    behind_origin_main: int | None = None
+    behind_latest_release: int | None = None
 
 
 @dataclass(frozen=True)
@@ -154,9 +154,11 @@ def assess_health(
     if update.deployed_matches_head is False:
         score -= 10
         issues.append("deployed revision does not match the working revision")
-    if update.behind_origin_main and update.behind_origin_main > 0:
+    if update.behind_latest_release and update.behind_latest_release > 0:
         score -= 5
-        issues.append(f"local revision is behind origin/main by {update.behind_origin_main} commit(s)")
+        issues.append(
+            f"local revision is behind the latest release by {update.behind_latest_release} commit(s)",
+        )
 
     score = max(0, min(score, 100))
     if score >= 90 and not issues:

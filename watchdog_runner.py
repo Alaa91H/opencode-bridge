@@ -142,6 +142,37 @@ def _git_count(revision_range: str) -> int | None:
         return None
 
 
+def _latest_release_tag() -> str | None:
+    """The newest release tag reachable from origin/main.
+
+    The deployment policy follows release tags, so an untagged commit on main
+    is unpublished work, not a host-health problem.
+    """
+    try:
+        result = _run(
+            "git",
+            "describe",
+            "--tags",
+            "--abbrev=0",
+            "--match",
+            "v[0-9]*",
+            "refs/remotes/origin/main",
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    tag = result.stdout.strip()
+    return tag or None
+
+
+def _behind_latest_release() -> int | None:
+    tag = _latest_release_tag()
+    if tag is None:
+        return None
+    return _git_count(f"HEAD..{tag}")
+
+
 def _update_health() -> UpdateHealth:
     try:
         head_result = _run("git", "rev-parse", "HEAD")
@@ -154,7 +185,7 @@ def _update_health() -> UpdateHealth:
             deployed_match = deployed == head
         return UpdateHealth(
             deployed_matches_head=deployed_match,
-            behind_origin_main=_git_count("HEAD..refs/remotes/origin/main"),
+            behind_latest_release=_behind_latest_release(),
         )
     except (OSError, IndexError):
         return UpdateHealth()
@@ -231,7 +262,7 @@ def _write_report(
         },
         "update": {
             "deployed_matches_head": update.deployed_matches_head,
-            "behind_origin_main": update.behind_origin_main,
+            "behind_latest_release": update.behind_latest_release,
         },
         "actions": actions,
     }
