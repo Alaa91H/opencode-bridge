@@ -1,6 +1,11 @@
 [Unit]
 Description=OpenCode Arabic Telegram Bridge Stack
-Requires=opencode-serve.service opencode-bridge-telegram.service
+# Wants=, not Requires=: both members restart themselves on failure, and a
+# Requires= stop propagated from that restart job took the whole stack down.
+# Killing the Telegram process then restarted OpenCode and aborted its tasks,
+# and the reverse was true as well. The members declare PartOf= this target,
+# so an explicit stop or restart of this target still reaches both of them.
+Wants=opencode-serve.service opencode-bridge-telegram.service
 After=opencode-serve.service opencode-bridge-telegram.service
 
 [Install]
