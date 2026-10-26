@@ -138,10 +138,26 @@ class ToolManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_helper_missing_fails_closed(self) -> None:
         self.installed.discard("jq")
         self.present_commands.discard("jq")
-        with self._patch_which(), patch.object(Path, "stat", side_effect=OSError):
+        # Delete the helper instead of patching stat for every path: a global
+        # stat patch only raised on 3.12/3.13, because those pathlib versions
+        # re-raise unexpected OSErrors from exists() while 3.14 does not.
+        self.helper.unlink()
+        with self._patch_which():
             result = await self.manager.install("jq")
         self.assertFalse(result.ok)
         self.assertEqual(result.code, "unavailable")
+
+    def test_helper_with_unreadable_metadata_fails_closed(self) -> None:
+        with patch.object(Path, "stat", side_effect=OSError):
+            self.assertFalse(self.manager.helper_available())
+
+    def test_unreadable_policy_is_an_error_not_an_empty_policy(self) -> None:
+        with patch.object(Path, "exists", side_effect=OSError):
+            with self.assertRaises(ToolManagerError):
+                self.manager.set_enabled("jq", True)
+            # The fail-closed readers must never turn a capability back on.
+            self.assertFalse(self.manager.enabled("jq"))
+            self.assertEqual(self.manager.disabled_tools(), frozenset(SPECS))
 
     async def test_corrupt_policy_disables_capabilities_safely(self) -> None:
         self.manager.policy_path.write_text("{bad", encoding="utf-8")

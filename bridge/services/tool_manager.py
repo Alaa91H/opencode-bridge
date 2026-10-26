@@ -205,7 +205,15 @@ class ToolManager:
 
     def _read_policy(self) -> ToolPolicy:
         path = self.policy_path
-        if not path.exists():
+        try:
+            present = path.exists()
+        except OSError as exc:
+            # Python 3.12 and 3.13 re-raise unexpected errors from exists()
+            # while 3.14 swallows them via os.path.exists. An unreadable policy
+            # must fail closed the same way on every interpreter instead of
+            # looking like an absent policy that enables every capability.
+            raise ToolManagerError("cannot read tool policy") from exc
+        if not present:
             return ToolPolicy()
         try:
             info = path.lstat()
