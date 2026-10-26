@@ -115,13 +115,13 @@ WORDS = {
         "tasks_text": "قائمة المهام: تنفيذ واحد بعد الآخر بترتيب الإدخال. المهمة المنتهية تُحذف تلقائيًا، والمنتظرة قابلة للتعديل أو النقل.",
         "schedules_text": "المهام المجدولة: افتح أي مهمة لتعديل أمرها أو موعدها أو تكرارها.",
         "download_text": "الملفات المحمّلة: إرسال أو حذف الملفات.",
-        "settings_text": "اللغة وحدود التزامن. مهمة واحدة افتراضيًا، وبحد أقصى مهمتين.",
+        "settings_text": "الإعدادات: الوكيل والمفاتيح والاعتمادات والنسخ الاحتياطي والخادم وأدوات الوكيل والأدوات المتقدمة، مع اللغة والتوقيت وحدود التزامن.",
         "language_text": "اختر لغة الواجهة:", "worker_text": "الحد الفعلي الحالي: {limit}\nالحد الأعلى: 2. المهام الجارية لا تُلغى عند خفض العدد.",
         "model_text": "اختر النموذج من الفهرس الحي، ثم اختر مستوى التفكير المدعوم.",
         "reason_text": "مستويات التفكير المتاحة للنموذج {model}:",
         "agent_list_text": "اختر الوكيل من قائمة OpenCode الفعلية:",
         "confirm_text": "هل تؤكد تنفيذ العملية؟",
-        "help_text": "افتح قائمة المهام لإضافة أمر مباشر أو مهمة يومية ومتابعة الطابور وتعديله. المهمة اليومية تتابع بعد تجدد الرصيد عند 12:00 UTC. افتح المهام المجدولة لتعديل الموعد أو التكرار. من قسم الوكيل يمكنك تغيير الوكيل والنموذج والتفكير. لعرض الأوامر القديمة استخدم /help.",
+        "help_text": "افتح قائمة المهام لإضافة أمر مباشر أو مهمة يومية ومتابعة الطابور وتعديله. المهمة اليومية تتابع بعد تجدد الرصيد عند 12:00 UTC. افتح المهام المجدولة لتعديل الموعد أو التكرار. من الإعدادات يمكنك إدارة الوكيل والمفاتيح والنسخ الاحتياطي والخادم والأدوات. لعرض الأوامر القديمة استخدم /help.",
         "server_text": "إدارة الخادم: التحديثات والذاكرة وحالة النشر.",
         "memory_text": "إعدادات الذاكرة (تُطبّق بواسطة خدمة النظام خلال ساعة تقريبًا).",
         "updates_text": "وضع تحديث Bridge تلقائيًا: {state}",
@@ -215,14 +215,14 @@ WORDS = {
         "tasks_text": "Task queue: one task at a time in insertion order. Finished tasks are removed automatically; waiting tasks can be edited or moved.",
         "schedules_text": "Scheduled tasks: open any task to edit its instructions, date/time or recurrence.",
         "download_text": "Downloaded files: send or remove.",
-        "settings_text": "Language and concurrency settings. One task by default, two maximum.",
+        "settings_text": "Settings: agent, keys and credentials, backups, server, agent tools and advanced tools, plus language, timezone and concurrency.",
         "language_text": "Choose interface language:",
         "worker_text": "Current effective limit: {limit}\nMaximum: 2. Decreasing does not terminate running jobs.",
         "model_text": "Select a live catalog model, then its supported reasoning level.",
         "reason_text": "Supported reasoning levels for {model}:",
         "agent_list_text": "Choose an agent from the live OpenCode list:",
         "confirm_text": "Confirm this action?",
-        "help_text": "Open the task queue to add a direct or daily task, then manage and reorder waiting work. Daily tasks resume after the 12:00 UTC quota reset. Open scheduled tasks to edit dates or recurrence. Use Agent manager to select the agent, model and reasoning. Legacy commands remain available via /help.",
+        "help_text": "Open the task queue to add a direct or daily task, then manage and reorder waiting work. Daily tasks resume after the 12:00 UTC quota reset. Open scheduled tasks to edit dates or recurrence. Use Settings to manage the agent, keys, backups, server and tools. Legacy commands remain available via /help.",
         "server_text": "Server controls: updates, memory and deployment status.",
         "memory_text": "Memory policy (root service applies updates within roughly an hour).",
         "updates_text": "Bridge update mode: {state}",
@@ -364,9 +364,9 @@ def pre_block(text: str, limit: int = 3400) -> str:
     return "<pre>" + escaped + "</pre>"
 
 
-BUTTON_KEYS = (("home", "agent"), ("credentials", "backups"), ("tasks", "schedules"), ("downloads", "mirrors"), ("server", "settings"), ("language", "advanced"), ("help",))
+BUTTON_KEYS = (("home", "settings"), ("tasks", "schedules"), ("downloads", "mirrors"), ("language", "help"))
 BINDINGS = {value: key for lang in WORDS.values() for key in
-            ("home", "agent", "credentials", "keys", "hostkeys", "backups", "mirrors", "direct", "daily", "tasks", "schedules", "downloads", "server", "settings", "language", "advanced", "help")
+            ("home", "agent", "credentials", "keys", "hostkeys", "backups", "mirrors", "direct", "daily", "tasks", "schedules", "downloads", "server", "tools", "settings", "language", "advanced", "help")
             for value in (lang[key],)}
 
 
@@ -527,7 +527,7 @@ class ControlUI:
 
         if screen == "home":
             text = t["home_text"]
-            for key in ("agent", "credentials", "research", "tasks", "schedules", "downloads", "mirrors", "backups", "server", "tools", "settings", "advanced", "help"):
+            for key in ("research", "tasks", "schedules", "downloads", "mirrors", "settings", "help"):
                 if key == "research":
                     rows.append([button(t[key], "input", key)])
                 else:
@@ -908,14 +908,15 @@ class ControlUI:
                 rows.append([button(("✅ " if value["swap_gib"] == amount else "") + f"Swap {amount} GiB", "swap", amount)])
         elif screen == "settings":
             text = t["settings_text"]
+            nav(t["agent"], "agent")
+            nav(t["credentials"], "credentials")
+            nav(t["backups"], "backups")
+            nav(t["server"], "server")
+            nav(t["tools"], "tools")
+            nav(t["advanced"], "advanced")
             nav(t["language"], "language")
             nav(t["timezone"], "timezone")
             nav(t["workers"], "workers")
-            nav(t["agent"], "agent")
-            nav(t["keys"], "keys")
-            nav(t["server"], "server")
-            nav(t["backups"], "backups")
-            nav(t["credentials"], "credentials")
         elif screen == "language":
             text = t["language_text"]
             rows.extend([[button("🇸🇦 العربية", "lang", "ar")],
@@ -939,17 +940,20 @@ class ControlUI:
                 rows.append([button("▶️ " + name, "researchmode" if area == "research" else "legacy", name)])
         elif screen == "help":
             text = t["help_text"]
-            nav(t["agent"], "agent")
             nav(t["settings"], "settings")
-            nav(t["advanced"], "advanced")
         else:
             raise ValueError("unknown screen")
         if screen != "home":
             back = ("credentials" if screen in {"keys", "hostkeys"}
+                    else "agent" if screen in {"agents", "models"}
                     else "schedules" if screen.startswith("schedule.")
+                    else "advanced" if screen.startswith("advanced.")
                     else "tools" if screen.startswith("tools.")
-                    else "server" if screen in {"tools", "svcctl", "procs", "disk", "power"}
-                    else "svcctl" if screen.startswith("logs.") else "home")
+                    else "server" if screen in {"svcctl", "procs", "disk", "power"}
+                    else "svcctl" if screen.startswith("logs.")
+                    else "settings" if screen in {
+                        "agent", "credentials", "backups", "server", "tools", "advanced"}
+                    else "home")
             nav(t["back"], back)
         return text, InlineKeyboardMarkup(rows)
 
