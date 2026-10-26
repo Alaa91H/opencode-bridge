@@ -40,6 +40,9 @@ SETTINGS = get_settings()
 STALE_TASK_SECONDS = SETTINGS.watchdog.stale_task_seconds
 RESTART_COOLDOWN_SECONDS = SETTINGS.watchdog.restart_cooldown_seconds
 MAX_RESTARTS_PER_HOUR = SETTINGS.watchdog.max_restarts_per_hour
+# opencode-serve has TimeoutStopSec=120; a 30s restart timeout reports a
+# perfectly normal slow stop as a failure and skips the cooldown bookkeeping.
+SERVICE_RESTART_TIMEOUT_SECONDS = 150.0
 
 
 def _run(*args: str, timeout: float = 8.0) -> subprocess.CompletedProcess[str]:
@@ -62,7 +65,10 @@ def _service_active(service: str) -> bool:
 
 def _restart_service(service: str) -> bool:
     try:
-        result = _run("systemctl", "--user", "restart", service, timeout=30.0)
+        result = _run(
+            "systemctl", "--user", "restart", service,
+            timeout=SERVICE_RESTART_TIMEOUT_SECONDS,
+        )
         return result.returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
@@ -267,9 +273,14 @@ def main() -> int:
         if not allowed:
             actions.append({"service": service, "outcome": "skipped", "reason": reason})
             continue
+        # Record every allowed attempt, including failures. Otherwise a restart
+        # that times out or crashes is retried on the next watchdog cycle,
+        # bypassing both the cooldown and the hourly loop guard.
+        history.setdefault(service, []).append(now)
+        # Persist the attempt before restarting: systemctl may restart this
+        # process too, and an in-memory-only record would lose the cooldown.
+        _save_state(state)
         succeeded = _restart_service(service)
-        if succeeded:
-            history.setdefault(service, []).append(now)
         outcome = "restarted" if succeeded else "restart_failed"
         actions.append({"service": service, "outcome": outcome, "reason": reason})
         audit.write("watchdog_recovery", outcome, details={"service": service, "reason": reason})
