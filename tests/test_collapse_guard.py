@@ -153,6 +153,36 @@ class InlinePhraseLoopTests(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 3.0)
 
 
+class CollapseGuardPerformanceTests(unittest.TestCase):
+    """A long answer must be delivered, not spend minutes in the guard.
+
+    Found by running the suite against a deployed host: the repeated-line
+    regular expression tried every offset of a single-line 200k-character answer
+    against a backreference, and one overlong test consumed 171 seconds of CPU.
+    The line scan and the ``find`` prefilter keep both shapes linear.
+    """
+
+    def test_a_long_single_line_answer_is_checked_quickly(self) -> None:
+        import time
+
+        clean = " ".join(f"كلمة{index} نص عادي" for index in range(15000))
+        repeated = "كلمة " * 40000
+        started = time.monotonic()
+        self.assertIsNone(collapse_start(clean))
+        self.assertIsNotNone(collapse_start(repeated))
+        self.assertLess(time.monotonic() - started, 5.0)
+
+    def test_periods_at_both_ends_of_the_phrase_window_are_found(self) -> None:
+        fill = "abcdefghijklmnopqrstuvwxyz0123456789" * 3
+        for period in (5, 60):
+            phrase = (f"period{period:02d}" + fill)[:period]
+            self.assertEqual(len(phrase), period)
+            self.assertTrue(
+                is_degenerate(phrase * 40),
+                f"a repeated phrase of period {period} was not detected",
+            )
+
+
 class TruncationTests(unittest.TestCase):
     def test_a_collapsed_answer_keeps_the_readable_part(self) -> None:
         kept, truncated = truncated_answer(COLLAPSED)

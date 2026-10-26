@@ -26,7 +26,10 @@ _CHAR_RUN = re.compile(r"(?P<char>\w)\1{119,}")
 # ordinary prose cannot match it.
 _PHRASE_LOOP = re.compile(r"(?P<phrase>\S*\w\S{4,119}?)(?:\s*\1){4,}")
 # The same content line repeated, which is how a loop looks once prose gives out.
-_REPEATED_LINE = re.compile(r"(?P<line>[^\n]{20,160}?\w[^\n]{0,160}?)\n(?:\s*\1\n?){4,}")
+# The scan is line-based below: an equivalent regular expression with a
+# backreference tried every offset of a long single-line answer and spent
+# minutes inside re.search before it could fail.
+_REPEATED_LINE_WORD = re.compile(r"\w")
 _DECORATIVE_RULE = re.compile(r"^\s*[-=_*#~]{3,}\s*$")
 MIN_LOOP_CHARS = 200
 MIN_PHRASE_CHARS = 5
@@ -77,27 +80,72 @@ def _inline_phrase_loop(scanned: str) -> int | None:
 
     The search is a plain period scan rather than a regex, because a pattern that
     spans arbitrary words is exactly where backtracking turns a four-thousand
-    character page into a stalled delivery.
+    character page into a stalled delivery. The ``find`` prefilter keeps the
+    scan linear in the line length: a five-character anchor can only be a
+    repeated unit if it reappears within the maximum phrase length, and the
+    common clean line has no such occurrence, so the inner verifier almost
+    never runs.
     """
+    anchor_len = MIN_PHRASE_CHARS
     for line_match in re.finditer(r"[^\n]+", scanned):
         line = line_match.group(0)
         length = len(line)
         if length < MIN_LOOP_CHARS:
             continue
         largest = min(MAX_PHRASE_CHARS, length // MIN_PHRASE_REPEATS)
-        for period in range(MIN_PHRASE_CHARS, largest + 1):
-            index = 0
-            while index + 2 * period <= length:
-                chunk = line[index:index + period]
-                if not chunk.strip() or not any(character.isalnum() for character in chunk):
-                    index += 1
-                    continue
-                repeats = 1
-                while line[index + repeats * period:index + (repeats + 1) * period] == chunk:
-                    repeats += 1
-                if repeats >= MIN_PHRASE_REPEATS and repeats * period >= MIN_LOOP_CHARS:
-                    return line_match.start() + index
+        index = 0
+        while index + 2 * anchor_len <= length:
+            anchor = line[index:index + anchor_len]
+            if not anchor.strip() or not any(ch.isalnum() for ch in anchor):
                 index += 1
+                continue
+            search_end = min(index + largest, length - anchor_len) + anchor_len
+            candidate = line.find(anchor, index + anchor_len, search_end)
+            while candidate != -1:
+                period = candidate - index
+                chunk = line[index:index + period]
+                repeats = 1
+                cursor = index + period
+                while line.startswith(chunk, cursor):
+                    repeats += 1
+                    cursor += period
+                    if repeats >= MIN_PHRASE_REPEATS and repeats * period >= MIN_LOOP_CHARS:
+                        return line_match.start() + index
+                candidate = line.find(anchor, candidate + 1, search_end)
+            index += 1
+    return None
+
+
+def _repeated_line_start(text: str) -> int | None:
+    """Offset of the first line in a repeated-line run, or ``None``.
+
+    Only whole lines can be the repeated unit this rule is meant to catch, so
+    the scan walks lines and compares stripped text. The regex it replaces had
+    to try every offset of the input against a backreference: on a single
+    200k-character answer that turned delivery into minutes of CPU inside
+    ``re.search``. A blank line is whitespace between repeats, which the old
+    pattern allowed, so it does not break a run.
+    """
+    offset = 0
+    previous: str | None = None
+    run_start = 0
+    run_count = 0
+    for raw in text.splitlines(keepends=True):
+        line = raw.rstrip("\n")
+        key = line.strip()
+        if 21 <= len(key) <= 321 and _REPEATED_LINE_WORD.search(key):
+            if key == previous:
+                run_count += 1
+            else:
+                previous = key
+                run_count = 1
+                run_start = offset + (len(line) - len(line.lstrip()))
+            if run_count >= 5:
+                return run_start
+        elif key:
+            previous = None
+            run_count = 0
+        offset += len(raw)
     return None
 
 
@@ -107,9 +155,12 @@ def collapse_start(text: str) -> int | None:
         return None
     scanned = _mask_decoration(text)
     positions: list[int] = []
-    for match in (_CHAR_RUN.search(scanned), _REPEATED_LINE.search(scanned)):
-        if match is not None:
-            positions.append(match.start())
+    char_run = _CHAR_RUN.search(scanned)
+    if char_run is not None:
+        positions.append(char_run.start())
+    repeated_line = _repeated_line_start(scanned)
+    if repeated_line is not None:
+        positions.append(repeated_line)
     phrase = _PHRASE_LOOP.search(scanned)
     if phrase is not None and len(phrase.group(0)) >= MIN_LOOP_CHARS:
         positions.append(phrase.start())
