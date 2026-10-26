@@ -130,7 +130,11 @@ refresh_deployment_assets() {
 restart_opencode_after_update() {
   [[ "$BRIDGE_UPDATE_STATUS" == "updated" ]] || return 0
   run_as_bridge_user systemctl --user restart opencode-serve.service
-  sleep 3
+  # The daily agent task runs immediately after this step, so the restart is
+  # only complete once the server answers its own health endpoint. A fixed
+  # sleep used to race the start-up and failed the agent task with
+  # RemoteProtocolError even though the update itself had succeeded.
+  run_as_bridge_user "$PYTHON_BIN" "${BRIDGE_DIR}/wait_for_opencode.py"
 }
 
 run_daily_agent_maintenance() {

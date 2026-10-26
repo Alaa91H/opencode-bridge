@@ -181,6 +181,21 @@ class MaintenanceAssetTests(unittest.TestCase):
         self.assertIn("Persistent=true", content)
         self.assertIn("RandomizedDelaySec=20m", content)
 
+    def test_restart_waits_for_opencode_health_before_the_agent_task(self) -> None:
+        content = SCRIPT.read_text(encoding="utf-8")
+        start = content.index("restart_opencode_after_update()")
+        end = content.index("\n}", start)
+        function = content[start:end]
+        self.assertIn("systemctl --user restart opencode-serve.service", function)
+        # The agent task runs in the same cycle, so the restart must not rely on
+        # a fixed sleep: it has to wait for the documented health endpoint.
+        self.assertIn("wait_for_opencode.py", function)
+        self.assertNotIn("sleep 3", function)
+        self.assertLess(
+            content.index('record_step "إعادة تشغيل OpenCode بعد تحديث الكود فقط"'),
+            content.index('record_step "تشغيل مهمة الوكيل اليومية'),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
