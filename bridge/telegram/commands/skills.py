@@ -136,6 +136,17 @@ class SkillCommands:
         self.log.info("تعذر إعادة تشغيل عميل الذكاء الاصطناعي: %s", reason)
         return False
 
+    def _audit(self, event: str, outcome: str, *, detail: str = "", commit: str = "") -> None:
+        if self.audit_write is None:
+            return
+        details = {"detail": detail}
+        if commit:
+            details["commit"] = commit
+        try:
+            self.audit_write(event, outcome, details=details)
+        except Exception as exc:  # auditing must never break a background sync
+            self.log.debug("تعذر تسجيل تدقيق المهارات: %s", type(exc).__name__)
+
 
 def _argument(context: ContextTypes.DEFAULT_TYPE) -> str:
     args = getattr(context, "args", None) or []

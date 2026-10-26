@@ -25,9 +25,11 @@ from bridge.services.skill_sync import (
     Skill,
     SkillSyncError,
     SkillSyncService,
+    SyncResult,
     collect_skills,
     validate_skill,
 )
+from bridge.telegram.commands.skills import SkillCommands
 
 SKILL = """---
 name: {name}
@@ -360,6 +362,57 @@ class PortableCollectionLayoutTests(unittest.TestCase):
                     collect_skills(Path(tmp))
             finally:
                 skill_sync.MAX_SKILLS = original
+
+
+class SkillCommandAuditTests(unittest.IsolatedAsyncioTestCase):
+    """The scheduled sync must leave an audit entry, not an AttributeError.
+
+    Live log on the deployment host: the automatic sync wrote its state and then
+    failed inside the adapter because the audit helper did not exist, which also
+    stopped the audit trail for every background sync.
+    """
+
+    class _Service:
+        def __init__(self, needs_reload: bool = False) -> None:
+            self.needs_reload = needs_reload
+
+        def status(self) -> dict[str, bool]:
+            return {"needs_reload": self.needs_reload}
+
+        async def sync(self) -> SyncResult:
+            return SyncResult(status="synced", installed=("alpha",), commit="a" * 40)
+
+    async def test_automatic_sync_records_its_outcome(self) -> None:
+        entries: list[tuple[str, str, dict[str, object]]] = []
+        commands = SkillCommands(
+            self._Service(),  # type: ignore[arg-type]
+            reply=_noop_reply,
+            error_message=lambda exc, text: text,
+            audit_write=lambda event, outcome, **kwargs: entries.append((event, outcome, kwargs)),
+        )
+        await commands.sync_quietly()
+        self.assertEqual(entries[0][:2], ("skills_sync_auto", "success"))
+        self.assertEqual(entries[0][2]["details"]["commit"], "a" * 12)
+
+    async def test_reload_outcome_is_audited(self) -> None:
+        entries: list[tuple[str, str, dict[str, object]]] = []
+
+        async def reload_service() -> tuple[bool, str]:
+            return True, "ok"
+
+        commands = SkillCommands(
+            self._Service(needs_reload=True),  # type: ignore[arg-type]
+            reply=_noop_reply,
+            error_message=lambda exc, text: text,
+            reload_service=reload_service,
+            audit_write=lambda event, outcome, **kwargs: entries.append((event, outcome, kwargs)),
+        )
+        await commands.sync_quietly()
+        self.assertIn(("skills_reload", "success"), [entry[:2] for entry in entries])
+
+
+async def _noop_reply(_message: object, _text: str) -> None:
+    return None
 
 
 if __name__ == "__main__":
