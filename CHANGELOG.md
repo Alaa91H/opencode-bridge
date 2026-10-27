@@ -1,3 +1,16 @@
+## [3.64.0] - 2026-10-27
+
+### ملخص
+
+Added professional Telegraph-style news digest rendering capability: prompts/telegraph-professional.md, scripts/render_telegraph_digest.py, reference-digest-2026-10-26.md; supports 20 axes, 4 bullets, RTL pages, index + full continuous versions, strict validation
+
+### التغييرات منذ v3.63.1
+
+- feat: add Telegraph-style news digest rendering capability (f08679b)
+- chore(release): v3.63.2 (037d6b8)
+- fix(systemd): keep member restarts from stopping the stack (ad0930f)
+- fix(rendering): keep collapse detection linear on long answers (10e983b)
+
 ## [3.63.2] - 2026-10-26
 
 ### Fixed
