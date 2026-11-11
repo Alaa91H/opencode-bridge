@@ -1,7 +1,7 @@
 # Project Status
 
 - Date: 2026-11-11
-- Version under release: **3.65.0**
+- Current release: **3.65.0** (published 2026-11-11)
 - Default backend: **OpenCode**
 - Optional backend: **Freebuff CLI** (owner opt-in)
 - Long-lived branch: `main`
@@ -14,12 +14,13 @@ candidate includes the backend abstraction, PTY harness, chat-store extraction,
 per-owner routing, additive persistence, security controls, operator guides and
 regression tests.
 
-The 3.65.0 release is being finalized through the repository's verified release
-workflow: green `main` build and Python compatibility gates, immutable tag,
-tagged build and GitHub Release. CI for commit `5b81669` passed both the Build
-and Release and Python Compatibility gates; the release commit now raises
-`VERSION` to 3.65.0. Evidence is recorded in [`SESSION_LOG.md`](SESSION_LOG.md)
-and the GitHub Actions run history.
+The 3.65.0 release was published on 2026-11-11 through the repository's
+verified release workflow. The annotated tag `v3.65.0` (tag object `06dc280`)
+points to release commit `ca58eaf`. The Build and Release and Python
+Compatibility gates passed on `main`, the version transition was verified, and
+the tagged build published the GitHub Release with `opencode-bridge-v3.65.0.tar.gz`
+and `SHA256SUMS`. See the [release](https://github.com/Alaa91H/opencode-bridge/releases/tag/v3.65.0)
+and [`SESSION_LOG.md`](SESSION_LOG.md).
 
 ## Delivered capabilities
 
@@ -49,6 +50,11 @@ Local verification on the Windows development checkout:
 | Original `HEAD` baseline before the change | 1332 tests, 13 failures, 179 errors, 12 skipped |
 | CI Build and Release (`5b81669`) | success (run 42995712863) |
 | CI Python Compatibility (`5b81669`) | success (run 42995713078) |
+| CI Build and Release (`ca58eaf`) | success (run 42996065610) |
+| CI Python Compatibility (`ca58eaf`) | success (run 42996065550) |
+| Verified version release | success (run 42996241405) |
+| Tagged Build and Release (`v3.65.0`) | success (run 42996264181) |
+| GitHub Release | published 2026-11-11 with archive and checksums |
 
 The full-suite failures are the same pre-existing Windows environment failures
 (symlink privileges, POSIX permission checks, timezone data and host-service
@@ -87,12 +93,12 @@ the release gate.
 
 ## Repository hygiene
 
-The remote previously carried 27 non-main branches. The two Dependabot update
-branches were merged normally; the other 25 branches were superseded by newer
-`main` implementations and were archived with `-s ours` merge commits so their
-commits remain in history without replacing the current tree. Remote deletion
-follows the successful push of the consolidated `main`. No unique commit is lost
-from reachable history.
+The remote previously carried the two Dependabot update branches and 25
+superseded feature/security branches. The Dependabot work was merged normally;
+the other 25 branches were archived with `-s ours` merge commits so their commits
+remain in history without replacing the current tree. All non-`main` remote
+branches were deleted after the consolidated push. `main` is now the only remote
+and local branch, and no unique commit was lost from reachable history.
 
 ## Documentation map
 

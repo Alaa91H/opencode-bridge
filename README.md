@@ -21,7 +21,7 @@ The project is built around persistent sessions, queued development tasks, guard
 
 ## Current Release
 
-**3.65.0** adds the optional Freebuff CLI backend while keeping OpenCode as the default. The release includes per-owner backend routing, owner-isolated PTY execution, additive backend session storage, security controls and consolidated documentation. See [PROJECT_STATUS](docs/PROJECT_STATUS.md), [ARCHITECTURE](docs/ARCHITECTURE.md) and [CHANGELOG](CHANGELOG.md).
+**3.65.0** adds the optional Freebuff CLI backend while keeping OpenCode as the default. The release includes per-owner backend routing, owner-isolated PTY execution, additive backend session storage, security controls and consolidated documentation. Published as [v3.65.0](https://github.com/Alaa91H/opencode-bridge/releases/tag/v3.65.0) with a source archive and checksums. See [PROJECT_STATUS](docs/PROJECT_STATUS.md), [ARCHITECTURE](docs/ARCHITECTURE.md) and [CHANGELOG](CHANGELOG.md).
 
 It is intentionally designed so the production server acts as an **agent execution environment**, not a build machine.
 

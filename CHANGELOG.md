@@ -68,9 +68,12 @@ descriptors in `bridge/domain/agent/`.
 - Two Dependabot update branches were merged normally.
 - Twenty-five superseded remote branches were archived with `-s ours` merge
   commits, preserving their commits without replacing the current tree; all
-  non-`main` branches are removed after the consolidated push.
-- The verified release workflow publishes `v3.65.0` only after the Linux build
-  and Python compatibility gates succeed.
+  non-`main` branches were removed after the consolidated push, leaving only
+  `main` on the remote.
+- The verified release workflow published the annotated `v3.65.0` tag on
+  2026-11-11 after the Linux build and Python compatibility gates passed; the
+  tagged build published [the GitHub Release](https://github.com/Alaa91H/opencode-bridge/releases/tag/v3.65.0)
+  with the source archive and `SHA256SUMS`.
 
 ### Verification
 
@@ -82,6 +85,8 @@ descriptors in `bridge/domain/agent/`.
   Remaining failures are Windows environment issues; Linux CI is the release
   gate.
 - Ruff clean on all touched/new files; `compileall` and `git diff --check` pass.
+- Linux CI passed for the consolidated `main` and the release commit, including
+  the verified tag/release workflow and the tagged build.
 
 ### Upgrade notes
 

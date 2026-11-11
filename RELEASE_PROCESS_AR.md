@@ -37,4 +37,4 @@
 
 ## إصدار 3.65.0
 
-أُضيفت خلفية Freebuff CLI الاختيارية مع بقاء OpenCode الافتراضي. يُنشئ سير العمل `Verified version release` الوسم `v3.65.0` فقط بعد نجاح بناء `main` واختبارات Python Compatibility لنفس الالتزام، ثم يطلق بناء الوسم الذي ينشر GitHub Release. راجع [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md) و[`docs/freebuff-integration-ar.md`](docs/freebuff-integration-ar.md) قبل النشر.
+أُضيفت خلفية Freebuff CLI الاختيارية مع بقاء OpenCode الافتراضي. نُشر الإصدار `v3.65.0` في 11 نوفمبر 2026 بعد نجاح بناء `main` واختبارات Python Compatibility لنفس الالتزام؛ أنشأ سير العمل `Verified version release` الوسم الموثّق ثم شغّل بناء الوسم الذي نشر GitHub Release مع أرشيف المصدر و`SHA256SUMS`. راجع [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md) و[`docs/freebuff-integration-ar.md`](docs/freebuff-integration-ar.md) قبل النشر.

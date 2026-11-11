@@ -3,7 +3,7 @@
 This roadmap describes intended work, not commitments. Security and release
 correctness take precedence over feature velocity.
 
-## Now — 3.65.0 release
+## Now — released 3.65.0
 
 - [x] Add the `AgentBackend` abstraction and maintain OpenCode as default.
 - [x] Implement the Freebuff PTY harness, routing, additive storage and
@@ -14,9 +14,9 @@ correctness take precedence over feature velocity.
 - [x] Merge Dependabot updates and archive superseded branches.
 - [x] Consolidate documentation around architecture, status, decisions and
   session history.
-- [ ] Green Linux CI on the consolidated `main`.
-- [ ] Publish the immutable `v3.65.0` tag and GitHub Release.
-- [ ] Delete all non-`main` remote branches after the merge history is pushed.
+- [x] Green Linux CI on the consolidated `main` (`5b81669` and `ca58eaf`).
+- [x] Publish the immutable `v3.65.0` tag and GitHub Release.
+- [x] Delete all non-`main` remote branches after the merge history was pushed.
 
 ## Next — production validation
 

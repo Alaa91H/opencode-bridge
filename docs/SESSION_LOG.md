@@ -59,15 +59,23 @@ gate.
 - Python Compatibility (3.12/3.13/3.14): run `42995713078` — success.
 - Verified version release: run `42995895201` — success with no version change,
   correctly leaving the release untagged until the version bump.
-- Remote branch cleanup completed: `main` is the only remaining head.
+- Remote branch cleanup completed: 26 non-`main` heads were deleted after the
+  consolidated push; `main` is the only remaining remote and local branch.
 
-### Release
+### Release evidence (commit `ca58eaf`)
 
-- Version under release: **3.65.0**; the release commit raises `VERSION` from
-  3.64.0 to 3.65.0.
-- The verified release workflow creates the tag and tagged build only after the
-  `main` build and Python compatibility gates pass.
-- Final tag and release URL are appended here after publication completes.
+- Build and Release (`main`): run `42996065610` — success.
+- Python Compatibility: run `42996065550` — success.
+- Verified version release: run `42996241405` — success.
+- Tagged Build and Release: run `42996264181` — success.
+- Annotated tag `v3.65.0` (tag object `06dc280`; commit `ca58eaf`) was created
+  only after both required `main` gates passed.
+- GitHub Release published at `2026-11-11T09:35:14Z`:
+  <https://github.com/Alaa91H/opencode-bridge/releases/tag/v3.65.0>.
+- Release assets: `opencode-bridge-v3.65.0.tar.gz` and `SHA256SUMS`.
+- The release commit raised `VERSION` from 3.64.0 to 3.65.0; the final
+  documentation update does not change `VERSION` and therefore creates no new
+  tag.
 
 ### Known follow-up
 
