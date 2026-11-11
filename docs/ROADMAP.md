@@ -3,7 +3,7 @@
 This roadmap describes intended work, not commitments. Security and release
 correctness take precedence over feature velocity.
 
-## Now — 3.65.1 release
+## Now — released 3.65.1
 
 - [x] Add the `AgentBackend` abstraction and maintain OpenCode as default.
 - [x] Implement the Freebuff PTY harness, routing, additive storage and
@@ -18,7 +18,7 @@ correctness take precedence over feature velocity.
 - [x] Publish the immutable `v3.65.0` tag and GitHub Release.
 - [x] Add host-specific systemd hardening detection and regenerate units during
   rollback.
-- [ ] Publish the immutable `v3.65.1` tag and GitHub Release.
+- [x] Publish the immutable `v3.65.1` tag and GitHub Release.
 - [x] Delete all non-`main` remote branches after the merge history was pushed.
 
 ## Next — production validation
@@ -31,8 +31,8 @@ correctness take precedence over feature velocity.
   content.
 - [ ] Record the exact CLI version and screen-shape result in
   `SESSION_LOG.md`.
-- [ ] Deploy `v3.65.1` through `scripts/deploy.sh` and run the documented
-  rollback once in staging.
+- [x] Deploy `v3.65.1` through `scripts/deploy.sh` on the server.
+- [ ] Run the documented rollback once in staging.
 
 ## Later — transport and observability
 

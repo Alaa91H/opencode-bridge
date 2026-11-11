@@ -31,8 +31,29 @@ guide and this architecture record.
 - Verified both services active, `NRestarts=0`, no failed user units,
   OpenCode health true (`1.18.31`), queue clear, and only one rollback archive
   (`v3.63.2`) with a valid checksum.
-- The published `v3.65.0` tag predates the probe code; the fix is shipping in
+- The published `v3.65.0` tag predates the probe code; the fix shipped in
   `3.65.1`, and the generated drop-in bridged the `v3.65.0` verification.
+
+### Release 3.65.1 (2026-11-11)
+
+- Release commit `3baa230` raised `VERSION` from `3.65.0` to `3.65.1`.
+- `main` Build and Release (`43001010328`) and Python Compatibility
+  (`43001011188`) succeeded; the verified workflow (`43001161674`) created
+  annotated tag `v3.65.1` (tag object `c90a187`) targeting `3baa230`.
+- The tagged build (`43001191347`) published the GitHub Release at
+  `2026-11-11T10:10:28Z` with `opencode-bridge-v3.65.1.tar.gz` and
+  `SHA256SUMS`.
+- Deployed the tag through `scripts/deploy.sh`; identity reports `v3.65.1`,
+  commit `3baa230`, and deployed_at `2026-11-11T10:11:34Z`.
+- Verified both services active, `NRestarts=0`, no failed units, OpenCode
+  health true (`1.18.31`), Telegram `Application started` at `10:12:08`, no
+  post-start errors, and the host probe disabled only `ProtectClock`,
+  `ProtectKernelLogs` and `ProtectKernelModules` while keeping
+  `NoNewPrivileges=yes`.
+- The only retained rollback archive is the verified `v3.65.0` archive
+  (`opencode-bridge-ca58eaf96b15-20261111T101100Z.tar.gz`); the older
+  `v3.63.2` archive was removed after the new archive passed checksum
+  verification.
 
 ## 2026-11-11 — Freebuff backend and 3.65.0 consolidation
 

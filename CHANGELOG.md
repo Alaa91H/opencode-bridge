@@ -23,7 +23,18 @@ remains the default backend and application behavior is otherwise unchanged.
   tests passed (28 tests).
 - `ruff check .`, `bash -n` on the LF deploy script, and documentation-as-code
   checks passed.
-- Full Linux CI and the tagged build are required before deployment.
+- Full Linux CI and the tagged build passed before deployment.
+
+### Release
+
+- `main` Build and Release run `43001010328` and Python Compatibility run
+  `43001011188` succeeded on commit `3baa230`.
+- Verified version release run `43001161674` created annotated tag `v3.65.1`
+  (tag object `c90a187`) pointing to `3baa230`.
+- Tagged Build and Release run `43001191347` published the GitHub Release with
+  `opencode-bridge-v3.65.1.tar.gz` and `SHA256SUMS`.
+- Deployed to the server at `2026-11-11T10:11:34Z`; both services active,
+  health true, `NRestarts=0`, and one rollback archive retained.
 
 ## [3.65.0] - 2026-11-11
 

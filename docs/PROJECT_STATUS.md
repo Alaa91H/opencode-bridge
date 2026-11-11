@@ -1,7 +1,7 @@
 # Project Status
 
 - Date: 2026-11-11
-- Current release: **3.65.1** (release candidate, 2026-11-11)
+- Current release: **3.65.1** (published 2026-11-11)
 - Default backend: **OpenCode**
 - Optional backend: **Freebuff CLI** (owner opt-in)
 - Long-lived branch: `main`
@@ -22,6 +22,13 @@ Compatibility gates passed on `main`, the version transition was verified, and
 the tagged build published the GitHub Release with `opencode-bridge-v3.65.0.tar.gz`
 and `SHA256SUMS`. See the [release](https://github.com/Alaa91H/opencode-bridge/releases/tag/v3.65.0)
 and [`SESSION_LOG.md`](SESSION_LOG.md).
+
+The 3.65.1 patch was published on 2026-11-11. The annotated tag `v3.65.1` (tag
+object `c90a187`) points to release commit `3baa230`. The `main` Build and
+Release and Python Compatibility gates passed, the verified release workflow
+created the tag, and the tagged build published
+`opencode-bridge-v3.65.1.tar.gz` and `SHA256SUMS`. The server was deployed to
+`v3.65.1` at `2026-11-11T10:11:34Z` through `scripts/deploy.sh`.
 
 ## Delivered capabilities
 
@@ -66,6 +73,12 @@ Local verification on the Windows development checkout:
 | Verified version release | success (run 42996241405) |
 | Tagged Build and Release (`v3.65.0`) | success (run 42996264181) |
 | GitHub Release | published 2026-11-11 with archive and checksums |
+| CI Build and Release (`3baa230`) | success (run 43001010328) |
+| CI Python Compatibility (`3baa230`) | success (run 43001011188) |
+| Verified version release (`v3.65.1`) | success (run 43001161674) |
+| Tagged Build and Release (`v3.65.1`) | success (run 43001191347) |
+| GitHub Release (`v3.65.1`) | published 2026-11-11T10:10:28Z with archive and checksums |
+| Server deployment (`v3.65.1`) | active at 2026-11-11T10:11:34Z; health true, `NRestarts=0` |
 
 The full-suite failures are the same pre-existing Windows environment failures
 (symlink privileges, POSIX permission checks, timezone data and host-service
@@ -99,8 +112,8 @@ the release gate.
    default and `/model` displays the configured/allowed view rather than editing
    vendor state.
 5. **Host deployment is separate from GitHub release publication.** A published
-   release does not deploy itself; the normal `scripts/deploy.sh v3.65.1` flow is
-   still required on the server.
+   release does not deploy itself. The server was deployed to `v3.65.1` on
+   2026-11-11; future releases still require `scripts/deploy.sh` on the host.
 
 ## Repository hygiene
 

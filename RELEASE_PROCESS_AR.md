@@ -41,4 +41,4 @@
 
 ## إصدار 3.65.1
 
-إصلاح نشر للحاويات غير المميّزة: يختبر `systemd.py` كل تقييد أمان اختياري داخل خدمة مؤقتة، ويكتب `20-hardening-compat.conf` فقط للتقييدات التي يرفضها المضيف، مع إبقاء `NoNewPrivileges=yes`. يعيد rollback توليد الوحدات للإصدار السابق قبل إعادة التشغيل. لا يتغير سلوك OpenCode أو Freebuff التطبيقي. راجع [`CHANGELOG.md`](CHANGELOG.md) و[`docs/SESSION_LOG.md`](docs/SESSION_LOG.md) قبل النشر.
+إصلاح نشر للحاويات غير المميّزة: يختبر `systemd.py` كل تقييد أمان اختياري داخل خدمة مؤقتة، ويكتب `20-hardening-compat.conf` فقط للتقييدات التي يرفضها المضيف، مع إبقاء `NoNewPrivileges=yes`. يعيد rollback توليد الوحدات للإصدار السابق قبل إعادة التشغيل. لا يتغير سلوك OpenCode أو Freebuff التطبيقي. نُشر `v3.65.1` في 11 نوفمبر 2026؛ نجح بناء `main` (`43001010328`) واختبارات Python (`43001011188`)، ثم أنشأ سير العمل الوسم `v3.65.1` ونشر GitHub Release بأرشيف المصدر و`SHA256SUMS`. راجع [`CHANGELOG.md`](CHANGELOG.md) و[`docs/SESSION_LOG.md`](docs/SESSION_LOG.md).
