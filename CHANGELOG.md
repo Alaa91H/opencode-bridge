@@ -1,3 +1,30 @@
+## [3.65.1] - 2026-11-11
+
+### Summary
+
+Container-safe deployment patch. The bridge unit still requests the complete
+systemd hardening set, but deployment now probes the host and disables only the
+optional directives that cannot start in an unprivileged container. OpenCode
+remains the default backend and application behavior is otherwise unchanged.
+
+### Fixed
+
+- Deployment now probes the host's systemd capability support and generates a
+  compatibility drop-in for only the hardening directives that cannot start in
+  an unprivileged container. `NoNewPrivileges=yes` remains enabled and hosts
+  with full support keep the complete hardening set.
+- Rollback regenerates the systemd units for the restored release before
+  restarting, preventing a failed deployment from leaving a newer unit running
+  against older code.
+
+### Verification
+
+- Linux: systemd-hardening, release-unit, deployment-lock and resource-guard
+  tests passed (28 tests).
+- `ruff check .`, `bash -n` on the LF deploy script, and documentation-as-code
+  checks passed.
+- Full Linux CI and the tagged build are required before deployment.
+
 ## [3.65.0] - 2026-11-11
 
 ### Summary

@@ -119,6 +119,10 @@ rollback() {
   local code=$?
   echo "فشل النشر؛ تجري استعادة الإصدار السابق ${DEPLOYED_COMMIT:0:12}." >&2
   git checkout --detach --quiet "$DEPLOYED_COMMIT" || true
+  # Regenerate the units for the restored release. Without this, a failed
+  # deployment leaves the new unit (and its stricter hardening) active while
+  # the old code runs, which can keep the service down after the rollback.
+  "$PYTHON_BIN" systemd.py || true
   sudo -n "${BRIDGE_DIR}/maintenance/install-root-assets.sh" || true
   systemctl --user restart opencode-serve.service || true
   systemctl --user restart "$SERVICE_NAME" || true

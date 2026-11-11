@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -48,6 +51,57 @@ class ReleaseServiceUnitTests(unittest.TestCase):
     def test_deployed_tag_is_derived_from_release_version_without_git_metadata(self) -> None:
         with patch.object(systemd, "read_version", return_value="2.0.0-rc.9"):
             self.assertEqual(systemd.deployed_tag(), "v2.0.0-rc.9")
+
+    def test_install_probes_and_writes_only_the_host_specific_fallback(self) -> None:
+        bad = {"ProtectClock", "ProtectKernelLogs", "ProtectKernelModules"}
+
+        def probe(properties: tuple[str, ...]) -> bool:
+            return not (set(properties) & bad)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with patch.object(systemd, "_run"):
+                systemd.install(True, home=home, hardening_probe=probe)
+            dropin = (
+                home
+                / ".config"
+                / "systemd"
+                / "user"
+                / "opencode-bridge-telegram.service.d"
+                / "20-hardening-compat.conf"
+            )
+            text = dropin.read_text(encoding="utf-8")
+            for name in bad:
+                self.assertIn(f"{name}=no", text)
+            self.assertNotIn("ProtectKernelTunables=no", text)
+            self.assertNotIn("NoNewPrivileges=no", text)
+
+    def test_install_keeps_full_hardening_when_the_probe_accepts_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with patch.object(systemd, "_run"):
+                systemd.install(True, home=home, hardening_probe=lambda _properties: True)
+            dropin = (
+                home
+                / ".config"
+                / "systemd"
+                / "user"
+                / "opencode-bridge-telegram.service.d"
+                / "20-hardening-compat.conf"
+            )
+            self.assertFalse(dropin.exists())
+
+    def test_self_check_probes_without_installing_or_writing(self) -> None:
+        output = io.StringIO()
+        with (
+            patch.object(systemd, "supported_properties", return_value=("ProtectHostname",)),
+            patch.object(systemd, "install") as install,
+            contextlib.redirect_stdout(output),
+        ):
+            self.assertEqual(systemd.main(["--self-check"]), 0)
+        install.assert_not_called()
+        self.assertIn('"supported"', output.getvalue())
+        self.assertIn("ProtectHostname", output.getvalue())
 
 
 if __name__ == "__main__":

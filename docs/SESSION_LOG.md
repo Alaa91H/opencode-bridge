@@ -3,6 +3,37 @@
 Chronological record of substantial implementation, verification and release
 work. This file is intentionally concise; Git history contains the full diff.
 
+## 2026-11-11 — Container-safe systemd hardening
+
+- Added `bridge/infrastructure/deployment/systemd_hardening.py`: it probes each
+  optional hardening directive through a transient user `systemd-run` service
+  and returns the largest ordered subset that starts on the host.
+- `systemd.py` now writes or removes a generated `20-hardening-compat.conf`
+  automatically. Only rejected directives are disabled; `NoNewPrivileges=yes`
+  stays in the unit and a fully capable host receives no fallback file.
+- `scripts/deploy.sh` now regenerates units for the restored release during
+  rollback, preventing the old-code/new-unit mismatch that kept the service down
+  after the first container deployment attempt.
+- Added tests for the supported and unsupported probe paths, generated-file
+  cleanup, and rollback ordering; documented the probe in the Arabic deployment
+guide and this architecture record.
+
+### Deployment verification (server `130.61.123.50`)
+
+- Removed the manually created `99-container-compat.conf` and generated
+  `20-hardening-compat.conf` with the working-tree probe (run over SSH stdin, so
+  no helper file was left on the host). The generated file disables only
+  `ProtectClock`, `ProtectKernelLogs` and `ProtectKernelModules`; the other five
+  optional directives and `NoNewPrivileges=yes` remain active.
+- Redeployed from `v3.63.2` to `v3.65.0` through `scripts/deploy.sh`; the final
+  identity reports `v3.65.0`, commit `ca58eaf`, and deployed_at
+  `2026-11-11T09:59:26Z`.
+- Verified both services active, `NRestarts=0`, no failed user units,
+  OpenCode health true (`1.18.31`), queue clear, and only one rollback archive
+  (`v3.63.2`) with a valid checksum.
+- The published `v3.65.0` tag predates the probe code; the fix is shipping in
+  `3.65.1`, and the generated drop-in bridged the `v3.65.0` verification.
+
 ## 2026-11-11 — Freebuff backend and 3.65.0 consolidation
 
 ### Implementation

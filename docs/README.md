@@ -64,7 +64,7 @@ OpenCode Bridge documentation for version 3.65.x. Start with the root
 - [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — contribution and verification
   workflow.
 - [`../CHANGELOG.md`](../CHANGELOG.md) — release history.
-- [`../releases/v3.65.0.md`](../releases/v3.65.0.md) — current release notes.
+- [`../releases/v3.65.1.md`](../releases/v3.65.1.md) — current release notes.
 
 ## Removed documentation
 

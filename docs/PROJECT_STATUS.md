@@ -1,7 +1,7 @@
 # Project Status
 
 - Date: 2026-11-11
-- Current release: **3.65.0** (published 2026-11-11)
+- Current release: **3.65.1** (release candidate, 2026-11-11)
 - Default backend: **OpenCode**
 - Optional backend: **Freebuff CLI** (owner opt-in)
 - Long-lived branch: `main`
@@ -9,10 +9,11 @@
 ## Current state
 
 The Freebuff CLI backend is implemented, tested with a simulated TUI, and
-merged into `main` with OpenCode behavior preserved as the default. The release
-candidate includes the backend abstraction, PTY harness, chat-store extraction,
-per-owner routing, additive persistence, security controls, operator guides and
-regression tests.
+merged into `main` with OpenCode behavior preserved as the default. The 3.65.0
+feature baseline includes the backend abstraction, PTY harness, chat-store
+extraction, per-owner routing, additive persistence, security controls,
+operator guides and regression tests. The 3.65.1 patch adds host-specific
+systemd hardening detection and rollback unit regeneration.
 
 The 3.65.0 release was published on 2026-11-11 through the repository's
 verified release workflow. The annotated tag `v3.65.0` (tag object `06dc280`)
@@ -32,8 +33,17 @@ and [`SESSION_LOG.md`](SESSION_LOG.md).
 | OpenCode backend and model management | Stable, default |
 | Freebuff backend and per-owner `/backend` | New in 3.65.0 |
 | Owner isolation and cancellation routing | New in 3.65.0 |
+| Container-safe systemd deployment | New in 3.65.1 |
 | Quality gate, CI pinning and release workflow | Maintained |
 | Architecture/status/roadmap/session documentation | Consolidated in 3.65.0 |
+
+## 3.65.1 deployment patch
+
+`systemd.py` probes each optional hardening directive in a transient user
+service and generates `20-hardening-compat.conf` only for directives the host
+rejects. A full-capability host receives no file, and a stale fallback is
+removed. `NoNewPrivileges=yes` remains enabled. `scripts/deploy.sh` regenerates
+units for the restored release during rollback. See [`SESSION_LOG.md`](SESSION_LOG.md).
 
 ## Verification evidence
 
@@ -42,6 +52,7 @@ Local verification on the Windows development checkout:
 | Check | Result |
 | --- | --- |
 | `tests/freebuff` | 48 passed, 2 skipped (PTY is Unix-only) |
+| Container-safe deployment tests | 28 passed on Linux |
 | Core affected tests | 27 passed |
 | Linux PTY smoke via WSL (simulated TUI) | 1 passed |
 | `compileall` | Passed |
@@ -88,7 +99,7 @@ the release gate.
    default and `/model` displays the configured/allowed view rather than editing
    vendor state.
 5. **Host deployment is separate from GitHub release publication.** A published
-   release does not deploy itself; the normal `scripts/deploy.sh v3.65.0` flow is
+   release does not deploy itself; the normal `scripts/deploy.sh v3.65.1` flow is
    still required on the server.
 
 ## Repository hygiene

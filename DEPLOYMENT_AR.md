@@ -92,6 +92,18 @@ FREEBUFF_BIN=/home/ubuntu/.local/bin/freebuff
 
 بعد إعادة التشغيل استخدم `/backend` لعرض الحالة و`/backend freebuff` للتفعيل لحسابك. لا تُقرأ `log.jsonl` ولا تُمرّر أسرار البريدج إلى CLI. راجع [`docs/freebuff-integration-ar.md`](docs/freebuff-integration-ar.md) للتحقق والتراجع.
 
+## توافق تقييدات systemd على الحاويات
+
+الوحدة تطلب مجموعة التقييدات كاملة، لكن بعض حاويات Linux تشغّل مدير مستخدم غير مميّز بـ`CapEff=0`؛ عندها يفشل systemd في إسقاط capability ويعود status `218/CAPABILITIES` قبل تشغيل البوت. لا تُضعف الوحدة عالمياً من أجل ذلك.
+
+`systemd.py` يختبر كل تقييد داخل خدمة مؤقتة عبر `systemd-run`، ثم يكتب تلقائياً `20-hardening-compat.conf` في مجلد drop-ins الخاص بخدمة Telegram، ويُعطّل فقط التقييدات التي رفضها المضيف. يبقى `NoNewPrivileges=yes` مفعّلاً دائماً، وعلى المضيف الذي يدعم التقييدات كاملة لا يُنشأ ملف fallback. للفحص فقط:
+
+```bash
+venv/bin/python systemd.py --self-check
+```
+
+لا تُنشئ ملف تجاوز يدوياً. عند فشل النشر يعيد rollback توليد الوحدات للإصدار السابق قبل إعادة التشغيل. إذا كان الخادم ما زال على إصدار أقدم من هذا الإصلاح، يمكن تشغيل أداة الفحص من working tree عبر stdin قبل النشر، ثم تنفيذ `scripts/deploy.sh <tag>` المعتاد؛ الأداة تكتب الـdrop-in المولّد ولا تعدّل شجرة Git.
+
 ## ملاحظات إصدار 3.0.0 (12 أكتوبر 2026)
 
 يتوافق مسار تشغيل systemd ومسار تحديث الإصدارات على `/home/ubuntu/opencode-bridge`؛ تبقى `runtime/` و`sessions.db` و`.env` في هذا المجلد بين الإصدارات. يعتمد التحديث التلقائي على آخر GitHub Release مستقر بعد اجتياز اختبار الوسم، ثم ينفذ `scripts/deploy.sh` مع إمكانية العودة للإصدار السابق. لا يجري بناء مشاريع على الخادم.

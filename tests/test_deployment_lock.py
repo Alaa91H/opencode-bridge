@@ -18,6 +18,15 @@ class DeploymentLockTests(unittest.TestCase):
         self.assertIn('if [[ -L "$DEPLOY_LOCK" ]]; then', source)
         self.assertIn("exit 75", source)
 
+    def test_rollback_regenerates_units_for_the_restored_release_before_restart(self) -> None:
+        source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        rollback = source.index("rollback() {")
+        checkout = source.index('git checkout --detach --quiet "$DEPLOYED_COMMIT"', rollback)
+        regenerate = source.index('"$PYTHON_BIN" systemd.py', rollback)
+        restart = source.index('systemctl --user restart "$SERVICE_NAME"', rollback)
+        self.assertLess(checkout, regenerate)
+        self.assertLess(regenerate, restart)
+
 
 if __name__ == "__main__":
     unittest.main()

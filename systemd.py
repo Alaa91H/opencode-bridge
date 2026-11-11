@@ -4,11 +4,19 @@
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import re
 import shutil
 import subprocess
 import sys
+
+from bridge.infrastructure.deployment.systemd_hardening import (
+    COMPAT_DROPIN_NAME,
+    disabled_properties,
+    install_compat_dropin,
+    supported_properties,
+)
 
 UNIT_NAMES = (
     "opencode-serve.service",
@@ -51,10 +59,15 @@ def dropin_text(tag: str, version: str) -> str:
     )
 
 
-def install(dropins: bool) -> int:
+def install(
+    dropins: bool,
+    *,
+    home: pathlib.Path | None = None,
+    hardening_probe=None,
+) -> int:
     bridge_dir = pathlib.Path(__file__).resolve().parent
     source_dir = bridge_dir / "deploy"
-    destination_dir = pathlib.Path.home() / ".config" / "systemd" / "user"
+    destination_dir = (home or pathlib.Path.home()) / ".config" / "systemd" / "user"
     destination_dir.mkdir(parents=True, exist_ok=True)
 
     for name in UNIT_NAMES:
@@ -77,6 +90,22 @@ def install(dropins: bool) -> int:
             temporary.replace(target)
             print(f"تم ختم الوحدة {name} بالوسم {tag}")
 
+    # The release unit asks for the full hardening set. Probe the live user
+    # manager instead of weakening every host: a container with CapEff=0 cannot
+    # drop capabilities and would fail at step CAPABILITIES. The generated
+    # drop-in disables only the directives this host rejects; NoNewPrivileges
+    # stays enabled in the unit. A full-capability host gets no extra file.
+    hardening_dir = destination_dir / "opencode-bridge-telegram.service.d"
+    disabled = install_compat_dropin(hardening_dir, probe=hardening_probe)
+    if disabled:
+        print(
+            "systemd hardening fallback: "
+            + ", ".join(disabled)
+            + f" disabled; NoNewPrivileges remains enabled ({COMPAT_DROPIN_NAME})"
+        )
+    else:
+        print("systemd hardening: full (all requested directives supported)")
+
     _run(["systemctl", "--user", "daemon-reload"])
     _run(["systemctl", "--user", "enable", "opencode-bridge.target"])
     print("تم تحديث systemd. لإعادة التشغيل: systemctl --user restart opencode-bridge.target")
@@ -86,7 +115,27 @@ def install(dropins: bool) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-dropin", action="store_true", help="skip stamping units with the release tag")
+    parser.add_argument(
+        "--self-check",
+        action="store_true",
+        help="print the detected systemd hardening profile without installing units",
+    )
     arguments = parser.parse_args(argv)
+    if arguments.self_check:
+        supported = supported_properties()
+        print(
+            json.dumps(
+                {
+                    "supported": list(supported),
+                    "disabled": list(disabled_properties(supported)),
+                    "no_new_privileges": "yes",
+                    "compat_dropin": COMPAT_DROPIN_NAME,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
     return install(dropins=not arguments.no_dropin)
 
 

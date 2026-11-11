@@ -16,6 +16,7 @@ integration is in [`ADR 0001`](adr/0001-freebuff-cli-backend.md).
 | 2026-11-11 | Archive superseded branches with `-s ours` | `main` already contains newer implementations; this records merge ancestry and preserves commits without reintroducing old trees | Accepted for this consolidation |
 | 2026-11-11 | Consolidate stale T-series and 2.0 planning docs | The code/tests are the source of truth; keeping contradictory stage notes harms operators and agents | Accepted |
 | 2026-11-11 | Treat Linux GitHub Actions as the release gate | Windows lacks PTY and has environment-specific symlink/permission/timezone failures | Accepted |
+| 2026-11-11 | Probe systemd hardening support per host and generate only rejected directives | A unit with the full hardening set fails in unprivileged containers with `218/CAPABILITIES`; weakening every host is unacceptable, and a generated drop-in keeps `NoNewPrivileges=yes` while preserving all supported directives | Accepted |
 
 ## Consequences to preserve
 

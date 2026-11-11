@@ -187,7 +187,22 @@ Large results are delivered as files or paginated HTML.
 | Freebuff storage | Never read `log.jsonl`; parse only size-bounded `chat-messages.json` |
 | Processes | Process-group termination, timeouts, bounded output |
 | Secrets | Never committed, logged, placed in Telegram or copied into Freebuff prompts |
-| Deployment | User-level systemd, `NoNewPrivileges`, safe kernel hardening, no build on host |
+| Deployment | User-level systemd, `NoNewPrivileges`, probe-driven kernel hardening, no build on host |
+
+### Host-specific systemd hardening
+
+`deploy/opencode-bridge-telegram.service` requests the full hardening set. The
+installed user manager is not equivalent on every host: unprivileged containers
+commonly expose an empty effective capability set, so systemd cannot drop
+capabilities and a hardened unit fails at `CAPABILITIES` before the bridge
+starts. `systemd.py` therefore probes each optional directive through a
+transient `systemd-run` user service and builds the largest ordered set that
+actually starts. It writes a generated `20-hardening-compat.conf` containing
+`<directive>=no` only for rejected directives. `NoNewPrivileges=yes` is never
+disabled, and a host that passes every probe gets no compatibility file; a stale
+fallback is removed. `deploy.sh` regenerates units for the restored release
+during rollback, so a failed deployment cannot leave a newer unit running against
+older code.
 
 ## CI and verification
 

@@ -38,3 +38,7 @@
 ## إصدار 3.65.0
 
 أُضيفت خلفية Freebuff CLI الاختيارية مع بقاء OpenCode الافتراضي. نُشر الإصدار `v3.65.0` في 11 نوفمبر 2026 بعد نجاح بناء `main` واختبارات Python Compatibility لنفس الالتزام؛ أنشأ سير العمل `Verified version release` الوسم الموثّق ثم شغّل بناء الوسم الذي نشر GitHub Release مع أرشيف المصدر و`SHA256SUMS`. راجع [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md) و[`docs/freebuff-integration-ar.md`](docs/freebuff-integration-ar.md) قبل النشر.
+
+## إصدار 3.65.1
+
+إصلاح نشر للحاويات غير المميّزة: يختبر `systemd.py` كل تقييد أمان اختياري داخل خدمة مؤقتة، ويكتب `20-hardening-compat.conf` فقط للتقييدات التي يرفضها المضيف، مع إبقاء `NoNewPrivileges=yes`. يعيد rollback توليد الوحدات للإصدار السابق قبل إعادة التشغيل. لا يتغير سلوك OpenCode أو Freebuff التطبيقي. راجع [`CHANGELOG.md`](CHANGELOG.md) و[`docs/SESSION_LOG.md`](docs/SESSION_LOG.md) قبل النشر.
