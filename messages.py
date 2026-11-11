@@ -85,6 +85,19 @@ HELP_TEXT: Final = """الأوامر الأساسية:
 
 def user_error(exc: Exception, operation: str = "معالجة الطلب") -> str:
     """Return an Arabic error message without exposing exception internals."""
+    from bridge.domain.agent.errors import AgentBackendError
+    from bridge.domain.tasks.retry_policy import ProviderTaskError
+
+    if isinstance(exc, AgentBackendError):
+        return exc.user_message
+    if isinstance(exc, ProviderTaskError) and type(exc).__module__.startswith(
+        "bridge.infrastructure.freebuff"
+    ):
+        data = exc.error.get("data", exc.error)
+        if isinstance(data, dict):
+            message = data.get("message")
+            if isinstance(message, str) and message.strip():
+                return message.strip()[:400]
     if isinstance(exc, (httpx.ConnectError, httpx.NetworkError)):
         return "تعذّر الاتصال بوكيل OpenCode. سيتابع البوت المحاولة تلقائيًا؛ أعد المحاولة بعد لحظات."
     if isinstance(exc, (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout)):

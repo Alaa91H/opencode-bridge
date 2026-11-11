@@ -18,9 +18,24 @@ RestartSteps=5
 RestartMaxDelaySec=60
 TimeoutStopSec=30
 NoNewPrivileges=yes
+# Safe hardening: no filesystem restrictions, so Freebuff can still read its
+# config directory and the configured workspace.
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
 # Safety ceilings only: the bridge idles at ~45 MiB, so these never constrain normal operation.
 MemoryHigh=50%
 TasksMax=512
+
+# Freebuff CLI backend (optional). Install and log in once as the service user:
+#   npm install -g freebuff && freebuff login
+# Then configure .env (AGENT_BACKEND, FREEBUFF_WORKSPACE, FREEBUFF_BIN).
+# The CLI runs inside a PTY with a minimal environment; see docs/freebuff-integration-ar.md.
 
 [Install]
 WantedBy=opencode-bridge.target

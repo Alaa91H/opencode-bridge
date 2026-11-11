@@ -99,6 +99,26 @@ class AgentCommands:
 
     async def model(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user_id = self._owner(update)
+        backend_id = "opencode"
+        backend_reader = getattr(self.service, "backend_id", None)
+        if callable(backend_reader):
+            try:
+                backend_id = await backend_reader(user_id)
+            except Exception:
+                backend_id = "opencode"
+        if backend_id != "opencode":
+            try:
+                overview = await self.service.model_overview(user_id)
+                await self.reply(
+                    update.message,
+                    render_model_overview(overview)
+                    + "\n\nلخلفية Freebuff: تُضبط النماذج عبر FREEBUFF_MODELS "
+                    "أو من داخل واجهة CLI مباشرة.",
+                )
+            except Exception as exc:
+                self.log.exception("فشل عرض نموذج خلفية Freebuff")
+                await self.reply(update.message, self.error_message(exc, "عرض النموذج"))
+            return
         if self.selection_service is not None:
             await self.selection_show(update)
             return

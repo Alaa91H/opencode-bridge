@@ -32,11 +32,14 @@ from bridge.domain.policies import RequestGuard
 from bridge.domain.schedules import (
     parse_utc_datetime as schedule_parse_utc_datetime,
 )
+from bridge.infrastructure.database.backend_sessions import BackendSessionStore
 from bridge.infrastructure.database.draft_store import DraftStore
 from bridge.infrastructure.database.user_settings_store import UserSettingsStore
+from bridge.infrastructure.freebuff.client import FreebuffBackend
 from bridge.infrastructure.opencode.credential_pool import CredentialPool, parse_credential_pool
 from bridge.services.admin_backups import AdminBackups
 from bridge.services.agent_service import AgentService
+from bridge.services.backend_router import BackendRouter
 from bridge.services.config_service import ConfigurationService
 from bridge.services.download_service import DownloadService
 from bridge.services.draft_service import DraftService
@@ -65,6 +68,7 @@ from bridge.telegram.callbacks.model_picker import ModelPickerCallbackAdapter
 from bridge.telegram.callbacks.reboot import RebootCallbackAdapter
 from bridge.telegram.callbacks.schedules import ScheduleCallbacks
 from bridge.telegram.commands.agent import AgentCommands
+from bridge.telegram.commands.backend import BackendCommands
 from bridge.telegram.commands.config import ConfigCommands
 from bridge.telegram.commands.downloads import DownloadCommands
 from bridge.telegram.commands.drafts import DraftCommands
@@ -186,6 +190,10 @@ _media_adapter_instance: TelegramMediaAdapter | None = None
 _task_commands_instance: TaskCommands | None = None
 _schedule_commands_instance: ScheduleCommands | None = None
 _agent_commands_instance: AgentCommands | None = None
+_backend_commands_instance: BackendCommands | None = None
+_backend_store_instance: BackendSessionStore | None = None
+_freebuff_backend_instance: FreebuffBackend | None = None
+_backend_router_instance: BackendRouter | None = None
 _system_commands_instance: SystemCommands | None = None
 _config_commands_instance: ConfigCommands | None = None
 _metrics_commands_instance: MetricsCommands | None = None
@@ -224,6 +232,7 @@ _agent_service = AgentService(
     logger=log,
     agent_preference_provider=lambda owner_id: _user_preferences().get(owner_id),
     provider_keys=provider_keys,
+    backend_resolver=lambda owner_id: _backend_router().resolve(owner_id),
 )
 _task_application_service = TaskApplicationService(
     task_store,
@@ -241,6 +250,52 @@ _media_service = MediaTaskService(
 )
 _schedule_service = ScheduleService(task_store, _request_guard)
 _draft_service = DraftService(DraftStore(task_store.database), _task_application_service, _schedule_service)
+
+
+def _backend_store() -> BackendSessionStore:
+    global _backend_store_instance
+    if _backend_store_instance is None:
+        _backend_store_instance = BackendSessionStore(task_store.database)
+    return _backend_store_instance
+
+
+def _freebuff_backend() -> FreebuffBackend:
+    global _freebuff_backend_instance
+    if _freebuff_backend_instance is None:
+        _freebuff_backend_instance = FreebuffBackend(
+            settings=SETTINGS.freebuff,
+            sessions=_backend_store(),
+            default_workspace=SETTINGS.workspace.root,
+            audit_write=audit.write,
+            logger=log,
+        )
+    return _freebuff_backend_instance
+
+
+def _backend_router() -> BackendRouter:
+    global _backend_router_instance
+    if _backend_router_instance is None:
+        _backend_router_instance = BackendRouter(
+            default_mode=SETTINGS.agent.backend,
+            opencode=client,
+            freebuff=_freebuff_backend(),
+            sessions=_backend_store(),
+            logger=log,
+        )
+    return _backend_router_instance
+
+
+def _backend_command_adapter() -> BackendCommands:
+    global _backend_commands_instance
+    if _backend_commands_instance is None:
+        _backend_commands_instance = BackendCommands(
+            _backend_router(),
+            reply=_safe_reply,
+            error_message=user_error,
+            audit_write=audit.write,
+            logger=log,
+        )
+    return _backend_commands_instance
 
 
 def _tool_manager() -> ToolManager:
@@ -1108,6 +1163,10 @@ async def _execute_agent_task(task: QueuedTask, bot) -> None:
 
 
 @authorized
+async def cmd_backend(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _backend_command_adapter().handle(update, context)
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _agent_command_adapter().start(update, context)
 
@@ -1385,6 +1444,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def post_init(app: Application) -> None:
     global task_service, model_manager, pending_cleanup_task, skill_sync_task
     attachment_store.ensure_directories()
+    await _backend_store().init()
+    try:
+        freebuff_health = await _freebuff_backend().health()
+        if freebuff_health.get("healthy"):
+            log.info(
+                "خلفية Freebuff CLI جاهزة (الإصدار %s).",
+                freebuff_health.get("version", "غير معروف"),
+            )
+        else:
+            log.info(
+                "خلفية Freebuff CLI غير مفعّلة: %s.",
+                freebuff_health.get("reason", "غير معروف"),
+            )
+    except Exception as exc:
+        log.info("تعذر فحص Freebuff CLI عند البدء: %s", type(exc).__name__)
     if task_service is None:
         await task_store.init()
         task_service = TaskService(task_store, lambda task: _execute_agent_task(task, app.bot))
@@ -1457,6 +1531,8 @@ async def post_shutdown(app: Application) -> None:
     if task_service is not None:
         await task_service.stop()
         task_service = None
+    if _freebuff_backend_instance is not None:
+        await _freebuff_backend_instance.close()
     await client.close()
     await task_store.close()
     await store.close()

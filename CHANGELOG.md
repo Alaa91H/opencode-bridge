@@ -1,3 +1,37 @@
+## [3.65.0] - 2026-11-11
+
+### ملخص
+
+إضافة خلفية Freebuff CLI اختيارية إلى جانب OpenCode: طبقة خلفيات وكيل، جلسات
+مستقلة لكل (مالك، مساحة عمل)، تشغيل الواجهة التفاعلية داخل PTY مع استخراج
+النتيجة من مخزن المحادثات أو `/export`، وأمر `/backend` للتحكم.
+
+### Added
+
+- عقود `AgentBackend` والأحداث والأخطاء في `bridge/domain/agent/`.
+- حزمة `bridge/infrastructure/freebuff/`: اكتشاف التنفيذي والتحقق من الإصدار،
+  عدّاد شاشة ANSI داخلي، قارئ مخزن محادثات متحفظ، مستخرج نصوص مع تنقية، مشغّل
+  PTY قياسي، وخلفية `FreebuffBackend`.
+- جدولا `backend_sessions` و`backend_preferences` (إضافيان، بلا migration عكسي).
+- `BackendRouter` وتفضيل خلفية لكل مستخدم، وأمر `/backend` وحالته.
+- اختبارات وحدة واختبار PTY بنهاية-إلى-نهاية يستخدم TUI وهمياً.
+- توثيق عربي/إنجليزي وADR.
+
+### Security
+
+- Freebuff مطفأ افتراضياً (`AGENT_BACKEND=opencode`).
+- لا يُقرأ `log.jsonl` إطلاقاً، ولا تُمرَّر أسرار البريدج إلى العملية.
+- cwd محصور في `FREEBUFF_WORKSPACE`، وقتل مجموعة العملية عند الإلغاء/المهلة،
+  وتنقية المخرجات وإخفاء `cb_`/`sk-`/`ghp_`/Bearer قبل Telegram.
+- فشل مغلق عند تغيّر شكل TUI أو انتهاء صلاحية الدخول.
+
+### Upgrade notes
+
+- سلوك OpenCode لم يتغير؛ لا حاجة لأي migration يدوي.
+- Freebuff يتطلب `npm install -g freebuff` ثم `freebuff login` بمستخدم الخدمة،
+  وضبط `FREEBUFF_WORKSPACE` و`FREEBUFF_BIN` عند الحاجة.
+- لا تبعية Python جديدة؛ محلل الشاشة داخلي وفق ADR 0001.
+
 ## [3.64.0] - 2026-10-27
 
 ### ملخص

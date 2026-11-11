@@ -213,7 +213,11 @@ class TaskApplicationService:
         if previous_status in {"running", "leased", "retrying"}:
             checkpoint = getattr(target, "checkpoint", None) or {}
             if checkpoint.get("session_id"):
-                await self.agent_service.client.abort_session(checkpoint["session_id"])
+                abort = getattr(self.agent_service, "abort_session", None)
+                if callable(abort):
+                    await abort(owner_id, checkpoint["session_id"])
+                else:
+                    await self.agent_service.client.abort_session(checkpoint["session_id"])
             else:
                 await self.agent_service.abort_current(owner_id)
         if previous_status != "running" and target.attachments:

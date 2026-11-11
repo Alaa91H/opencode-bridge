@@ -34,3 +34,7 @@ htmlcov/
 .DS_Store
 .vscode/
 .idea/
+
+
+# مساحات عمل Freebuff المؤقتة (تعليمات ومرفقات المهام)
+.bridge/

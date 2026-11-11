@@ -185,7 +185,23 @@ _ALLOWED_SECTION_KEYS: dict[str, set[str]] = {
         "model_sync_seconds",
         "credentials",
     },
+    "freebuff": {
+        "bin",
+        "config_dir",
+        "workspace",
+        "model",
+        "models",
+        "model_write",
+        "trust_agents",
+        "idle_seconds",
+        "startup_seconds",
+        "timeout_seconds",
+        "export_seconds",
+        "min_version",
+        "max_output_chars",
+    },
     "agent": {
+        "backend",
         "scout_interval_seconds",
         "scout_preferred_agent",
         "v3_agent",
@@ -280,7 +296,27 @@ class OpenCodeSettings:
 
 
 @dataclass(frozen=True)
+class FreebuffSettings:
+    """Optional Freebuff CLI backend. Disabled unless an owner selects it."""
+
+    bin: str = ""
+    config_dir: str = ""
+    workspace: str = ""
+    model: str = ""
+    models: tuple[str, ...] = ()
+    model_write: bool = False
+    trust_agents: bool = False
+    idle_seconds: float = 25.0
+    startup_seconds: float = 90.0
+    timeout_seconds: float = 3600.0
+    export_seconds: float = 60.0
+    min_version: str = "0.0.140"
+    max_output_chars: int = 120000
+
+
+@dataclass(frozen=True)
 class AgentSettings:
+    backend: str = "opencode"
     scout_interval_seconds: float = 86400.0
     scout_preferred_agent: str = "development-agent"
     v3_agent: str = "development-agent"
@@ -326,6 +362,7 @@ class BridgeSettings:
     telegram: TelegramSettings = field(default_factory=TelegramSettings)
     downloads: DownloadSettings = field(default_factory=DownloadSettings)
     opencode: OpenCodeSettings = field(default_factory=OpenCodeSettings)
+    freebuff: FreebuffSettings = field(default_factory=FreebuffSettings)
     agent: AgentSettings = field(default_factory=AgentSettings)
     workspace: WorkspaceSettings = field(default_factory=WorkspaceSettings)
     github: GitHubSettings = field(default_factory=GitHubSettings)
@@ -532,7 +569,74 @@ class BridgeSettings:
             ),
         )
 
+        freebuff = FreebuffSettings(
+            bin=str(_source_value(
+                merged_env, config, "FREEBUFF_BIN", "freebuff.bin", ""
+            )).strip(),
+            config_dir=str(_source_value(
+                merged_env, config, "FREEBUFF_CONFIG_DIR", "freebuff.config_dir", ""
+            )).strip(),
+            workspace=str(_source_value(
+                merged_env, config, "FREEBUFF_WORKSPACE", "freebuff.workspace", ""
+            )).strip(),
+            model=str(_source_value(
+                merged_env, config, "FREEBUFF_MODEL", "freebuff.model", ""
+            )).strip(),
+            models=_csv(_source_value(
+                merged_env, config, "FREEBUFF_MODELS", "freebuff.models", ()
+            )),
+            model_write=_parse_bool(
+                _source_value(
+                    merged_env, config, "FREEBUFF_MODEL_WRITE", "freebuff.model_write", False
+                ),
+                key="FREEBUFF_MODEL_WRITE",
+            ),
+            trust_agents=_parse_bool(
+                _source_value(
+                    merged_env, config, "FREEBUFF_TRUST_AGENTS", "freebuff.trust_agents", False
+                ),
+                key="FREEBUFF_TRUST_AGENTS",
+            ),
+            idle_seconds=_parse_float(
+                _source_value(
+                    merged_env, config, "FREEBUFF_IDLE_SECONDS", "freebuff.idle_seconds", 25
+                ),
+                key="FREEBUFF_IDLE_SECONDS", minimum=3, maximum=600,
+            ),
+            startup_seconds=_parse_float(
+                _source_value(
+                    merged_env, config, "FREEBUFF_STARTUP_SECONDS", "freebuff.startup_seconds", 90
+                ),
+                key="FREEBUFF_STARTUP_SECONDS", minimum=5, maximum=600,
+            ),
+            timeout_seconds=_parse_float(
+                _source_value(
+                    merged_env, config, "FREEBUFF_TIMEOUT_SECONDS", "freebuff.timeout_seconds", 3600
+                ),
+                key="FREEBUFF_TIMEOUT_SECONDS", minimum=60, maximum=86400,
+            ),
+            export_seconds=_parse_float(
+                _source_value(
+                    merged_env, config, "FREEBUFF_EXPORT_SECONDS", "freebuff.export_seconds", 60
+                ),
+                key="FREEBUFF_EXPORT_SECONDS", minimum=5, maximum=600,
+            ),
+            min_version=str(_source_value(
+                merged_env, config, "FREEBUFF_MIN_VERSION", "freebuff.min_version", "0.0.140"
+            )).strip() or "0.0.140",
+            max_output_chars=_parse_int(
+                _source_value(
+                    merged_env, config, "FREEBUFF_MAX_OUTPUT_CHARS",
+                    "freebuff.max_output_chars", 120000
+                ),
+                key="FREEBUFF_MAX_OUTPUT_CHARS", minimum=2000, maximum=2000000,
+            ),
+        )
+
         agent = AgentSettings(
+            backend=str(_source_value(
+                merged_env, config, "AGENT_BACKEND", "agent.backend", "opencode"
+            )).strip().lower() or "opencode",
             scout_interval_seconds=_parse_float(
                 _source_value(
                     merged_env, config, "AGENT_SCOUT_INTERVAL_SECONDS",
@@ -711,7 +815,8 @@ class BridgeSettings:
             ),
         ),
         opencode=opencode,
-            agent=agent,
+        freebuff=freebuff,
+        agent=agent,
             workspace=workspace,
             github=github,
             watchdog=watchdog,
@@ -741,6 +846,12 @@ class BridgeSettings:
             raise SettingsError("OPENCODE_HOST must not be empty")
         if not self.opencode.default_model:
             raise SettingsError("OPENCODE_DEFAULT_MODEL must not be empty")
+        if self.agent.backend not in {"opencode", "freebuff", "auto"}:
+            raise SettingsError("AGENT_BACKEND must be opencode, freebuff or auto")
+        if self.freebuff.timeout_seconds < self.freebuff.startup_seconds:
+            raise SettingsError(
+                "FREEBUFF_TIMEOUT_SECONDS must be >= FREEBUFF_STARTUP_SECONDS"
+            )
         if self.telegram.attachment_max_total_bytes < self.telegram.attachment_max_bytes:
             raise SettingsError(
                 "TELEGRAM_ATTACHMENT_MAX_TOTAL_BYTES must be >= "
@@ -768,6 +879,7 @@ class BridgeSettings:
             "opencode.default_model": ("opencode", str),
             "opencode.model_variant": ("opencode", str),
             "opencode.agent": ("opencode", str),
+            "agent.backend": ("agent", str),
             "agent.task_workers": ("agent", int),
             "agent.task_poll_seconds": ("agent", float),
             "features.auto_strongest_free_model": ("features", bool),

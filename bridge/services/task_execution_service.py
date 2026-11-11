@@ -346,8 +346,18 @@ class TaskExecutionService:
                 "session",
                 "تم تجهيز جلسة الوكيل. عم نبدأ التنفيذ.",
             )
+            event_source = self.agent_service.client
+            event_resolver = getattr(self.agent_service, "event_client", None)
+            if callable(event_resolver):
+                try:
+                    event_source = await event_resolver(task.owner_id)
+                except Exception as exc:
+                    self.log.info(
+                        "تعذر تحديد مصدر أحداث الوكيل: %s",
+                        type(exc).__name__,
+                    )
             event_task = asyncio.create_task(
-                reporter.consume_events(self.agent_service.client, session_id)
+                reporter.consume_events(event_source, session_id)
             )
             started_at = time.monotonic()
             await reporter.record(

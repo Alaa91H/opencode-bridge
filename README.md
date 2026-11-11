@@ -24,6 +24,7 @@ It is intentionally designed so the production server acts as an **agent executi
 ## Core Capabilities
 
 - Arabic Telegram interface for interacting with OpenCode.
+- Optional Freebuff CLI backend (owner opt-in, PTY harness, fails closed).
 - Persistent OpenCode conversations and task state.
 - Durable task queue backed by local storage.
 - Persistent named scheduled jobs with create/edit/append/rename/reschedule/run/pause/resume/delete controls and restart-safe storage.
@@ -44,6 +45,24 @@ It is intentionally designed so the production server acts as an **agent executi
 - Structured, redacted audit logging.
 - GitHub CI integration for verification and release workflows.
 - systemd-based deployment for long-running services.
+
+## Optional Freebuff CLI Backend
+
+The bridge can route an owner's tasks to the interactive **Freebuff CLI**
+(`npm install -g freebuff`) as a second backend, while OpenCode stays the
+default. Freebuff has no headless mode today, so the bridge runs
+`freebuff --cwd <workspace>` in a PTY, stages the instruction in a file, detects
+completion from the local chat store, and falls back to `/export` JSON.
+
+- Selection is per owner: `/backend opencode|freebuff|auto`; `AGENT_BACKEND`
+  sets the server default.
+- The CLI runs with a minimal environment, inside the configured workspace, and
+  never receives Telegram or provider secrets.
+- Freebuff is disabled by default and fails closed on an unsupported version or
+  a missing login.
+- Setup, security notes and rollback:
+  [docs/freebuff-integration-ar.md](docs/freebuff-integration-ar.md) and
+  [docs/freebuff-integration-en.md](docs/freebuff-integration-en.md).
 
 ## Attachment & Media Tasks
 

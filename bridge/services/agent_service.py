@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ from typing import Any, Protocol
 
 import httpx
 
+from bridge.domain.agent.errors import BackendProtocolError
 from model_catalog import ranked_zen_general_model_ids
 
 
@@ -38,6 +40,20 @@ class OpenCodePort(Protocol):
         parts: list[dict] | None = None,
         variant: str | None = None,
     ) -> dict: ...
+
+
+class _ScopedEventSource:
+    """Bind an event stream to one owner without changing the reporter contract."""
+
+    def __init__(self, backend: Any, owner_id: str) -> None:
+        self.backend = backend
+        self.owner_id = owner_id
+
+    def stream_events(self, session_id: str) -> Any:
+        try:
+            return self.backend.stream_events(session_id, owner_id=self.owner_id)
+        except TypeError:
+            return self.backend.stream_events(session_id)
 
 
 class NoActiveSession(LookupError):
@@ -77,6 +93,7 @@ class AgentService:
         logger: logging.Logger | None = None,
         agent_preference_provider: Callable[[str], Awaitable[Any]] | None = None,
         provider_keys: Any | None = None,
+        backend_resolver: Callable[[str], Any] | None = None,
     ) -> None:
         self.client = client
         self.sessions = sessions
@@ -84,10 +101,33 @@ class AgentService:
         self.default_agent = default_agent
         self.agent_preference_provider = agent_preference_provider
         self.provider_keys = provider_keys
+        self.backend_resolver = backend_resolver
         self.default_variant = default_variant
         self.variant_model = variant_model
         self.model_manager_provider = model_manager_provider
         self.log = logger or logging.getLogger(__name__)
+
+    async def _backend(self, owner_id: str) -> Any | None:
+        """Resolve a non-OpenCode backend for this owner, or None for OpenCode."""
+
+        if self.backend_resolver is None:
+            return None
+        backend = self.backend_resolver(owner_id)
+        if inspect.isawaitable(backend):
+            backend = await backend
+        return backend
+
+    async def backend_id(self, owner_id: str) -> str:
+        backend = await self._backend(owner_id)
+        if backend is None:
+            return "opencode"
+        return str(getattr(backend.capabilities, "backend_id", "freebuff"))
+
+    async def _abort_backend(self, backend: Any, owner_id: str, session_id: str) -> bool:
+        try:
+            return bool(await backend.abort_session(session_id, owner_id=owner_id))
+        except TypeError:
+            return bool(await backend.abort_session(session_id))
 
     @staticmethod
     def extract_session_id(session: dict) -> str:
@@ -128,6 +168,9 @@ class AgentService:
         return getattr(preferences, "agent_preference", None) or self.default_agent
 
     async def ensure_session(self, user_id: str) -> str:
+        backend = await self._backend(user_id)
+        if backend is not None:
+            return await backend.ensure_session(user_id)
         current = await self.sessions.get_session(user_id)
         manager = self.model_manager_provider()
         if current:
@@ -161,6 +204,11 @@ class AgentService:
         return session_id
 
     async def fresh_session(self, user_id: str) -> str:
+        backend = await self._backend(user_id)
+        if backend is not None:
+            await self._abort_backend(backend, user_id, await backend.ensure_session(user_id))
+            await backend.reset_session(user_id)
+            return await backend.ensure_session(user_id)
         existing = await self.sessions.get_session(user_id)
         if existing:
             try:
@@ -171,22 +219,43 @@ class AgentService:
         return await self.ensure_session(user_id)
 
     async def abort_current(self, user_id: str) -> bool:
+        backend = await self._backend(user_id)
+        if backend is not None:
+            return await self._abort_backend(
+                backend, user_id, await backend.ensure_session(user_id)
+            )
         session = await self.sessions.get_session(user_id)
         return bool(session and await self.client.abort_session(session.opencode_session_id))
 
     async def share_current(self, user_id: str) -> str | None:
+        backend = await self._backend(user_id)
+        if backend is not None and not backend.capabilities.sharing:
+            raise BackendProtocolError("Freebuff CLI لا يدعم مشاركة الجلسات")
         session = await self.sessions.get_session(user_id)
         if session is None:
             raise NoActiveSession(user_id)
         return await self.client.share_session(session.opencode_session_id)
 
     async def unshare_current(self, user_id: str) -> bool:
+        backend = await self._backend(user_id)
+        if backend is not None and not backend.capabilities.sharing:
+            raise BackendProtocolError("Freebuff CLI لا يدعم مشاركة الجلسات")
         session = await self.sessions.get_session(user_id)
         if session is None:
             raise NoActiveSession(user_id)
         return await self.client.unshare_session(session.opencode_session_id)
 
     async def model_overview(self, user_id: str) -> ModelOverview:
+        backend = await self._backend(user_id)
+        if backend is not None:
+            current = await backend.current_model(user_id)
+            available = backend.models() or (current,)
+            return ModelOverview(
+                current_model=current,
+                preferred_model=current,
+                variant=None,
+                available_models=tuple(available),
+            )
         manager = self.model_manager_provider()
         providers = manager.cached_providers() if manager is not None else None
         if providers is None:
@@ -212,6 +281,20 @@ class AgentService:
         )
 
     async def status(self, user_id: str) -> AgentSessionStatus:
+        backend = await self._backend(user_id)
+        if backend is not None:
+            health = await backend.health()
+            session_id = await backend.ensure_session(user_id)
+            active = await backend.status(user_id)
+            return AgentSessionStatus(
+                healthy=bool(health.get("healthy")),
+                version=str(health.get("version", "غير معروف")),
+                has_session=bool(session_id),
+                state=str(active.get("state")) if active.get("state") else None,
+                model=await backend.current_model(user_id),
+                variant=None,
+                agent="freebuff",
+            )
         session = await self.sessions.get_session(user_id)
         health = await self.client.health()
         version = str(health.get("version", "غير معروف"))
@@ -240,6 +323,10 @@ class AgentService:
         )
 
     async def current_model(self, user_id: str) -> tuple[str, str]:
+        backend = await self._backend(user_id)
+        if backend is not None:
+            session_id = await backend.ensure_session(user_id)
+            return session_id, await backend.current_model(user_id)
         session_id = await self.ensure_session(user_id)
         session = await self.sessions.get_session(user_id)
         model = session.model if session and session.model else self.default_model
@@ -277,6 +364,26 @@ class AgentService:
         should_continue: Callable[[], Awaitable[bool]] | None = None,
     ) -> tuple[dict, str | None]:
         """Send through OpenCode with variant, file-transport, and model fallback."""
+
+        backend = await self._backend(owner_id)
+        if backend is not None:
+            response = await backend.send_prompt(
+                session_id,
+                prompt,
+                owner_id=owner_id,
+                model=selected_model,
+                parts=parts,
+                message_id=message_id,
+                should_continue=should_continue,
+            )
+            if audit_write is not None:
+                audit_write(
+                    "agent_backend_used",
+                    "freebuff",
+                    actor_id=owner_id,
+                    details={"task_id": task_id},
+                )
+            return response, (selected_model or await backend.current_model(owner_id))
 
         def audit(event: str, outcome: str, details: dict[str, Any]) -> None:
             if audit_write is not None:
@@ -388,6 +495,16 @@ class AgentService:
             )
             response = await send_for_model(fallback_model)
             return response, fallback_model
+
+    async def event_client(self, owner_id: str) -> Any:
+        backend = await self._backend(owner_id)
+        return _ScopedEventSource(backend, owner_id) if backend is not None else self.client
+
+    async def abort_session(self, owner_id: str, session_id: str) -> bool:
+        backend = await self._backend(owner_id)
+        if backend is not None:
+            return await self._abort_backend(backend, owner_id, session_id)
+        return await self.client.abort_session(session_id)
 
     async def health(self) -> dict:
         return await self.client.health()
