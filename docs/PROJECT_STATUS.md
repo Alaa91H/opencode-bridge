@@ -16,8 +16,10 @@ regression tests.
 
 The 3.65.0 release is being finalized through the repository's verified release
 workflow: green `main` build and Python compatibility gates, immutable tag,
-tagged build and GitHub Release. CI evidence is recorded in
-[`SESSION_LOG.md`](SESSION_LOG.md) and the GitHub Actions run history.
+tagged build and GitHub Release. CI for commit `5b81669` passed both the Build
+and Release and Python Compatibility gates; the release commit now raises
+`VERSION` to 3.65.0. Evidence is recorded in [`SESSION_LOG.md`](SESSION_LOG.md)
+and the GitHub Actions run history.
 
 ## Delivered capabilities
 
@@ -45,6 +47,8 @@ Local verification on the Windows development checkout:
 | `ruff` on touched/new files | Passed |
 | Full local suite | 1379 tests, 13 failures, 179 errors, 14 skipped |
 | Original `HEAD` baseline before the change | 1332 tests, 13 failures, 179 errors, 12 skipped |
+| CI Build and Release (`5b81669`) | success (run 42995712863) |
+| CI Python Compatibility (`5b81669`) | success (run 42995713078) |
 
 The full-suite failures are the same pre-existing Windows environment failures
 (symlink privileges, POSIX permission checks, timezone data and host-service

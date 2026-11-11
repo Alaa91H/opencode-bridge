@@ -53,13 +53,21 @@ gate.
 - Replaced the old documentation-as-code tests with checks for the current docs
   set and valid relative links.
 
+### CI evidence (commit `5b81669`)
+
+- Build and Release: run `42995712863` — success.
+- Python Compatibility (3.12/3.13/3.14): run `42995713078` — success.
+- Verified version release: run `42995895201` — success with no version change,
+  correctly leaving the release untagged until the version bump.
+- Remote branch cleanup completed: `main` is the only remaining head.
+
 ### Release
 
-- Version under release: **3.65.0**.
+- Version under release: **3.65.0**; the release commit raises `VERSION` from
+  3.64.0 to 3.65.0.
 - The verified release workflow creates the tag and tagged build only after the
   `main` build and Python compatibility gates pass.
-- Final GitHub Actions run IDs, tag and release URL are recorded here after the
-  push and publication complete.
+- Final tag and release URL are appended here after publication completes.
 
 ### Known follow-up
 
