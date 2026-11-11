@@ -1,36 +1,49 @@
+"""Keep the live documentation set aligned with the current architecture."""
+
+from __future__ import annotations
+
 import re
 import unittest
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+DOCS = ROOT / "docs"
+
 
 class DocumentationAsCodeTests(unittest.TestCase):
-    def test_required_documentation_topics_are_indexed(self):
-        text = Path("docs/2.0-documentation-index-ar.md").read_text(encoding="utf-8")
-        for topic in (
-            "Architecture", "Database & State Machine", "Scheduler Semantics",
-            "Failure Semantics", "Attachment & Media Pipeline", "Security Profiles",
-            "Deployment & Disaster Recovery", "Troubleshooting",
-        ):
-            self.assertIn(topic, text)
+    def test_required_operational_docs_exist(self) -> None:
+        required = (
+            "ARCHITECTURE.md",
+            "PROJECT_STATUS.md",
+            "ROADMAP.md",
+            "DECISIONS.md",
+            "SESSION_LOG.md",
+            "freebuff-integration-ar.md",
+            "freebuff-integration-en.md",
+            "adr/0001-freebuff-cli-backend.md",
+        )
+        for name in required:
+            self.assertTrue((DOCS / name).is_file(), name)
 
-    def test_all_relative_markdown_links_exist(self):
-        index = Path("docs/2.0-documentation-index-ar.md")
-        text = index.read_text(encoding="utf-8")
-        links = re.findall(r"\[[^]]+\]\(([^)]+\.md)\)", text)
-        self.assertGreaterEqual(len(links), 20)
-        for link in links:
-            self.assertTrue((index.parent / link).is_file(), link)
+    def test_all_relative_markdown_links_exist(self) -> None:
+        failures: list[str] = []
+        for source in [DOCS / "README.md", ROOT / "README.md"]:
+            text = source.read_text(encoding="utf-8")
+            for link in re.findall(r"\[[^\]]+\]\(([^)]+\.md)\)", text):
+                if link.startswith(("http://", "https://", "#")):
+                    continue
+                target = (source.parent / link).resolve()
+                if not target.is_file():
+                    failures.append(f"{source.relative_to(ROOT)} -> {link}")
+        self.assertEqual(failures, [])
 
-    def test_every_closed_feature_stage_has_documentation(self):
-        docs = {p.name for p in Path("docs").glob("t*-*.md")}
-        for stage in range(2, 47):
-            if stage == 3:
-                # T03 is documented by configuration tests/operations guide.
-                continue
-            prefix = f"t{stage:02d}-"
-            self.assertTrue(any(name.startswith(prefix) for name in docs), prefix)
+    def test_obsolete_stage_and_planning_docs_are_removed(self) -> None:
+        obsolete = list(DOCS.glob("t[0-9][0-9]-*.md"))
+        obsolete += list(DOCS.glob("2.0-*.md"))
+        obsolete += list(DOCS.glob("opencode-bridge-2.0-*.md"))
+        obsolete += list(DOCS.glob("autonomous-operations-*.md"))
+        self.assertEqual(obsolete, [], "remove superseded documentation instead of keeping it")
 
-    def test_policy_requires_feature_docs_in_same_change(self):
-        text = Path("docs/2.0-documentation-index-ar.md").read_text(encoding="utf-8")
-        self.assertIn("كل feature كبيرة", text)
-        self.assertIn("commit/series المرحلة نفسها", text)
+
+if __name__ == "__main__":
+    unittest.main()

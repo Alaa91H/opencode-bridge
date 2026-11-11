@@ -72,6 +72,26 @@ systemctl status opencode-bridge-maintenance.timer --no-pager
 
 > يعمل خادم OpenCode على `127.0.0.1` فقط، ويُحمى بالمصادقة الأساسية. يقرأ الجسر كلمة المرور من `.env` ولا يعرضها للمستخدم أو في السجلات.
 
+## خلفية Freebuff CLI الاختيارية (3.65.0)
+
+Freebuff مطفأ افتراضياً ولا يعمل إلا عند اختياره صراحةً. على خادم Linux وبمستخدم الخدمة نفسه:
+
+```bash
+npm install -g freebuff
+freebuff login
+freebuff --version   # >= 0.0.140
+```
+
+ثم أضف إلى `.env`:
+
+```dotenv
+AGENT_BACKEND=opencode
+FREEBUFF_WORKSPACE=/home/ubuntu/github-workspaces
+FREEBUFF_BIN=/home/ubuntu/.local/bin/freebuff
+```
+
+بعد إعادة التشغيل استخدم `/backend` لعرض الحالة و`/backend freebuff` للتفعيل لحسابك. لا تُقرأ `log.jsonl` ولا تُمرّر أسرار البريدج إلى CLI. راجع [`docs/freebuff-integration-ar.md`](docs/freebuff-integration-ar.md) للتحقق والتراجع.
+
 ## ملاحظات إصدار 3.0.0 (12 أكتوبر 2026)
 
 يتوافق مسار تشغيل systemd ومسار تحديث الإصدارات على `/home/ubuntu/opencode-bridge`؛ تبقى `runtime/` و`sessions.db` و`.env` في هذا المجلد بين الإصدارات. يعتمد التحديث التلقائي على آخر GitHub Release مستقر بعد اجتياز اختبار الوسم، ثم ينفذ `scripts/deploy.sh` مع إمكانية العودة للإصدار السابق. لا يجري بناء مشاريع على الخادم.

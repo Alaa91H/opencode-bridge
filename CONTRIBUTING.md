@@ -17,3 +17,18 @@ Thanks for considering a contribution.
 6. Open a pull request explaining the problem, implementation, verification, and compatibility impact.
 
 Avoid unrelated refactors and generated-file churn. Keep operational and configuration changes reviewable and reversible where practical.
+
+## Verification
+
+On Linux/CI, run the full suite and the strict quality gate:
+
+```bash
+python -m unittest discover -s tests -p "test_*.py" -v
+bash scripts/quality.sh
+```
+
+On a Windows checkout, use `.venv/Scripts/python` because system Python lacks the runtime packages. The PTY suite is Unix-only and is skipped locally; Linux GitHub Actions is the release gate.
+
+## Documentation
+
+Update `CHANGELOG.md`, `docs/PROJECT_STATUS.md` and `docs/SESSION_LOG.md` for material changes. Keep `docs/ARCHITECTURE.md` and `docs/DECISIONS.md` aligned with the code, and remove obsolete documentation instead of leaving contradictory pages. Start at [docs/README.md](docs/README.md); agent-specific rules are in [AGENTS.md](AGENTS.md).

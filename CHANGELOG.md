@@ -1,36 +1,97 @@
 ## [3.65.0] - 2026-11-11
 
-### ملخص
+### Summary
 
-إضافة خلفية Freebuff CLI اختيارية إلى جانب OpenCode: طبقة خلفيات وكيل، جلسات
-مستقلة لكل (مالك، مساحة عمل)، تشغيل الواجهة التفاعلية داخل PTY مع استخراج
-النتيجة من مخزن المحادثات أو `/export`، وأمر `/backend` للتحكم.
+Adds an optional **Freebuff CLI** backend alongside the existing OpenCode
+backend. OpenCode remains the default and its legacy code paths are unchanged.
+Freebuff is selected per owner, runs the interactive CLI inside a PTY, extracts
+the final answer from the local chat store (with `/export` as fallback), and
+fails closed when the CLI is unavailable, unauthenticated or incompatible.
 
 ### Added
 
-- عقود `AgentBackend` والأحداث والأخطاء في `bridge/domain/agent/`.
-- حزمة `bridge/infrastructure/freebuff/`: اكتشاف التنفيذي والتحقق من الإصدار،
-  عدّاد شاشة ANSI داخلي، قارئ مخزن محادثات متحفظ، مستخرج نصوص مع تنقية، مشغّل
-  PTY قياسي، وخلفية `FreebuffBackend`.
-- جدولا `backend_sessions` و`backend_preferences` (إضافيان، بلا migration عكسي).
-- `BackendRouter` وتفضيل خلفية لكل مستخدم، وأمر `/backend` وحالته.
-- اختبارات وحدة واختبار PTY بنهاية-إلى-نهاية يستخدم TUI وهمياً.
-- توثيق عربي/إنجليزي وADR.
+- `AgentBackend` contracts, normalized events, user-safe errors and capability
+descriptors in `bridge/domain/agent/`.
+- `bridge/infrastructure/freebuff/`: binary/version/login probe, stdlib PTY
+  runner with process-group termination, bounded ANSI screen state model,
+  defensive `chat-messages.json` reader, answer extractor and `FreebuffBackend`.
+- `BackendRouter` with `AGENT_BACKEND=opencode|freebuff|auto`, per-owner
+  preferences and server-default fallback behavior.
+- `/backend` status/selection command and backend-aware `/model`, `/status` and
+  `/abort` behavior.
+- Additive `backend_sessions` and `backend_preferences` tables; the legacy
+  `sessions` schema is untouched.
+- Owner-scoped run/event keys, unique staged-prompt markers and owner-scoped
+  cancellation to keep concurrent runs isolated.
+- Unit, parser, store, router, command, owner-isolation and simulated-TUI PTY
+  tests under `tests/freebuff/`, plus Arabic/English operator guides and ADR
+  0001.
+
+### Changed
+
+- `AgentService` now delegates through the backend port; OpenCode still resolves
+  to the legacy client path (`None` from the router).
+- `TaskExecutionService` consumes backend-scoped event streams while keeping the
+  single editable Telegram status message.
+- `TaskApplicationService` cancellation routes through the active backend.
+- Freebuff model writes are opt-in (`FREEBUFF_MODEL_WRITE=1`) and only for an
+  explicitly allowed model; model selection remains conservative by default.
+- Documentation is consolidated around architecture, status, roadmap, decisions
+  and session history. Obsolete T01–T54 and 2.0 planning pages were removed;
+  their history remains in Git.
+
+### Fixed
+
+- Fixed the pre-existing `scripts/render_telegraph_digest.py` Ruff violations
+  (unused imports, import ordering and deprecated UTC construction).
+- Fixed `SC2046` word-splitting warnings in `scripts/render_digest_wrapper.sh`.
+- Updated the reviewed `actions/setup-python` pin in tests after the Dependabot
+  update, restoring the CI supply-chain gate.
 
 ### Security
 
-- Freebuff مطفأ افتراضياً (`AGENT_BACKEND=opencode`).
-- لا يُقرأ `log.jsonl` إطلاقاً، ولا تُمرَّر أسرار البريدج إلى العملية.
-- cwd محصور في `FREEBUFF_WORKSPACE`، وقتل مجموعة العملية عند الإلغاء/المهلة،
-  وتنقية المخرجات وإخفاء `cb_`/`sk-`/`ghp_`/Bearer قبل Telegram.
-- فشل مغلق عند تغيّر شكل TUI أو انتهاء صلاحية الدخول.
+- Freebuff is opt-in and disabled by default (`AGENT_BACKEND=opencode`).
+- `log.jsonl` is never read, copied, logged or delivered because it may contain a
+  plaintext account key after authentication errors.
+- Prompt text is staged in a `0600` file rather than passed in `argv`; the child
+  receives a minimal environment with no Telegram/provider secrets, plus the
+  D-Bus/keyring variables needed by Freebuff login.
+- Working directory is confined to `FREEBUFF_WORKSPACE`; cancellation and
+  timeouts terminate the process group.
+- Output is ANSI-stripped, redacted for `cb_`, `sk-`, `ghp_` and Bearer tokens,
+  and length-bounded before Telegram delivery.
+- Fail-closed behavior for unsupported versions, missing login, unknown TUI
+  shapes and unreadable chat stores.
+
+### Repository and release
+
+- Two Dependabot update branches were merged normally.
+- Twenty-five superseded remote branches were archived with `-s ours` merge
+  commits, preserving their commits without replacing the current tree; all
+  non-`main` branches are removed after the consolidated push.
+- The verified release workflow publishes `v3.65.0` only after the Linux build
+  and Python compatibility gates succeed.
+
+### Verification
+
+- `tests/freebuff`: 48 passed, 2 skipped on Windows (Unix-only PTY).
+- Linux PTY test with a deterministic fake TUI: passed.
+- Core affected tests: 27 passed.
+- Full local suite: 1379 tests, 13 failures, 179 errors, 14 skipped; the same
+  failure/error counts as the pre-change HEAD baseline (1332 tests, 13/179).
+  Remaining failures are Windows environment issues; Linux CI is the release
+  gate.
+- Ruff clean on all touched/new files; `compileall` and `git diff --check` pass.
 
 ### Upgrade notes
 
-- سلوك OpenCode لم يتغير؛ لا حاجة لأي migration يدوي.
-- Freebuff يتطلب `npm install -g freebuff` ثم `freebuff login` بمستخدم الخدمة،
-  وضبط `FREEBUFF_WORKSPACE` و`FREEBUFF_BIN` عند الحاجة.
-- لا تبعية Python جديدة؛ محلل الشاشة داخلي وفق ADR 0001.
+- No OpenCode migration is required. The new tables are additive and created at
+  startup.
+- Freebuff requires `npm install -g freebuff`, `freebuff login` as the service
+  user, and a configured workspace. See `docs/freebuff-integration-ar.md`.
+- No new Python runtime dependency; the screen model is internal per ADR 0001.
+- Roll back immediately with `/backend opencode` or `AGENT_BACKEND=opencode` and
+  a service restart.
 
 ## [3.64.0] - 2026-10-27
 

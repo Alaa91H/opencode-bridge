@@ -23,14 +23,12 @@ import html
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable
 
 # This relies on the repository's bridge module.
 try:
     from bridge.telegram.rendering.news_pages import delivery_pages
-    from bridge.telegram.rendering.markdown_html import MAX_PAGE_CHARS, Page, build_pages, extract_links
 except ImportError as exc:  # pragma: no cover
     raise SystemExit(
         "PYTHONPATH must include the repository root so 'bridge.telegram.rendering' is importable.\n"
@@ -230,7 +228,7 @@ def main() -> int:
         item.file = f"item-{item.index:02d}.html"
         (args.outdir / item.file).write_text(_render_item(item), encoding="utf-8")
 
-    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    generated = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
     # Minimal index
     index_blocks = []

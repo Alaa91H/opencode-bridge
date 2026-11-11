@@ -19,6 +19,10 @@
 
 The project is built around persistent sessions, queued development tasks, guarded shell access, adaptive resource management, model selection, progress reporting, and auditable server-side operation.
 
+## Current Release
+
+**3.65.0** adds the optional Freebuff CLI backend while keeping OpenCode as the default. The release includes per-owner backend routing, owner-isolated PTY execution, additive backend session storage, security controls and consolidated documentation. See [PROJECT_STATUS](docs/PROJECT_STATUS.md), [ARCHITECTURE](docs/ARCHITECTURE.md) and [CHANGELOG](CHANGELOG.md).
+
 It is intentionally designed so the production server acts as an **agent execution environment**, not a build machine.
 
 ## Core Capabilities
@@ -192,6 +196,9 @@ The bridge includes a persistent model manager and agent scout that can:
 | --- | --- |
 | `bot.py` | Telegram application, commands and orchestration |
 | `opencode_client.py` | OpenCode server communication |
+| `bridge/domain/agent/` | Backend contracts, normalized events, errors and capabilities |
+| `bridge/infrastructure/freebuff/` | Freebuff binary probe, PTY harness, screen model, chat store and extractor |
+| `bridge/services/backend_router.py` | Per-owner OpenCode/Freebuff/auto selection |
 | `task_service.py` / `task_queue.py` | Queued task execution and persistence |
 | `session_store.py` | Persistent conversation/session state |
 | `model_manager.py` | Live model reconciliation and defaults |
@@ -220,17 +227,31 @@ See:
 - [Release process](RELEASE_PROCESS_AR.md)
 - [Changelog](CHANGELOG.md)
 
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Project status](docs/PROJECT_STATUS.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Decisions](docs/DECISIONS.md)
+- [Session log](docs/SESSION_LOG.md)
+- [Agent instructions](AGENTS.md)
+- [Freebuff guide (Arabic)](docs/freebuff-integration-ar.md)
+- [Freebuff guide (English)](docs/freebuff-integration-en.md)
+
 ## Deployment
 
 The intended deployment model keeps OpenCode bound to `127.0.0.1`, runs the bridge under user-level systemd services, and stores runtime credentials locally with restricted permissions.
 
 The server should receive already-prepared source/configuration changes; builds and dependency installation are deliberately blocked by policy.
 
-For the current deployment procedure, read **[DEPLOYMENT_AR.md](DEPLOYMENT_AR.md)**.
+For the current deployment procedure, read **[DEPLOYMENT_AR.md](DEPLOYMENT_AR.md)**. Freebuff setup, validation and rollback are in **[docs/freebuff-integration-ar.md](docs/freebuff-integration-ar.md)**.
 
 ## Verification
 
-GitHub Actions is used as the source of truth for repository verification, including syntax/tests, OpenCode configuration checks, semantic-version validation and release publication where configured.
+GitHub Actions is the source of truth for repository verification. The `Build and Release` workflow runs the strict quality gate, syntax/config checks, the full unit suite, SBOM generation and packaging. The `Python Compatibility` workflow runs the full suite on Python 3.12, 3.13 and 3.14. A version-bumped `main` is tagged only after both gates pass; the tagged build publishes the GitHub Release.
+
+Local checks on Windows skip the Unix-only PTY tests, so Linux CI and a real Linux smoke test are required before production deployment. See [PROJECT_STATUS](docs/PROJECT_STATUS.md) for the current evidence and known limitations.
 
 ## Language
 
